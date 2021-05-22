@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2014 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Private structure for the private options. */
@@ -21,6 +21,7 @@ typedef struct {
   int   max_output;
   int   timeout;
   int   options;
+  BOOL  force_command;
   BOOL  freeze_exec_fail;
   BOOL  freeze_signal;
   BOOL  ignore_status;

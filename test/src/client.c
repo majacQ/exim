@@ -1,7 +1,8 @@
 /* A little hacked up program that makes a TCP/IP call and reads a script to
 drive it, for testing Exim server code running as a daemon. It's got a bit
 messy with the addition of support for either OpenSSL or GnuTLS. The code for
-those was hacked out of Exim itself. */
+those was hacked out of Exim itself, then code for OpenSSL OCSP stapling was
+ripped from the openssl ocsp and s_client utilities. */
 
 /* ANSI C standard includes */
 
@@ -23,6 +24,7 @@ those was hacked out of Exim itself. */
 #include <netinet/in_systm.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <netinet/tcp.h>
 
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -33,6 +35,9 @@ those was hacked out of Exim itself. */
 #include <fcntl.h>
 #include <unistd.h>
 #include <utime.h>
+
+/* Set to TRUE to enable debug output */
+#define DEBUG if (FALSE)
 
 #ifdef AF_INET6
 #define HAVE_IPV6 1
@@ -57,36 +62,51 @@ static int sigalrm_seen = 0;
 
 /* TLS support can be optionally included, either for OpenSSL or GnuTLS. The
 latter needs a whole pile of tables. */
-
 #ifdef HAVE_OPENSSL
-#define HAVE_TLS
-#include <openssl/crypto.h>
-#include <openssl/x509.h>
-#include <openssl/pem.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/rand.h>
+# define HAVE_TLS
+# include <openssl/crypto.h>
+# include <openssl/x509.h>
+# include <openssl/pem.h>
+# include <openssl/ssl.h>
+# include <openssl/err.h>
+# include <openssl/rand.h>
+
+# if OPENSSL_VERSION_NUMBER < 0x0090806fL && !defined(DISABLE_OCSP) && !defined(OPENSSL_NO_TLSEXT)
+#  warning "OpenSSL library version too old; define DISABLE_OCSP in Makefile"
+#  define DISABLE_OCSP
+# endif
+# ifndef DISABLE_OCSP
+#  include <openssl/ocsp.h>
+# endif
 #endif
 
 
 #ifdef HAVE_GNUTLS
-#define HAVE_TLS
-#include <gnutls/gnutls.h>
-#include <gnutls/x509.h>
+# define HAVE_TLS
+# include <gnutls/gnutls.h>
+# include <gnutls/x509.h>
+# if GNUTLS_VERSION_NUMBER >= 0x030103
+#  define HAVE_OCSP
+#  include <gnutls/ocsp.h>
+# endif
+# ifndef GNUTLS_NO_EXTENSIONS
+#  define GNUTLS_NO_EXTENSIONS 0
+# endif
 
-#define DH_BITS      768
+# define DH_BITS      768
 
 /* Local static variables for GNUTLS */
 
-static gnutls_dh_params dh_params = NULL;
+static gnutls_dh_params_t dh_params = NULL;
 
 static gnutls_certificate_credentials_t x509_cred = NULL;
-static gnutls_session tls_session = NULL;
+static gnutls_session_t tls_session = NULL;
 
 static int  ssl_session_timeout = 200;
 
 /* Priorities for TLS algorithms to use. */
 
+# if GNUTLS_VERSION_NUMBER < 0x030400
 static const int protocol_priority[16] = { GNUTLS_TLS1, GNUTLS_SSL3, 0 };
 
 static const int kx_priority[16] = {
@@ -108,11 +128,16 @@ static const int mac_priority[16] = {
   0 };
 
 static const int comp_priority[16] = { GNUTLS_COMP_NULL, 0 };
-static const int cert_type_priority[16] = { GNUTLS_CRT_X509, 0 };
+# endif
 
+#endif	/*HAVE_GNUTLS*/
+
+
+
+#ifdef HAVE_TLS
+char * ocsp_stapling = NULL;
+char * pri_string = NULL;
 #endif
-
-
 
 
 /*************************************************
@@ -145,21 +170,114 @@ sigalrm_seen = 1;
 /****************************************************************************/
 
 #ifdef HAVE_OPENSSL
+# ifndef DISABLE_OCSP
+
+static STACK_OF(X509) *
+chain_from_pem_file(const uschar * file)
+{
+BIO * bp;
+X509 * x;
+STACK_OF(X509) * sk;
+
+if (!(sk = sk_X509_new_null())) return NULL;
+if (!(bp = BIO_new_file(CS file, "r"))) return NULL;
+while ((x = PEM_read_bio_X509(bp, NULL, 0, NULL)))
+  sk_X509_push(sk, x);
+BIO_free(bp);
+return sk;
+}
+
+
+
+static void
+cert_stack_free(STACK_OF(X509) * sk)
+{
+while (sk_X509_num(sk) > 0) (void) sk_X509_pop(sk);
+sk_X509_free(sk);
+}
+
+
+static int
+tls_client_stapling_cb(SSL *s, void *arg)
+{
+const unsigned char *p;
+int len;
+OCSP_RESPONSE *rsp;
+OCSP_BASICRESP *bs;
+STACK_OF(X509) * sk;
+int ret = 1;
+
+len = SSL_get_tlsext_status_ocsp_resp(s, &p);
+/*BIO_printf(arg, "OCSP response: ");*/
+if (!p)
+	{
+	BIO_printf(arg, "no response received\n");
+	return 1;
+	}
+if(!(rsp = d2i_OCSP_RESPONSE(NULL, &p, len)))
+	{
+	BIO_printf(arg, "response parse error\n");
+	BIO_dump_indent(arg, (char *)p, len, 4);
+	return 0;
+	}
+if(!(bs = OCSP_response_get1_basic(rsp)))
+  {
+  BIO_printf(arg, "error parsing response\n");
+  return 0;
+  }
+
+
+if (!(sk = chain_from_pem_file((const uschar *)ocsp_stapling)))
+  {
+  BIO_printf(arg, "error in cert setup\n");
+  return 0;
+  }
+
+/* OCSP_basic_verify takes a "store" arg, but does not
+use it for the chain verification, which is all we do
+when OCSP_NOVERIFY is set.  The content from the wire
+(in "bs") and a cert-stack "sk" are all that is used. */
+
+if(OCSP_basic_verify(bs, sk, NULL, OCSP_NOVERIFY) <= 0)
+  {
+  BIO_printf(arg, "Response Verify Failure\n");
+  ERR_print_errors(arg);
+  ret = 0;
+  }
+else
+  BIO_printf(arg, "Response verify OK\n");
+
+cert_stack_free(sk);
+return ret;
+}
+# endif	/*DISABLE_OCSP*/
+
+
 /*************************************************
 *         Start an OpenSSL TLS session           *
 *************************************************/
 
-int tls_start(int sock, SSL **ssl, SSL_CTX *ctx)
+int
+tls_start(int sock, SSL **ssl, SSL_CTX *ctx)
 {
 int rc;
-static const char *sid_ctx = "exim";
+static const unsigned char *sid_ctx = US"exim";
 
 RAND_load_file("client.c", -1);   /* Not *very* random! */
 
 *ssl = SSL_new (ctx);
-SSL_set_session_id_context(*ssl, sid_ctx, strlen(sid_ctx));
+SSL_set_session_id_context(*ssl, sid_ctx, strlen(CS sid_ctx));
 SSL_set_fd (*ssl, sock);
 SSL_set_connect_state(*ssl);
+
+#ifndef DISABLE_OCSP
+if (ocsp_stapling)
+  {
+  SSL_CTX_set_tlsext_status_cb(ctx, tls_client_stapling_cb);
+  SSL_CTX_set_tlsext_status_arg(ctx, BIO_new_fp(stdout, BIO_NOCLOSE));
+  SSL_set_tlsext_status_type(*ssl, TLSEXT_STATUSTYPE_ocsp);
+  }
+#endif
 
 signal(SIGALRM, sigalrm_handler_flag);
 sigalrm_seen = 0;
@@ -223,7 +341,7 @@ gnutls_error(uschar *prefix, int err)
 fprintf(stderr, "GnuTLS connection error: %s:", prefix);
 if (err != 0) fprintf(stderr, " %s", gnutls_strerror(err));
 fprintf(stderr, "\n");
-exit(1);
+exit(98);
 }
 
 
@@ -240,7 +358,7 @@ init_dh(void)
 {
 int fd;
 int ret;
-gnutls_datum m;
+gnutls_datum_t m;
 uschar filename[200];
 struct stat statbuf;
 
@@ -256,7 +374,7 @@ fd = open("aux-fixed/gnutls-params", O_RDONLY, 0);
 if (fd < 0)
   {
   fprintf(stderr, "Failed to open spool/gnutls-params: %s\n", strerror(errno));
-  exit(1);
+  exit(97);
   }
 
 if (fstat(fd, &statbuf) < 0)
@@ -314,12 +432,17 @@ if (certificate != NULL)
   {
   rc = gnutls_certificate_set_x509_key_file(x509_cred, CS certificate,
     CS privatekey, GNUTLS_X509_FMT_PEM);
-  if (rc < 0) gnutls_error("gnutls_certificate", rc);
+  if (rc < 0) gnutls_error(US"gnutls_certificate", rc);
   }
 
 /* Associate the parameters with the x509 credentials structure. */
 
 gnutls_certificate_set_dh_params(x509_cred, dh_params);
+
+/* set the CA info for server-cert verify */
+if (ocsp_stapling)
+  gnutls_certificate_set_x509_trust_file(x509_cred, ocsp_stapling,
+       	GNUTLS_X509_FMT_PEM);
 }
 
 
@@ -328,13 +451,14 @@ gnutls_certificate_set_dh_params(x509_cred, dh_params);
 *        Initialize a single GNUTLS session      *
 *************************************************/
 
-static gnutls_session
+static gnutls_session_t
 tls_session_init(void)
 {
-gnutls_session session;
+gnutls_session_t session;
 
-gnutls_init(&session, GNUTLS_CLIENT);
+gnutls_init(&session, GNUTLS_CLIENT | GNUTLS_NO_EXTENSIONS);
 
+# if GNUTLS_VERSION_NUMBER < 0x030400
 gnutls_cipher_set_priority(session, default_cipher_priority);
 gnutls_compression_set_priority(session, comp_priority);
 gnutls_kx_set_priority(session, kx_priority);
@@ -342,6 +466,19 @@ gnutls_protocol_set_priority(session, protocol_priority);
 gnutls_mac_set_priority(session, mac_priority);
 
 gnutls_cred_set(session, GNUTLS_CRD_CERTIFICATE, x509_cred);
+# else
+if (pri_string)
+  {
+  gnutls_priority_t priority_cache;
+  const char * errpos;
+
+  gnutls_priority_init(&priority_cache, pri_string, &errpos);
+  gnutls_priority_set(session, priority_cache);
+  }
+else
+  gnutls_set_default_priority(session);
+gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, x509_cred);
+# endif
 
 gnutls_dh_set_prime_bits(session, DH_BITS);
 gnutls_db_set_cache_expiration(session, ssl_session_timeout);
@@ -352,7 +489,453 @@ return session;
 
 
 /****************************************************************************/
+/* Turn "\n" and "\r" into the relevant characters. This is a hack. */
+
+static int
+unescape_buf(unsigned char * buf, int len)
+{
+unsigned char * s;
+unsigned char c, t;
+unsigned shift;
+
+for (s = buf; s < buf+len; s++) if (*s == '\\')
+  {
+  switch (s[1])
+    {
+    default:	c = s[1]; shift = 1; break;
+    case 'n':	c = '\n'; shift = 1; break;
+    case 'r':	c = '\r'; shift = 1; break;
+    case 'x':
+		t = s[2];
+    		if (t >= 'A' && t <= 'F') t -= 'A'-'9'-1;
+		else if (t >= 'a' && t <= 'f') t -= 'a'-'9'-1;
+		t -= '0';
+		c = (t<<4) & 0xf0;
+		t = s[3];
+    		if (t >= 'A' && t <= 'F') t -= 'A'-'9'-1;
+		else if (t >= 'a' && t <= 'f') t -= 'a'-'9'-1;
+		t -= '0';
+		c |= t & 0xf;
+		shift = 3;
+		break;
+    }
+  *s = c;
+  memmove(s+1, s+shift+1, len-shift);
+  len -= shift;
+  }
+return len;
+}
+
+
 /****************************************************************************/
+typedef struct {
+  int	sock;
+  int	tls_active;
+#ifdef HAVE_OPENSSL
+  SSL_CTX * ctx;
+  SSL * ssl;
+#endif
+  int	sent_starttls;
+} srv_ctx;
+
+static void
+do_file(srv_ctx * srv, FILE * f, int timeout,
+  unsigned char * inbuffer, unsigned bsiz, unsigned char * inptr)
+{
+unsigned char outbuffer[1024 * 20];
+
+while (fgets(CS outbuffer, sizeof(outbuffer), f) != NULL)
+  {
+  int n = (int)strlen(CS outbuffer);
+  int crlf = 1;
+  int rc;
+
+  /* Strip trailing newline */
+  if (outbuffer[n-1] == '\n') outbuffer[--n] = 0;
+
+  /* Expect incoming */
+
+  if (  strncmp(CS outbuffer, "???", 3) == 0
+     && (outbuffer[3] == ' ' || outbuffer[3] == '*' || outbuffer[3] == '?')
+     )
+    {
+    unsigned char *lineptr;
+    unsigned exp_eof = outbuffer[3] == '*';
+    unsigned resp_optional = outbuffer[3] == '?';
+
+    printf("%s\n", outbuffer);
+    n = unescape_buf(outbuffer, n);
+
+nextinput:
+    if (*inptr == 0)   /* Refill input buffer */
+      {
+      alarm(timeout);
+      unsigned char *inbufferp = inbuffer;
+      for (;;) {
+      if (srv->tls_active)
+        {
+#ifdef HAVE_OPENSSL
+	int error;
+	DEBUG { printf("call SSL_read\n"); fflush(stdout); }
+        rc = SSL_read(srv->ssl, inbufferp, bsiz - (inbufferp - inbuffer) - 1);
+	DEBUG { printf("SSL_read: %d\n", rc); fflush(stdout); }
+	if (rc <= 0)
+          switch (error = SSL_get_error(srv->ssl, rc))
+	    {
+	    case SSL_ERROR_ZERO_RETURN:
+	      break;
+	    case SSL_ERROR_SYSCALL:
+	      printf("%s\n", ERR_error_string(ERR_get_error(), NULL));
+	      rc = -1;
+	      break;
+	    case SSL_ERROR_SSL:
+	      printf("%s\nTLS terminated\n", ERR_error_string(ERR_get_error(), NULL));
+	      SSL_shutdown(srv->ssl);
+	      SSL_free(srv->ssl);
+	      srv->tls_active = FALSE;
+	      {	/* OpenSSL leaves it in restartsys mode */
+	      struct sigaction act = {.sa_handler = sigalrm_handler_flag, .sa_flags = 0};
+	      sigalrm_seen = 1;
+	      sigaction(SIGALRM, &act, NULL);
+	      }
+	      *inptr = 0;
+	      DEBUG { printf("go round\n"); fflush(stdout); }
+	      goto nextinput;
+	    default:
+	      printf("SSL error code %d\n", error);
+	    }
+#endif
+#ifdef HAVE_GNUTLS
+      retry1:
+	DEBUG { printf("call gnutls_record_recv\n"); fflush(stdout); }
+        rc = gnutls_record_recv(tls_session, CS inbufferp, bsiz - (inbufferp - inbuffer) - 1);
+	if (rc < 0)
+	  {
+	  DEBUG { printf("gnutls_record_recv: %s\n", gnutls_strerror(rc)); fflush(stdout); }
+	  if (rc == GNUTLS_E_INTERRUPTED || rc == GNUTLS_E_AGAIN)
+	    goto retry1;
+	  printf("%s\n", gnutls_strerror(rc));
+	  srv->tls_active = FALSE;
+	  *inptr = 0;
+	  DEBUG { printf("go round\n"); fflush(stdout); }
+	  goto nextinput;
+	  }
+	DEBUG { printf("gnutls_record_recv: %d\n", rc); fflush(stdout); }
+#endif
+        }
+      else
+	{
+	DEBUG { printf("call read\n"); fflush(stdout); }
+	rc = read(srv->sock, inbufferp, bsiz - (inbufferp - inbuffer) - 1);
+	DEBUG { printf("read: %d\n", rc); fflush(stdout); }
+	}
+
+        if (rc > 0) inbufferp[rc] = '\0';
+        if (rc <= 0 || strchr(inbufferp, '\n')) break;
+        inbufferp += rc;
+        if (inbufferp >= inbuffer + bsiz) {
+          printf("Input buffer overrun, need more than %d bytes input buffer\n", bsiz);
+          exit(73);
+        }
+        DEBUG { printf("read more\n"); }
+      }
+      alarm(0);
+
+      if (rc < 0)
+	{
+	if (errno == EINTR && sigalrm_seen && resp_optional)
+	  continue;	/* next scriptline */
+        printf("Read error: %s\n", strerror(errno));
+        exit(81);
+	}
+      else if (rc == 0)
+	if (exp_eof)
+	  {
+          printf("Expected EOF read\n");
+	  continue;
+	  }
+	else if (resp_optional)
+	  continue;	/* next scriptline */
+	else
+	  {
+	  printf("Unexpected EOF read\n");
+	  close(srv->sock);
+	  exit(80);
+	  }
+      else if (exp_eof)
+        {
+        printf("Expected EOF not read\n");
+        close(srv->sock);
+        exit(74);
+        }
+      else
+        inptr = inbuffer;
+      }
+    DEBUG { printf("read: '%s'\n", inptr); fflush(stdout); }
+
+    lineptr = inptr;
+    while (*inptr != 0 && *inptr != '\r' && *inptr != '\n') inptr++;
+    if (*inptr != 0)
+      {
+      *inptr++ = 0;
+      if (*inptr == '\n') inptr++;
+      }
+
+    if (strncmp(CS lineptr, CS outbuffer + 4, n - 4) != 0)
+      if (resp_optional)
+	{
+	inptr = lineptr;	/* consume scriptline, not inputline */
+	continue;
+	}
+      else
+	{
+	printf("<<< %s\n", lineptr);
+	printf("\n******** Input mismatch ********\n");
+	exit(79);
+	}
+
+    /* Input matched script.  Output the inputline, unless optional  */
+    DEBUG { printf("read matched\n"); fflush(stdout); }
+
+    if (!resp_optional)
+	printf("<<< %s\n", lineptr);
+    else
+
+    /* If there is further input after this line, consume inputline but not
+    scriptline in case there are several matching.  Nonmatches are dealt with
+    above. */
+
+	if (*inptr != 0)
+	  goto nextinput;
+
+    #ifdef HAVE_TLS
+    if (srv->sent_starttls)
+      {
+      if (lineptr[0] == '2')
+        {
+	unsigned int verify;
+
+        printf("Attempting to start TLS\n");
+        fflush(stdout);
+
+        #ifdef HAVE_OPENSSL
+        srv->tls_active = tls_start(srv->sock, &srv->ssl, srv->ctx);
+        #endif
+
+        #ifdef HAVE_GNUTLS
+	  {
+	  int rc;
+	  fd_set rfd;
+	  struct timeval tv = { 0, 2000 };
+
+	  sigalrm_seen = FALSE;
+	  alarm(timeout);
+	  do {
+	    rc = gnutls_handshake(tls_session);
+	  } while (rc < 0 && gnutls_error_is_fatal(rc) == 0);
+	  srv->tls_active = rc >= 0;
+	  alarm(0);
+
+	  if (!srv->tls_active) printf("%s\n", gnutls_strerror(rc));
+
+	  /* look for an error on the TLS conn */
+	  FD_ZERO(&rfd);
+	  FD_SET(srv->sock, &rfd);
+	  if (select(srv->sock+1, &rfd, NULL, NULL, &tv) > 0)
+	    {
+	  retry2:
+	    DEBUG { printf("call gnutls_record_recv\n"); fflush(stdout); }
+	    rc = gnutls_record_recv(tls_session, CS inbuffer, bsiz - 1);
+	    if (rc < 0)
+	      {
+	      DEBUG { printf("gnutls_record_recv: %s\n", gnutls_strerror(rc)); fflush(stdout); }
+	      if (rc == GNUTLS_E_INTERRUPTED || rc == GNUTLS_E_AGAIN)
+		goto retry2;
+	      printf("%s\n", gnutls_strerror(rc));
+	      srv->tls_active = FALSE;
+	      }
+	    DEBUG { printf("gnutls_record_recv: %d\n", rc); fflush(stdout); }
+	    }
+	  }
+        #endif
+
+        if (!srv->tls_active)
+          {
+          printf("Failed to start TLS\n");
+          fflush(stdout);
+          }
+	#ifdef HAVE_GNUTLS
+	else if (ocsp_stapling)
+	  {
+	  if ((rc= gnutls_certificate_verify_peers2(tls_session, &verify)) < 0)
+	    {
+	    printf("Failed to verify certificate: %s\n", gnutls_strerror(rc));
+	    fflush(stdout);
+	    }
+	  else if (verify & (GNUTLS_CERT_INVALID|GNUTLS_CERT_REVOKED))
+	    {
+	    printf("Bad certificate\n");
+	    fflush(stdout);
+	    }
+	  #ifdef HAVE_OCSP
+	  else if (gnutls_ocsp_status_request_is_checked(tls_session, 0) == 0)
+	    {
+	    printf("Failed to verify certificate status\n");
+	      {
+	      gnutls_datum_t stapling;
+	      gnutls_ocsp_resp_t resp;
+	      gnutls_datum_t printed;
+	      if (  (rc= gnutls_ocsp_status_request_get(tls_session, &stapling)) == 0
+		 && (rc= gnutls_ocsp_resp_init(&resp)) == 0
+		 && (rc= gnutls_ocsp_resp_import(resp, &stapling)) == 0
+		 && (rc= gnutls_ocsp_resp_print(resp, GNUTLS_OCSP_PRINT_FULL, &printed)) == 0
+		 )
+		{
+		fprintf(stderr, "%.4096s", printed.data);
+		gnutls_free(printed.data);
+		}
+	      else
+		(void) fprintf(stderr,"ocsp decode: %s", gnutls_strerror(rc));
+	      }
+	    fflush(stdout);
+	    }
+	  #endif
+	  }
+	#endif
+        else
+          printf("Succeeded in starting TLS\n");
+        }
+      else printf("Abandoning TLS start attempt\n");
+      }
+    srv->sent_starttls = 0;
+    #endif
+    }
+
+  /* Wait for a bit before proceeding */
+
+  else if (strncmp(CS outbuffer, "+++ ", 4) == 0)
+    {
+    printf("%s\n", outbuffer);
+    sleep(atoi(CS outbuffer + 4));
+    }
+
+  /* Stack new input file */
+
+  else if (strncmp(CS outbuffer, "<<< ", 4) == 0)
+    {
+    FILE * new_f;
+    if (!(new_f = fopen((const char *)outbuffer+4 , "r")))
+      {
+      printf("Unable to open '%s': %s", inptr, strerror(errno));
+      exit(74);
+      }
+    do_file(srv, new_f, timeout, inbuffer, bsiz, inptr);
+    }
+
+
+  /* Send line outgoing, but barf if unconsumed incoming */
+
+  else
+    {
+    unsigned char * out = outbuffer;
+
+    if (strncmp(CS outbuffer, ">>> ", 4) == 0)
+      {
+      crlf = 0;
+      out += 4;
+      n -= 4;
+      }
+
+    if (*inptr != 0)
+      {
+      printf("Unconsumed input: %s", inptr);
+      printf("   About to send: %s\n", out);
+      exit(78);
+      }
+
+    #ifdef HAVE_TLS
+
+    /* Shutdown TLS */
+
+    if (strcmp(CS out, "stoptls") == 0 ||
+        strcmp(CS out, "STOPTLS") == 0)
+      {
+      if (!srv->tls_active)
+        {
+        printf("STOPTLS read when TLS not active\n");
+        exit(77);
+        }
+      printf("Shutting down TLS encryption\n");
+
+      #ifdef HAVE_OPENSSL
+      SSL_shutdown(srv->ssl);
+      SSL_free(srv->ssl);
+      #endif
+
+      #ifdef HAVE_GNUTLS
+      gnutls_bye(tls_session, GNUTLS_SHUT_WR);
+      gnutls_deinit(tls_session);
+      tls_session = NULL;
+      gnutls_global_deinit();
+      #endif
+
+      srv->tls_active = 0;
+      continue;
+      }
+
+    /* Remember that we sent STARTTLS */
+
+    srv->sent_starttls = (strcmp(CS out, "starttls") == 0 ||
+                     strcmp(CS out, "STARTTLS") == 0);
+
+    /* Fudge: if the command is "starttls_wait", we send the starttls bit,
+    but we haven't set the flag, so that there is no negotiation. This is for
+    testing the server's timeout. */
+
+    if (strcmp(CS out, "starttls_wait") == 0)
+      {
+      out[8] = 0;
+      n = 8;
+      }
+    #endif
+
+    printf(">>> %s\n", out);
+    if (crlf)
+      {
+      strcpy(CS out + n, "\r\n");
+      n += 2;
+      }
+
+    n = unescape_buf(out, n);
+
+    /* OK, do it */
+
+    alarm(timeout);
+    if (srv->tls_active)
+      {
+      #ifdef HAVE_OPENSSL
+        rc = SSL_write (srv->ssl, out, n);
+      #endif
+      #ifdef HAVE_GNUTLS
+        if ((rc = gnutls_record_send(tls_session, CS out, n)) < 0)
+          {
+          printf("GnuTLS write error: %s\n", gnutls_strerror(rc));
+          exit(76);
+          }
+      #endif
+      }
+    else
+      rc = write(srv->sock, out, n);
+    alarm(0);
+
+    if (rc < 0)
+      {
+      printf("Write error: %s\n", strerror(errno));
+      exit(75);
+      }
+    }
+  }
+}
 
 
 
@@ -362,7 +945,18 @@ return session;
 *************************************************/
 
 const char * const HELP_MESSAGE = "\n\
-Usage: client\n\
+Usage: client\n"
+#ifdef HAVE_TLS
+"\
+          [-tls-on-connect]\n\
+          [-ocsp]\n"
+# ifdef HAVE_GNUTLS
+"\
+          [-p priority-string]\n"
+# endif
+#endif
+"\
+          [-tn] n seconds timeout\n\
           <IP address>\n\
           <port>\n\
           [<outgoing interface>]\n\
@@ -370,7 +964,8 @@ Usage: client\n\
           [<key file>]\n\
 \n";
 
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 {
 struct sockaddr *s_ptr;
 struct sockaddr_in s_in4;
@@ -380,10 +975,8 @@ char *certfile = NULL;
 char *keyfile = NULL;
 char *end = NULL;
 int argi = 1;
-int host_af, port, s_len, rc, sock, save_errno;
-int timeout = 1;
-int tls_active = 0;
-int sent_starttls = 0;
+int host_af, port, s_len, rc, save_errno;
+int timeout = 5;
 int tls_on_connect = 0;
 long tmplong;
 
@@ -391,16 +984,14 @@ long tmplong;
 struct sockaddr_in6 s_in6;
 #endif
 
-#ifdef HAVE_OPENSSL
-SSL_CTX* ctx;
-SSL*     ssl;
-#endif
+srv_ctx srv;
 
-unsigned char outbuffer[10240];
-unsigned char inbuffer[10240];
+unsigned char inbuffer[100 * 1024];
 unsigned char *inptr = inbuffer;
 
 *inptr = 0;   /* Buffer empty */
+srv.tls_active = 0;
+srv.sent_starttls = 0;
 
 /* Options */
 
@@ -410,7 +1001,7 @@ while (argc >= argi + 1 && argv[argi][0] == '-')
       strcmp(argv[argi], "--help") == 0 ||
       strcmp(argv[argi], "-h") == 0)
     {
-    printf(HELP_MESSAGE);
+    puts(HELP_MESSAGE);
     exit(0);
     }
   if (strcmp(argv[argi], "-tls-on-connect") == 0)
@@ -418,6 +1009,29 @@ while (argc >= argi + 1 && argv[argi][0] == '-')
     tls_on_connect = 1;
     argi++;
     }
+#ifdef HAVE_TLS
+  else if (strcmp(argv[argi], "-ocsp") == 0)
+    {
+    if (argc < ++argi + 1)
+      {
+      fprintf(stderr, "Missing required certificate file for ocsp option\n");
+      exit(96);
+      }
+    ocsp_stapling = argv[argi++];
+    }
+# ifdef HAVE_GNUTLS
+  else if (strcmp(argv[argi], "-p") == 0)
+    {
+    if (argc < ++argi + 1)
+      {
+      fprintf(stderr, "Missing priority string\n");
+      exit(96);
+      }
+    pri_string = argv[argi++];
+    }
+#endif
+
+#endif
   else if (argv[argi][1] == 't' && isdigit(argv[argi][2]))
     {
     tmplong = strtol(argv[argi]+2, &end, 10);
@@ -425,18 +1039,18 @@ while (argc >= argi + 1 && argv[argi][0] == '-')
       {
       fprintf(stderr, "Failed to parse seconds from option <%s>\n",
         argv[argi]);
-      exit(1);
+      exit(95);
       }
     if (tmplong > 10000L)
       {
-      fprintf(stderr, "Unreasonably long wait of %d seconds requested\n",
+      fprintf(stderr, "Unreasonably long wait of %ld seconds requested\n",
         tmplong);
-      exit(1);
+      exit(94);
       }
     if (tmplong < 0L)
       {
-      fprintf(stderr, "Timeout must not be negative (%d)\n", tmplong);
-      exit(1);
+      fprintf(stderr, "Timeout must not be negative (%ld)\n", tmplong);
+      exit(93);
       }
     timeout = (int) tmplong;
     argi++;
@@ -444,7 +1058,7 @@ while (argc >= argi + 1 && argv[argi][0] == '-')
   else
     {
     fprintf(stderr, "Unrecognized option %s\n", argv[argi]);
-    exit(1);
+    exit(92);
     }
   }
 
@@ -453,7 +1067,7 @@ while (argc >= argi + 1 && argv[argi][0] == '-')
 if (argc < argi+1)
   {
   fprintf(stderr, "No IP address given\n");
-  exit(1);
+  exit(91);
   }
 
 address = argv[argi++];
@@ -464,7 +1078,7 @@ host_af = (strchr(address, ':') != NULL)? AF_INET6 : AF_INET;
 if (argc < argi+1)
   {
   fprintf(stderr, "No port number given\n");
-  exit(1);
+  exit(90);
   }
 
 port = atoi(argv[argi++]);
@@ -502,11 +1116,11 @@ even on an IPv6 system. */
 
 printf("Connecting to %s port %d ... ", address, port);
 
-sock = socket(host_af, SOCK_STREAM, 0);
-if (sock < 0)
+srv.sock = socket(host_af, SOCK_STREAM, 0);
+if (srv.sock < 0)
   {
   printf("socket creation failed: %s\n", strerror(errno));
-  exit(1);
+  exit(89);
   }
 
 /* Bind to a specific interface if requested. On an IPv6 system, this has
@@ -531,7 +1145,7 @@ if (interface != NULL)
       if (inet_pton(AF_INET6, interface, &s_in6.sin6_addr) != 1)
         {
         printf("Unable to parse \"%s\"", interface);
-        exit(1);
+        exit(88);
         }
       }
     else
@@ -548,11 +1162,11 @@ if (interface != NULL)
 
     /* Bind */
 
-    if (bind(sock, s_ptr, s_len) < 0)
+    if (bind(srv.sock, s_ptr, s_len) < 0)
       {
       printf("Unable to bind outgoing SMTP call to %s: %s",
         interface, strerror(errno));
-      exit(1);
+      exit(87);
       }
     }
   }
@@ -568,7 +1182,7 @@ if (host_af == AF_INET6)
   if (inet_pton(host_af, address, &s_in6.sin6_addr) != 1)
     {
     printf("Unable to parse \"%s\"", address);
-    exit(1);
+    exit(86);
     }
   }
 else
@@ -587,7 +1201,7 @@ else
 
 signal(SIGALRM, sigalrm_handler_crash);
 alarm(timeout);
-rc = connect(sock, s_ptr, s_len);
+rc = connect(srv.sock, s_ptr, s_len);
 save_errno = errno;
 alarm(0);
 
@@ -596,9 +1210,9 @@ an externally applied timeout if the signal handler has been run. */
 
 if (rc < 0)
   {
-  close(sock);
-  printf("failed: %s\n", strerror(save_errno));
-  exit(1);
+  close(srv.sock);
+  printf("connect failed: %s\n", strerror(save_errno));
+  exit(85);
   }
 
 printf("connected\n");
@@ -610,36 +1224,35 @@ printf("connected\n");
 SSL_library_init();
 SSL_load_error_strings();
 
-ctx = SSL_CTX_new(SSLv23_method());
-if (ctx == NULL)
+if (!(srv.ctx = SSL_CTX_new(SSLv23_method())))
   {
   printf ("SSL_CTX_new failed\n");
-  exit(1);
+  exit(84);
   }
 
-if (certfile != NULL)
+if (certfile)
   {
-  if (!SSL_CTX_use_certificate_file(ctx, certfile, SSL_FILETYPE_PEM))
+  if (!SSL_CTX_use_certificate_file(srv.ctx, certfile, SSL_FILETYPE_PEM))
     {
     printf("SSL_CTX_use_certificate_file failed\n");
-    exit(1);
+    exit(83);
     }
   printf("Certificate file = %s\n", certfile);
   }
 
-if (keyfile != NULL)
+if (keyfile)
   {
-  if (!SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM))
+  if (!SSL_CTX_use_PrivateKey_file(srv.ctx, keyfile, SSL_FILETYPE_PEM))
     {
     printf("SSL_CTX_use_PrivateKey_file failed\n");
-    exit(1);
+    exit(82);
     }
   printf("Key file = %s\n", keyfile);
   }
 
-SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_BOTH);
-SSL_CTX_set_timeout(ctx, 200);
-SSL_CTX_set_info_callback(ctx, (void (*)())info_callback);
+SSL_CTX_set_session_cache_mode(srv.ctx, SSL_SESS_CACHE_BOTH);
+SSL_CTX_set_timeout(srv.ctx, 200);
+SSL_CTX_set_info_callback(srv.ctx, (void (*)())info_callback);
 #endif
 
 
@@ -648,9 +1261,13 @@ SSL_CTX_set_info_callback(ctx, (void (*)())info_callback);
 #ifdef HAVE_GNUTLS
 if (certfile != NULL) printf("Certificate file = %s\n", certfile);
 if (keyfile != NULL) printf("Key file = %s\n", keyfile);
-tls_init(certfile, keyfile);
+tls_init(US certfile, US keyfile);
 tls_session = tls_session_init();
-gnutls_transport_set_ptr(tls_session, (gnutls_transport_ptr)sock);
+#ifdef HAVE_OCSP
+if (ocsp_stapling)
+  gnutls_ocsp_status_request_enable_client(tls_session, NULL, 0, NULL);
+#endif
+gnutls_transport_set_ptr(tls_session, (gnutls_transport_ptr_t)(intptr_t)srv.sock);
 
 /* When the server asks for a certificate and the client does not have one,
 there is a SIGPIPE error in the gnutls_handshake() function for some reason
@@ -671,240 +1288,44 @@ if (tls_on_connect)
   {
   printf("Attempting to start TLS\n");
 
-  #ifdef HAVE_OPENSSL
-  tls_active = tls_start(sock, &ssl, ctx);
-  #endif
+#ifdef HAVE_OPENSSL
+  srv.tls_active = tls_start(srv.sock, &srv.ssl, srv.ctx);
+#endif
 
-  #ifdef HAVE_GNUTLS
+#ifdef HAVE_GNUTLS
+  {
+  int rc;
   sigalrm_seen = FALSE;
   alarm(timeout);
-  tls_active = gnutls_handshake(tls_session) >= 0;
+  do {
+    rc = gnutls_handshake(tls_session);
+  } while (rc < 0 && gnutls_error_is_fatal(rc) == 0);
+  srv.tls_active = rc >= 0;
   alarm(0);
-  #endif
 
-  if (!tls_active)
+  if (!srv.tls_active) printf("%s\n", gnutls_strerror(rc));
+  }
+#endif
+
+  if (!srv.tls_active)
     printf("Failed to start TLS\n");
+#if defined(HAVE_GNUTLS) && defined(HAVE_OCSP)
+  else if (  ocsp_stapling
+	  && gnutls_ocsp_status_request_is_checked(tls_session, 0) == 0)
+    printf("Failed to verify certificate status\n");
+#endif
   else
     printf("Succeeded in starting TLS\n");
   }
 #endif
 
-while (fgets(outbuffer, sizeof(outbuffer), stdin) != NULL)
-  {
-  int n = (int)strlen(outbuffer);
-  while (n > 0 && isspace(outbuffer[n-1])) n--;
-  outbuffer[n] = 0;
-
-  /* Expect incoming */
-
-  if (strncmp(outbuffer, "??? ", 4) == 0)
-    {
-    unsigned char *lineptr;
-    printf("%s\n", outbuffer);
-
-    if (*inptr == 0)   /* Refill input buffer */
-      {
-      if (tls_active)
-        {
-        #ifdef HAVE_OPENSSL
-        rc = SSL_read (ssl, inbuffer, sizeof(inbuffer) - 1);
-        #endif
-        #ifdef HAVE_GNUTLS
-        rc = gnutls_record_recv(tls_session, CS inbuffer, sizeof(inbuffer) - 1);
-        #endif
-        }
-      else
-        {
-        alarm(timeout);
-        rc = read(sock, inbuffer, sizeof(inbuffer));
-        alarm(0);
-        }
-
-      if (rc < 0)
-        {
-        printf("Read error %s\n", strerror(errno));
-        exit(1)  ;
-        }
-      else if (rc == 0)
-        {
-        printf("Unexpected EOF read\n");
-        close(sock);
-        exit(1);
-        }
-      else
-        {
-        inbuffer[rc] = 0;
-        inptr = inbuffer;
-        }
-      }
-
-    lineptr = inptr;
-    while (*inptr != 0 && *inptr != '\r' && *inptr != '\n') inptr++;
-    if (*inptr != 0)
-      {
-      *inptr++ = 0;
-      if (*inptr == '\n') inptr++;
-      }
-
-    printf("<<< %s\n", lineptr);
-    if (strncmp(lineptr, outbuffer + 4, (int)strlen(outbuffer) - 4) != 0)
-      {
-      printf("\n******** Input mismatch ********\n");
-      exit(1);
-      }
-
-    #ifdef HAVE_TLS
-    if (sent_starttls)
-      {
-      if (lineptr[0] == '2')
-        {
-        printf("Attempting to start TLS\n");
-        fflush(stdout);
-
-        #ifdef HAVE_OPENSSL
-        tls_active = tls_start(sock, &ssl, ctx);
-        #endif
-
-        #ifdef HAVE_GNUTLS
-        sigalrm_seen = FALSE;
-        alarm(timeout);
-        tls_active = gnutls_handshake(tls_session) >= 0;
-        alarm(0);
-        #endif
-
-        if (!tls_active)
-          {
-          printf("Failed to start TLS\n");
-          fflush(stdout);
-          }
-        else
-          printf("Succeeded in starting TLS\n");
-        }
-      else printf("Abandoning TLS start attempt\n");
-      }
-    sent_starttls = 0;
-    #endif
-    }
-
-  /* Wait for a bit before proceeding */
-
-  else if (strncmp(outbuffer, "+++ ", 4) == 0)
-    {
-    printf("%s\n", outbuffer);
-    sleep(atoi(outbuffer + 4));
-    }
-
-  /* Send outgoing, but barf if unconsumed incoming */
-
-  else
-    {
-    unsigned char *escape;
-
-    if (*inptr != 0)
-      {
-      printf("Unconsumed input: %s", inptr);
-      printf("   About to send: %s\n", outbuffer);
-      exit(1);
-      }
-
-    #ifdef HAVE_TLS
-
-    /* Shutdown TLS */
-
-    if (strcmp(outbuffer, "stoptls") == 0 ||
-        strcmp(outbuffer, "STOPTLS") == 0)
-      {
-      if (!tls_active)
-        {
-        printf("STOPTLS read when TLS not active\n");
-        exit(1);
-        }
-      printf("Shutting down TLS encryption\n");
-
-      #ifdef HAVE_OPENSSL
-      SSL_shutdown(ssl);
-      SSL_free(ssl);
-      #endif
-
-      #ifdef HAVE_GNUTLS
-      gnutls_bye(tls_session, GNUTLS_SHUT_WR);
-      gnutls_deinit(tls_session);
-      tls_session = NULL;
-      gnutls_global_deinit();
-      #endif
-
-      tls_active = 0;
-      continue;
-      }
-
-    /* Remember that we sent STARTTLS */
-
-    sent_starttls = (strcmp(outbuffer, "starttls") == 0 ||
-                     strcmp(outbuffer, "STARTTLS") == 0);
-
-    /* Fudge: if the command is "starttls_wait", we send the starttls bit,
-    but we haven't set the flag, so that there is no negotiation. This is for
-    testing the server's timeout. */
-
-    if (strcmp(outbuffer, "starttls_wait") == 0)
-      {
-      outbuffer[8] = 0;
-      n = 8;
-      }
-    #endif
-
-    printf(">>> %s\n", outbuffer);
-    strcpy(outbuffer + n, "\r\n");
-
-    /* Turn "\n" and "\r" into the relevant characters. This is a hack. */
-
-    while ((escape = strstr(outbuffer, "\\r")) != NULL)
-      {
-      *escape = '\r';
-      memmove(escape + 1, escape + 2,  (n + 2) - (escape - outbuffer) - 2);
-      n--;
-      }
-
-    while ((escape = strstr(outbuffer, "\\n")) != NULL)
-      {
-      *escape = '\n';
-      memmove(escape + 1, escape + 2,  (n + 2) - (escape - outbuffer) - 2);
-      n--;
-      }
-
-    /* OK, do it */
-
-    alarm(timeout);
-    if (tls_active)
-      {
-      #ifdef HAVE_OPENSSL
-        rc = SSL_write (ssl, outbuffer, n + 2);
-      #endif
-      #ifdef HAVE_GNUTLS
-        rc = gnutls_record_send(tls_session, CS outbuffer, n + 2);
-        if (rc < 0)
-          {
-          printf("GnuTLS write error: %s\n", gnutls_strerror(rc));
-          exit(1);
-          }
-      #endif
-      }
-    else
-      {
-      rc = write(sock, outbuffer, n + 2);
-      }
-    alarm(0);
-
-    if (rc < 0)
-      {
-      printf("Write error: %s\n", strerror(errno));
-      exit(1);
-      }
-    }
-  }
+do_file(&srv, stdin, timeout, inbuffer, sizeof(inbuffer), inptr);
 
 printf("End of script\n");
-close(sock);
+shutdown(srv.sock, SHUT_WR);
+if (fcntl(srv.sock, F_SETFL, O_NONBLOCK) == 0)
+  while (read(srv.sock, inbuffer, sizeof(inbuffer)) > 0) ;
+close(srv.sock);
 
 exit(0);
 }

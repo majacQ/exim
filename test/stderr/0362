@@ -25,6 +25,8 @@ host in helo_accept_junk_hosts? no (option unset)
 SMTP>> 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<x@y>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<x@a.b.c>
 using ACL "check_rcpt"
@@ -40,7 +42,7 @@ a.b.c in "+relay_domains"? yes (matched "+relay_domains")
 check verify = recipient
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Verifying x@a.b.c
-address match: subject=x@a.b.c pattern=x@a.b.c
+address match test: subject=x@a.b.c pattern=x@a.b.c
 a.b.c in "a.b.c"? yes (matched "a.b.c")
 x@a.b.c in "x@a.b.c"? yes (matched "x@a.b.c")
 LOG: address_rewrite MAIN
@@ -73,10 +75,12 @@ routed by r2 router
   transport: t2
 ----------- end verify ------------
 accept: condition test succeeded in ACL "check_rcpt"
+end of ACL "check_rcpt": ACCEPT
 SMTP>> 250 Accepted
+DSN: orcpt: NULL  flags: 0
 SMTP<< quit
 SMTP>> 221 the.local.host.name closing connection
 LOG: smtp_connection MAIN
   SMTP connection from [V4NET.0.0.0] closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

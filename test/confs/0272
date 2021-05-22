@@ -1,13 +1,8 @@
 # Exim test configuration 0272
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -89,7 +84,7 @@ r10:
   driver = redirect
   domains = r10
   file = DIR/aux-var/TESTNUM.exim
-  owngroups = CALLER
+  owngroups = CALLERGROUP
 
 r11:
   driver = redirect

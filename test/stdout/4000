@@ -1,6 +1,7 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at test.ex
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -11,6 +12,7 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at test.ex
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -21,6 +23,7 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at test.ex
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -31,18 +34,18 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at test.ex
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
 250 Accepted
 354 Enter message, ending with "." on a line by itself
-550-Your message has been rejected but is being kept for evaluation.
-550-If it was a legitimate message, it may still be delivered to the target
-550 recipient(s).
+250 OK id=10HmbB-0005vi-00
 221 myhost.test.ex closing connection
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at test.ex
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -53,18 +56,33 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at test.ex
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
 250 Accepted
 354 Enter message, ending with "." on a line by itself
-450-Your message has been rejected but is being kept for evaluation.
-450-If it was a legitimate message, it may still be delivered to the target
-450 recipient(s).
+250 OK id=10HmbD-0005vi-00
 221 myhost.test.ex closing connection
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
+250-myhost.test.ex Hello CALLER at test.ex
+250-SIZE 52428800
+250-8BITMIME
+250-PIPELINING
+250 HELP
 250 OK
 250 Accepted
 354 Enter message, ending with "." on a line by itself
-550 Found Eicar-Test-Signature
+250 OK id=10HmbE-0005vi-00
+221 myhost.test.ex closing connection
+220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
+250-myhost.test.ex Hello CALLER at test.ex
+250-SIZE 52428800
+250-8BITMIME
+250-PIPELINING
+250 HELP
+250 OK
+250 Accepted
+354 Enter message, ending with "." on a line by itself
+550 this is a deny from the mime acl
 221 myhost.test.ex closing connection

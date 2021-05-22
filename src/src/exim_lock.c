@@ -9,6 +9,8 @@ Options:  -fcntl    use fcntl() lock
 Default is -fcntl -lockfile.
 
 Argument: the name of the lock file
+
+Copyright (c) The Exim Maintainers 2016
 */
 
 #include "os.h"
@@ -36,7 +38,7 @@ in sys/file.h. */
 #endif
 
 
-typedef int BOOL;
+typedef unsigned BOOL;
 #define FALSE 0
 #define TRUE  1
 
@@ -175,7 +177,7 @@ int  fd = -1;
 int  hd = -1;
 int  md = -1;
 int  yield = 0;
-int  now = time(NULL);
+time_t now = time(NULL);
 BOOL use_lockfile = FALSE;
 BOOL use_fcntl = FALSE;
 BOOL use_flock = FALSE;
@@ -216,7 +218,7 @@ for (i = 1; i < argc; i++)
   else usage();
   }
 
-if (quiet) verbose = 0;
+if (quiet) verbose = FALSE;
 
 /* Can't use flock() if the OS doesn't provide it */
 
@@ -300,8 +302,10 @@ if (use_lockfile)
   lockname = malloc(len + 8);
   sprintf(lockname, "%s.lock", filename);
   hitchname = malloc(len + 32 + (int)strlen(primary_hostname));
+
+  /* Presumably, this must match appendfile.c */
   sprintf(hitchname, "%s.%s.%08x.%08x", lockname, primary_hostname,
-    now, (int)getpid());
+    (unsigned int)now, (unsigned int)getpid());
 
   if (verbose)
     printf("exim_lock: lockname =  %s\n           hitchname = %s\n", lockname,
@@ -320,7 +324,7 @@ for (j = 0; j < lock_retries; j++)
 
   if (use_lockfile)
     {
-    int rc;
+    int rc, rc2;
     if (verbose) printf("exim_lock: creating lock file\n");
     hd = open(hitchname, O_WRONLY | O_CREAT | O_EXCL, 0440);
     if (hd < 0)
@@ -332,11 +336,12 @@ for (j = 0; j < lock_retries; j++)
 
     /* Apply hitching post algorithm. */
 
-    if ((rc = link(hitchname, lockname)) != 0) fstat(hd, &statbuf);
+    if ((rc = link(hitchname, lockname)) != 0)
+     rc2 = fstat(hd, &statbuf);
     (void)close(hd);
     unlink(hitchname);
 
-    if (rc != 0 && statbuf.st_nlink != 2)
+    if (rc != 0 && (rc2 != 0 || statbuf.st_nlink != 2))
       {
       printf("exim_lock: failed to link hitching post to lock file\n");
       hd = -1;
@@ -352,8 +357,7 @@ for (j = 0; j < lock_retries; j++)
 
   /* Open the file for writing. */
 
-  fd = open(filename, O_RDWR + O_APPEND);
-  if (fd < 0)
+  if ((fd = open(filename, O_RDWR + O_APPEND)) < 0)
     {
     printf("exim_lock: failed to open %s for writing: %s\n", filename,
       strerror(errno));
@@ -372,7 +376,6 @@ for (j = 0; j < lock_retries; j++)
   a timeout changes it to blocking. */
 
   if (!use_mbx && (use_fcntl || use_flock))
-    {
     if (apply_lock(fd, F_WRLCK, use_fcntl, lock_fcntl_timeout, use_flock,
         lock_flock_timeout) >= 0)
       {
@@ -383,8 +386,8 @@ for (j = 0; j < lock_retries; j++)
         }
       break;
       }
-    else goto RETRY;   /* Message already output */
-    }
+    else
+      goto RETRY;   /* Message already output */
 
   /* Lock using MBX rules. This is complicated and is documented with the
   source of the c-client library that goes with Pine and IMAP. What has to
@@ -581,14 +584,41 @@ else
 if (restore_times)
   {
   struct stat strestore;
+#ifdef EXIM_HAVE_OPENAT
+  int fd = open(filename, O_RDWR); /* use fd for both get & restore */
+  struct timespec tt[2];
+
+  if (fd < 0)
+    {
+    printf("open '%s': %s\n", filename, strerror(errno));
+    yield = 1;
+    goto CLEAN_UP;
+    }
+  if (fstat(fd, &strestore) != 0)
+    {
+    printf("fstat '%s': %s\n", filename, strerror(errno));
+    yield = 1;
+    close(fd);
+    goto CLEAN_UP;
+    }
+  i = system(command);
+  tt[0] = strestore.st_atim;
+  tt[1] = strestore.st_mtim;
+  (void) futimens(fd, tt);
+  (void) close(fd);
+#else
   struct utimbuf ut;
+
   stat(filename, &strestore);
-  (void)system(command);
+  i = system(command);
   ut.actime = strestore.st_atime;
   ut.modtime = strestore.st_mtime;
   utime(filename, &ut);
+#endif
   }
-else (void)system(command);
+else i = system(command);
+
+if(i && !quiet) printf("warning: nonzero status %d\n", i);
 
 /* Remove the locks and exit. Unlink the /tmp file if we can get an exclusive
 lock on the mailbox. This should be a non-blocking lock call, as there is no

@@ -1,13 +1,8 @@
 # Exim test configuration 0533
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -28,6 +23,7 @@ r2:
   driver = redirect
   local_part_prefix = pipe-
   local_part_suffix = =*
+  caseful_local_part = true
   data = |${substr_1:$local_part_suffix}
   pipe_transport = t2
 

@@ -1,12 +1,7 @@
 # Exim test configuration 0096
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -21,7 +16,8 @@ localuser:
   driver = accept
   local_parts = userx
   headers_add = "${if def:h_x-rbl-warning: {Added: xxxx}fail}"
-  headers_remove = "${if def:h_x-rbl-warning: {subject}fail}"
+  # Colon-sep list!
+  headers_remove = "${if def::h_x-rbl-warning:: {subject}fail}"
   transport = local_delivery
 
 

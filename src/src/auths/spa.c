@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This file, which provides support for Microsoft's Secure Password
@@ -61,7 +61,7 @@ address can appear in the tables drtables.c. */
 int auth_spa_options_count =
   sizeof(auth_spa_options)/sizeof(optionlist);
 
-/* Default private options block for the contidion authentication method. */
+/* Default private options block for the condition authentication method. */
 
 auth_spa_options_block auth_spa_option_defaults = {
   NULL,              /* spa_password */
@@ -69,6 +69,19 @@ auth_spa_options_block auth_spa_option_defaults = {
   NULL,              /* spa_domain */
   NULL               /* spa_serverpassword (for server side use) */
 };
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_spa_init(auth_instance *ablock) {}
+int auth_spa_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_spa_client(auth_instance *ablock, void * sx, int timeout,
+    uschar *buffer, int buffsize) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
+
 
 
 /*************************************************
@@ -110,7 +123,7 @@ ablock->server = ob->spa_serverpassword != NULL;
 
 /* For interface, see auths/README */
 
-#define CVAL(buf,pos) (((unsigned char *)(buf))[pos])
+#define CVAL(buf,pos) ((US (buf))[pos])
 #define PVAL(buf,pos) ((unsigned)CVAL(buf,pos))
 #define SVAL(buf,pos) (PVAL(buf,pos)|PVAL(buf,(pos)+1)<<8)
 #define IVAL(buf,pos) (SVAL(buf,pos)|SVAL(buf,(pos)+2)<<16)
@@ -138,7 +151,7 @@ if ((*data == '\0') &&
   return FAIL;
   }
 
-if (spa_base64_to_bits((char *)(&request), sizeof(request), (const char *)(data)) < 0)
+if (spa_base64_to_bits(CS (&request), sizeof(request), CCS (data)) < 0)
   {
   DEBUG(D_auth) debug_printf("auth_spa_server(): bad base64 data in "
   "request: %s\n", data);
@@ -158,7 +171,7 @@ if (auth_get_no64_data(&data, msgbuf) != OK)
   }
 
 /* dump client response */
-if (spa_base64_to_bits((char *)(&response), sizeof(response), (const char *)(data)) < 0)
+if (spa_base64_to_bits(CS (&response), sizeof(response), CCS (data)) < 0)
   {
   DEBUG(D_auth) debug_printf("auth_spa_server(): bad base64 data in "
   "response: %s\n", data);
@@ -196,16 +209,13 @@ that causes failure if the size of msgbuf is exceeded. ****/
 /***************************************************************/
 
 /* Put the username in $auth1 and $1. The former is now the preferred variable;
-the latter is the original variable. */
+the latter is the original variable. These have to be out of stack memory, and
+need to be available once known even if not authenticated, for error messages
+(server_set_id, which only makes it to authenticated_id if we return OK) */
 
-auth_vars[0] = expand_nstring[1] = msgbuf;
+auth_vars[0] = expand_nstring[1] = string_copy(msgbuf);
 expand_nlength[1] = Ustrlen(msgbuf);
 expand_nmax = 1;
-
-/* clean up globals which aren't referenced, but still shouldn't be left
-pointing to stack memory */
-#define CLEANUP_RETURN(Code) do { auth_vars[0] = expand_nstring[1] = NULL; \
-  expand_nlength[1] = expand_nmax = 0; return (Code); } while (0);
 
 debug_print_string(ablock->server_debug_string);    /* customized debug */
 
@@ -214,17 +224,17 @@ debug_print_string(ablock->server_debug_string);    /* customized debug */
 clearpass = expand_string(ob->spa_serverpassword);
 if (clearpass == NULL)
   {
-  if (expand_string_forcedfail)
+  if (f.expand_string_forcedfail)
     {
     DEBUG(D_auth) debug_printf("auth_spa_server(): forced failure while "
       "expanding spa_serverpassword\n");
-    CLEANUP_RETURN(FAIL);
+    return FAIL;
     }
   else
     {
     DEBUG(D_auth) debug_printf("auth_spa_server(): error while expanding "
       "spa_serverpassword: %s\n", expand_string_message);
-    CLEANUP_RETURN(DEFER);
+    return DEFER;
     }
   }
 
@@ -240,13 +250,12 @@ if (memcmp(ntRespData,
       24) == 0)
   /* success. we have a winner. */
   {
-  int rc = auth_check_serv_cond(ablock);
-  CLEANUP_RETURN(rc);
+  return auth_check_serv_cond(ablock);
   }
 
   /* Expand server_condition as an authorization check (PH) */
 
-CLEANUP_RETURN(FAIL);
+return FAIL;
 }
 
 
@@ -259,115 +268,106 @@ CLEANUP_RETURN(FAIL);
 int
 auth_spa_client(
   auth_instance *ablock,                 /* authenticator block */
-  smtp_inblock *inblock,                 /* connection inblock */
-  smtp_outblock *outblock,               /* connection outblock */
+  void * sx,				 /* connection */
   int timeout,                           /* command timeout */
   uschar *buffer,                        /* buffer for reading response */
   int buffsize)                          /* size of buffer */
 {
-       auth_spa_options_block *ob =
-               (auth_spa_options_block *)(ablock->options_block);
-       SPAAuthRequest   request;
-       SPAAuthChallenge challenge;
-       SPAAuthResponse  response;
-       char msgbuf[2048];
-       char *domain = NULL;
-       char *username, *password;
+auth_spa_options_block *ob =
+       (auth_spa_options_block *)(ablock->options_block);
+SPAAuthRequest   request;
+SPAAuthChallenge challenge;
+SPAAuthResponse  response;
+char msgbuf[2048];
+char *domain = NULL;
+char *username, *password;
 
-       /* Code added by PH to expand the options */
+/* Code added by PH to expand the options */
 
-       *buffer = 0;    /* Default no message when cancelled */
+*buffer = 0;    /* Default no message when cancelled */
 
-       username = CS expand_string(ob->spa_username);
-       if (username == NULL)
-         {
-         if (expand_string_forcedfail) return CANCELLED;
-         string_format(buffer, buffsize, "expansion of \"%s\" failed in %s "
-           "authenticator: %s", ob->spa_username, ablock->name,
-           expand_string_message);
-         return ERROR;
-         }
+if (!(username = CS expand_string(ob->spa_username)))
+  {
+  if (f.expand_string_forcedfail) return CANCELLED;
+  string_format(buffer, buffsize, "expansion of \"%s\" failed in %s "
+   "authenticator: %s", ob->spa_username, ablock->name,
+   expand_string_message);
+  return ERROR;
+  }
 
-       password = CS expand_string(ob->spa_password);
-       if (password == NULL)
-         {
-         if (expand_string_forcedfail) return CANCELLED;
-         string_format(buffer, buffsize, "expansion of \"%s\" failed in %s "
-           "authenticator: %s", ob->spa_password, ablock->name,
-           expand_string_message);
-         return ERROR;
-         }
+if (!(password = CS expand_string(ob->spa_password)))
+  {
+  if (f.expand_string_forcedfail) return CANCELLED;
+  string_format(buffer, buffsize, "expansion of \"%s\" failed in %s "
+   "authenticator: %s", ob->spa_password, ablock->name,
+   expand_string_message);
+  return ERROR;
+  }
 
-       if (ob->spa_domain != NULL)
-         {
-         domain = CS expand_string(ob->spa_domain);
-         if (domain == NULL)
-           {
-           if (expand_string_forcedfail) return CANCELLED;
-           string_format(buffer, buffsize, "expansion of \"%s\" failed in %s "
-             "authenticator: %s", ob->spa_domain, ablock->name,
-             expand_string_message);
-           return ERROR;
-           }
-         }
+if (ob->spa_domain)
+  if (!(domain = CS expand_string(ob->spa_domain)))
+    {
+    if (f.expand_string_forcedfail) return CANCELLED;
+    string_format(buffer, buffsize, "expansion of \"%s\" failed in %s "
+		  "authenticator: %s", ob->spa_domain, ablock->name,
+		  expand_string_message);
+    return ERROR;
+    }
 
-       /* Original code */
+/* Original code */
 
-    if (smtp_write_command(outblock, FALSE, "AUTH %s\r\n",
-         ablock->public_name) < 0)
-               return FAIL_SEND;
+if (smtp_write_command(sx, SCMD_FLUSH, "AUTH %s\r\n", ablock->public_name) < 0)
+  return FAIL_SEND;
 
-       /* wait for the 3XX OK message */
-       if (!smtp_read_response(inblock, (uschar *)buffer, buffsize, '3', timeout))
-               return FAIL;
+/* wait for the 3XX OK message */
+if (!smtp_read_response(sx, US buffer, buffsize, '3', timeout))
+  return FAIL;
 
-       DSPA("\n\n%s authenticator: using domain %s\n\n",
-               ablock->name, domain);
+DSPA("\n\n%s authenticator: using domain %s\n\n", ablock->name, domain);
 
-       spa_build_auth_request (&request, CS username, domain);
-       spa_bits_to_base64 (US msgbuf, (unsigned char*)&request,
-               spa_request_length(&request));
+spa_build_auth_request (&request, CS username, domain);
+spa_bits_to_base64 (US msgbuf, (unsigned char*)&request,
+       spa_request_length(&request));
 
-       DSPA("\n\n%s authenticator: sending request (%s)\n\n", ablock->name,
-               msgbuf);
+DSPA("\n\n%s authenticator: sending request (%s)\n\n", ablock->name, msgbuf);
 
-       /* send the encrypted password */
-       if (smtp_write_command(outblock, FALSE, "%s\r\n", msgbuf) < 0)
-               return FAIL_SEND;
+/* send the encrypted password */
+if (smtp_write_command(sx, SCMD_FLUSH, "%s\r\n", msgbuf) < 0)
+  return FAIL_SEND;
 
-       /* wait for the auth challenge */
-       if (!smtp_read_response(inblock, (uschar *)buffer, buffsize, '3', timeout))
-               return FAIL;
+/* wait for the auth challenge */
+if (!smtp_read_response(sx, US buffer, buffsize, '3', timeout))
+  return FAIL;
 
-       /* convert the challenge into the challenge struct */
-       DSPA("\n\n%s authenticator: challenge (%s)\n\n",
-               ablock->name, buffer + 4);
-       spa_base64_to_bits ((char *)(&challenge), sizeof(challenge), (const char *)(buffer + 4));
+/* convert the challenge into the challenge struct */
+DSPA("\n\n%s authenticator: challenge (%s)\n\n", ablock->name, buffer + 4);
+spa_base64_to_bits (CS (&challenge), sizeof(challenge), CCS (buffer + 4));
 
-       spa_build_auth_response (&challenge, &response,
-               CS username, CS password);
-       spa_bits_to_base64 (US msgbuf, (unsigned char*)&response,
-               spa_request_length(&response));
-       DSPA("\n\n%s authenticator: challenge response (%s)\n\n", ablock->name,
-               msgbuf);
+spa_build_auth_response (&challenge, &response, CS username, CS password);
+spa_bits_to_base64 (US msgbuf, (unsigned char*)&response,
+       spa_request_length(&response));
+DSPA("\n\n%s authenticator: challenge response (%s)\n\n", ablock->name, msgbuf);
 
-       /* send the challenge response */
-       if (smtp_write_command(outblock, FALSE, "%s\r\n", msgbuf) < 0)
-               return FAIL_SEND;
+/* send the challenge response */
+if (smtp_write_command(sx, SCMD_FLUSH, "%s\r\n", msgbuf) < 0)
+       return FAIL_SEND;
 
-       /* If we receive a success response from the server, authentication
-       has succeeded. There may be more data to send, but is there any point
-       in provoking an error here? */
-       if (smtp_read_response(inblock, US buffer, buffsize, '2', timeout))
-               return OK;
+/* If we receive a success response from the server, authentication
+has succeeded. There may be more data to send, but is there any point
+in provoking an error here? */
 
-       /* Not a success response. If errno != 0 there is some kind of transmission
-       error. Otherwise, check the response code in the buffer. If it starts with
-       '3', more data is expected. */
-       if (errno != 0 || buffer[0] != '3')
-               return FAIL;
+if (smtp_read_response(sx, US buffer, buffsize, '2', timeout))
+  return OK;
 
-       return FAIL;
+/* Not a success response. If errno != 0 there is some kind of transmission
+error. Otherwise, check the response code in the buffer. If it starts with
+'3', more data is expected. */
+
+if (errno != 0 || buffer[0] != '3')
+  return FAIL;
+
+return FAIL;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of spa.c */

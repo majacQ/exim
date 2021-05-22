@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Copyright (c) Twitter Inc 2012
@@ -29,7 +29,9 @@ sense in all contexts.  For some, we can do checks at init time.
 
 #ifndef AUTH_GSASL
 /* dummy function to satisfy compilers when we link in an "empty" file. */
-static void dummy(int x) { dummy(x-1); }
+static void dummy(int x);
+static void dummy2(int x) { dummy(x-1); }
+static void dummy(int x) { dummy2(x-1); }
 #else
 
 #include <gsasl.h>
@@ -75,6 +77,20 @@ auth_gsasl_options_block auth_gsasl_option_defaults = {
   NULL,                     /* server_scram_salt */
   FALSE                     /* server_channelbinding */
 };
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_gsasl_init(auth_instance *ablock) {}
+int auth_gsasl_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_gsasl_client(auth_instance *ablock, smtp_inblock * sx,
+  int timeout, uschar *buffer, int buffsize) {return 0;}
+void auth_gsasl_version_report(FILE *f) {}
+
+#else   /*!MACRO_PREDEF*/
+
+
 
 /* "Globals" for managing the gsasl interface. */
 
@@ -141,7 +157,7 @@ auth_gsasl_init(auth_instance *ablock)
               ablock->name,  gsasl_strerror_name(rc), gsasl_strerror(rc));
   HDEBUG(D_auth) debug_printf("GNU SASL supports: %s\n", p);
 
-  supported = gsasl_client_support_p(gsasl_ctx, (const char *)ob->server_mech);
+  supported = gsasl_client_support_p(gsasl_ctx, CCS ob->server_mech);
   if (!supported)
     log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
               "GNU SASL does not support mechanism \"%s\"",
@@ -242,7 +258,7 @@ auth_gsasl_server(auth_instance *ablock, uschar *initial_data)
     debug_printf("GNU SASL: initialising session for %s, mechanism %s.\n",
         ablock->name, ob->server_mech);
 
-  rc = gsasl_server_start(gsasl_ctx, (const char *)ob->server_mech, &sctx);
+  rc = gsasl_server_start(gsasl_ctx, CCS ob->server_mech, &sctx);
   if (rc != GSASL_OK) {
     auth_defer_msg = string_sprintf("GNU SASL: session start failure: %s (%s)",
         gsasl_strerror_name(rc), gsasl_strerror(rc));
@@ -270,10 +286,10 @@ auth_gsasl_server(auth_instance *ablock, uschar *initial_data)
   gsasl_property_set(sctx, GSASL_QOPS, "qop-auth");
 #ifdef SUPPORT_TLS
   if (tls_channelbinding_b64) {
-    /* Some auth mechanisms can ensure that both sides are talking withing the
+    /* Some auth mechanisms can ensure that both sides are talking within the
     same security context; for TLS, this means that even if a bad certificate
     has been accepted, they remain MitM-proof because both sides must be within
-    the same negotiated session; if someone is terminating one sesson and
+    the same negotiated session; if someone is terminating one session and
     proxying data on within a second, authentication will fail.
 
     We might not have this available, depending upon TLS implementation,
@@ -292,7 +308,7 @@ auth_gsasl_server(auth_instance *ablock, uschar *initial_data)
       HDEBUG(D_auth) debug_printf("Auth %s: Enabling channel-binding\n",
           ablock->name);
       gsasl_property_set(sctx, GSASL_CB_TLS_UNIQUE,
-          (const char *) tls_channelbinding_b64);
+          CCS  tls_channelbinding_b64);
     } else {
       HDEBUG(D_auth)
         debug_printf("Auth %s: Not enabling channel-binding (data available)\n",
@@ -353,7 +369,7 @@ auth_gsasl_server(auth_instance *ablock, uschar *initial_data)
     if ((rc == GSASL_NEEDS_MORE) ||
         (to_send && *to_send))
       exim_error =
-        auth_get_no64_data((uschar **)&received, (uschar *)to_send);
+        auth_get_no64_data((uschar **)&received, US to_send);
 
     if (to_send) {
       free(to_send);
@@ -433,11 +449,11 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
   switch (prop) {
     case GSASL_VALIDATE_SIMPLE:
       /* GSASL_AUTHID, GSASL_AUTHZID, and GSASL_PASSWORD */
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_AUTHID);
+      propval = US  gsasl_property_fast(sctx, GSASL_AUTHID);
       auth_vars[0] = expand_nstring[1] = propval ? propval : US"";
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_AUTHZID);
+      propval = US  gsasl_property_fast(sctx, GSASL_AUTHZID);
       auth_vars[1] = expand_nstring[2] = propval ? propval : US"";
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_PASSWORD);
+      propval = US  gsasl_property_fast(sctx, GSASL_PASSWORD);
       auth_vars[2] = expand_nstring[3] = propval ? propval : US"";
       expand_nmax = 3;
       for (i = 1; i <= 3; ++i)
@@ -453,7 +469,7 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
         cbrc = GSASL_AUTHENTICATION_ERROR;
         break;
       }
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_AUTHZID);
+      propval = US  gsasl_property_fast(sctx, GSASL_AUTHZID);
       /* We always set $auth1, even if only to empty string. */
       auth_vars[0] = expand_nstring[1] = propval ? propval : US"";
       expand_nlength[1] = Ustrlen(expand_nstring[1]);
@@ -470,7 +486,7 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
         cbrc = GSASL_AUTHENTICATION_ERROR;
         break;
       }
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_ANONYMOUS_TOKEN);
+      propval = US  gsasl_property_fast(sctx, GSASL_ANONYMOUS_TOKEN);
       /* We always set $auth1, even if only to empty string. */
       auth_vars[0] = expand_nstring[1] = propval ? propval : US"";
       expand_nlength[1] = Ustrlen(expand_nstring[1]);
@@ -491,9 +507,9 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
       First coding, we had these values swapped, but for consistency and prior
       to the first release of Exim with this authenticator, they've been
       switched to match the ordering of GSASL_VALIDATE_SIMPLE. */
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_GSSAPI_DISPLAY_NAME);
+      propval = US  gsasl_property_fast(sctx, GSASL_GSSAPI_DISPLAY_NAME);
       auth_vars[0] = expand_nstring[1] = propval ? propval : US"";
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_AUTHZID);
+      propval = US  gsasl_property_fast(sctx, GSASL_AUTHZID);
       auth_vars[1] = expand_nstring[2] = propval ? propval : US"";
       expand_nmax = 2;
       for (i = 1; i <= 2; ++i)
@@ -526,11 +542,11 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
       a new mechanism is added to the library.  It *shouldn't* result in us
       needing to add more glue, since avoiding that is a large part of the
       point of SASL. */
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_AUTHID);
+      propval = US  gsasl_property_fast(sctx, GSASL_AUTHID);
       auth_vars[0] = expand_nstring[1] = propval ? propval : US"";
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_AUTHZID);
+      propval = US  gsasl_property_fast(sctx, GSASL_AUTHZID);
       auth_vars[1] = expand_nstring[2] = propval ? propval : US"";
-      propval = (uschar *) gsasl_property_fast(sctx, GSASL_REALM);
+      propval = US  gsasl_property_fast(sctx, GSASL_REALM);
       auth_vars[2] = expand_nstring[3] = propval ? propval : US"";
       expand_nmax = 3;
       for (i = 1; i <= 3; ++i)
@@ -538,7 +554,7 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
 
       tmps = CS expand_string(ob->server_password);
       if (tmps == NULL) {
-        sasl_error_should_defer = expand_string_forcedfail ? FALSE : TRUE;
+        sasl_error_should_defer = f.expand_string_forcedfail ? FALSE : TRUE;
         HDEBUG(D_auth) debug_printf("server_password expansion failed, so "
             "can't tell GNU SASL library the password for %s\n", auth_vars[0]);
         return GSASL_AUTHENTICATION_ERROR;
@@ -571,12 +587,11 @@ server_callback(Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop, auth_insta
 
 int
 auth_gsasl_client(
-  auth_instance *ablock,                 /* authenticator block */
-  smtp_inblock *inblock,                 /* connection inblock */
-  smtp_outblock *outblock,               /* connection outblock */
-  int timeout,                           /* command timeout */
-  uschar *buffer,                        /* buffer for reading response */
-  int buffsize)                          /* size of buffer */
+  auth_instance *ablock,		/* authenticator block */
+  smtp_inblock * sx,			/* connection */
+  int timeout,				/* command timeout */
+  uschar *buffer,			/* buffer for reading response */
+  int buffsize)				/* size of buffer */
 {
   HDEBUG(D_auth)
     debug_printf("Client side NOT IMPLEMENTED: you should not see this!\n");
@@ -612,6 +627,7 @@ auth_gsasl_version_report(FILE *f)
           GSASL_VERSION, runtime);
 }
 
+#endif   /*!MACRO_PREDEF*/
 #endif  /* AUTH_GSASL */
 
 /* End of gsasl_exim.c */

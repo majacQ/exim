@@ -2,7 +2,7 @@
 # appropriate links, and then creating and running the main makefile in that
 # directory.
 
-# Copyright (c) University of Cambridge, 1995 - 2007
+# Copyright (c) University of Cambridge, 1995 - 2018
 # See the file NOTICE for conditions of use and distribution.
 
 # IRIX make uses the shell that is in the SHELL variable, which often defaults
@@ -19,14 +19,28 @@ RM_COMMAND=/bin/rm
 # provide an override for the OS type and architecture type; they still have
 # to be used for the OS-specific files. To override them, you can set the
 # shell variables OSTYPE and ARCHTYPE when running make.
+#
+# EXIM_BUILD_SUFFIX should be used to enable parallel builds on a file
+# system shared among different Linux distros (same os-type, same
+# arch-type). The ../test/runtest script is expected to honour the
+# EXIM_BUILD_SUFFIX when searching the Exim binary.
+# NOTE: EXIM_BUILD_SUFFIX is considered *experimental*.
 
-buildname=$${build:-`$(SHELL) scripts/os-type`-`$(SHELL) scripts/arch-type`}
+buildname=$${build:-`$(SHELL) scripts/os-type`-`$(SHELL) scripts/arch-type`}$${EXIM_BUILD_SUFFIX:+.$$EXIM_BUILD_SUFFIX}
 
 # The default target checks for the existence of Local/Makefile, that the main
 # makefile is built and up-to-date, and then it runs it.
 
 all: Local/Makefile configure
 	@cd build-$(buildname); $(MAKE) SHELL=$(SHELL) $(MFLAGS)
+
+
+# This pair for the convenience of of the Debian maintainers
+exim: Local/Makefile configure
+	@cd build-$(buildname); $(MAKE) SHELL=$(SHELL) $(MFLAGS) exim
+utils: Local/Makefile configure
+	@cd build-$(buildname); $(MAKE) SHELL=$(SHELL) $(MFLAGS) utils
+
 
 Local/Makefile:
 	@echo ""
@@ -45,23 +59,24 @@ build-directory:
 	$(SHELL) -c "test -d $$builddir -a -r $$builddir/version.c || \
 	  (mkdir $$builddir; cd $$builddir; $(SHELL) ../scripts/MakeLinks)";
 
+checks:
+	$(SHELL) scripts/source_checks
+
 # The "configure" target ensures that the build directory exists, then arranges
 # to build the main makefile from inside the build directory, by calling the
 # Configure-Makefile script. This does its own dependency checking because of
 # the optional files.
 
-configure: build-directory
+configure: checks build-directory
 	@cd build-$(buildname); \
-	  build=$(build) $(SHELL) ../scripts/Configure-Makefile; \
-	  $(SHELL) ../scripts/lookups-Makefile
+	  build=$(build) $(SHELL) ../scripts/Configure-Makefile
 
 # The "makefile" target forces a rebuild of the makefile (as opposed to
 # "configure", which doesn't force it).
 
 makefile: build-directory
 	@cd build-$(buildname); $(RM_COMMAND) -f Makefile; \
-	  build=$(build) $(SHELL) ../scripts/Configure-Makefile; \
-	  $(SHELL) ../scripts/lookups-Makefile
+	  build=$(build) $(SHELL) ../scripts/Configure-Makefile
 
 # The installation commands are kept in a separate script, which expects
 # to be run from inside the build directory.
@@ -84,6 +99,17 @@ clean_exim:; cd build-$(buildname); \
 	 $(RM_COMMAND) -f *.o lookups/*.o lookups/*.a auths/*.o auths/*.a \
 	routers/*.o routers/*.a transports/*.o transports/*.a lookups/*.so
 
-distclean:; $(RM_COMMAND) -rf build-*
+distclean:; $(RM_COMMAND) -rf build-* cscope*
+
+cscope.files: FRC
+	echo "-q" > $@
+	echo "-p3" >> $@
+	find src Local OS exim_monitor -name "*.[cshyl]" -print \
+		    -o -name "os.[ch]*" -print \
+		    -o -name "*akefile*" -print \
+		    -o -name config.h.defaults -print \
+		    -o -name EDITME -print >> $@
+
+FRC:
 
 # End of top-level makefile

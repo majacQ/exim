@@ -29,6 +29,8 @@ sender_rcvhost = [1.2.3.4]
 set_process_info: pppp handling incoming connection from ([1.2.3.4]) [1.2.3.4]
 SMTP>> 250 the.local.host.name Hello [1.2.3.4] [1.2.3.4]
 SMTP<< mail from:<a@b>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<c@d>
 using ACL "rcpt"
@@ -40,7 +42,7 @@ LOG: MAIN
 check verify = sender
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Verifying a@b
-address match: subject=a@b pattern=a@b
+address match test: subject=a@b pattern=a@b
 b in "b"? yes (matched "b")
 a@b in "a@b"? yes (matched "a@b")
 LOG: address_rewrite MAIN
@@ -67,7 +69,9 @@ sender a@b verified ok as rewritten-a@rewritten-b
 require: condition test succeeded in ACL "rcpt"
 processing "accept"
 accept: condition test succeeded in ACL "rcpt"
+end of ACL "rcpt": ACCEPT
 SMTP>> 250 Accepted
+DSN: orcpt: NULL  flags: 0
 SMTP<< rcpt to:<e@f>
 using ACL "rcpt"
 processing "require"
@@ -80,10 +84,12 @@ using cached sender verify result
 require: condition test succeeded in ACL "rcpt"
 processing "accept"
 accept: condition test succeeded in ACL "rcpt"
+end of ACL "rcpt": ACCEPT
 SMTP>> 250 Accepted
+DSN: orcpt: NULL  flags: 0
 SMTP<< quit
 SMTP>> 221 the.local.host.name closing connection
 LOG: smtp_connection MAIN
   SMTP connection from ([1.2.3.4]) [1.2.3.4] closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

@@ -76,7 +76,7 @@ r2 router declined for solik@otherhost.test.ex
 --------> r3 router <--------
 local_part=solik domain=otherhost.test.ex
 checking domains
-checking "condition"
+checking "condition" "${if eq{$address_data}{}{no}{yes}}"...
 processing address_data
 calling r3 router
 rda_interpret (string): $local_part@$original_domain.sub.test.ex
@@ -102,7 +102,7 @@ r2 router declined for solik@otherhost.sub.test.ex
 --------> r3 router <--------
 local_part=solik domain=otherhost.sub.test.ex
 checking domains
-checking "condition"
+checking "condition" "${if eq{$address_data}{}{no}{yes}}"...
 r3 router skipped: condition failure
 --------> r4 router <--------
 local_part=solik domain=otherhost.sub.test.ex
@@ -179,7 +179,7 @@ r2 router declined for xxx@testsub.test.ex
 --------> r3 router <--------
 local_part=xxx domain=testsub.test.ex
 checking domains
-checking "condition"
+checking "condition" "${if eq{$address_data}{}{no}{yes}}"...
 processing address_data
 calling r3 router
 rda_interpret (string): $local_part@$original_domain.sub.test.ex
@@ -209,4 +209,4 @@ routed by r2 router
   envelope to: xxx@testsub.sub.test.ex
   transport: t1
   host testsub.sub.test.ex [V4NET.99.0.3]
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=2 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=2 >>>>>>>>>>>>>>>>

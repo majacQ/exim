@@ -1,135 +1,260 @@
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-expanding: primary_hostname: $primary_hostname
-   result: primary_hostname: myhost.test.ex
-expanding: abcd
-   result: abcd
-expanding: \N^([ab]+)(\w+)$\N
-   result: ^([ab]+)(\w+)$
-condition: match{abcd}{\N^([ab]+)(\w+)$\N}
-   result: true
-expanding: $2$1
-   result: cdab
-expanding: match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
-   result: match:  cdab
-expanding: wxyz
-   result: wxyz
-expanding: \N^([ab]+)(\w+)$\N
-   result: ^([ab]+)(\w+)$
-condition: match{wxyz}{\N^([ab]+)(\w+)$\N}
-   result: false
-expanding: $2$1
-   result: 
-skipping: result is not used
-failed to expand: match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
-   error message: "if" failed and "fail" requested
-failure was forced
-expanding: 1
-   result: 1
-expanding: 1
-   result: 1
-condition: eq {1}{1}
-   result: true
-expanding: yes
-   result: yes
-expanding: xx
-   result: xx
-skipping: result is not used
-expanding: /non/exist
-   result: /non/exist
-skipping: result is not used
-expanding: ${lookup{xx}lsearch{/non/exist}}
-   result: 
-skipping: result is not used
-expanding: ${if eq {1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
-   result: yes
-expanding: a.b.c
-   result: a.b.c
-expanding: a.b.c
-   result: a.b.c
+ ┌considering: primary_hostname: $primary_hostname
+ ├──expanding: primary_hostname: $primary_hostname
+ └─────result: primary_hostname: myhost.test.ex
+ ┌considering: match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  ┌considering: abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  ├──expanding: abcd
+  └─────result: abcd
+  ┌considering: \N^([ab]+)(\w+)$\N}{$2$1}fail}
+  ├──expanding: \N^([ab]+)(\w+)$\N
+  └─────result: ^([ab]+)(\w+)$
+ ├──condition: match{abcd}{\N^([ab]+)(\w+)$\N}
+ ├─────result: true
+  ┌considering: $2$1}fail}
+  ├──expanding: $2$1
+  └─────result: cdab
+ ├──expanding: match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+ └─────result: match:  cdab
+ ┌considering: match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  ┌considering: wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  ├──expanding: wxyz
+  └─────result: wxyz
+  ┌considering: \N^([ab]+)(\w+)$\N}{$2$1}fail}
+  ├──expanding: \N^([ab]+)(\w+)$\N
+  └─────result: ^([ab]+)(\w+)$
+ ├──condition: match{wxyz}{\N^([ab]+)(\w+)$\N}
+ ├─────result: false
+  ┌───scanning: $2$1}fail}
+  ├──expanding: $2$1
+  ├─────result: 
+  └───skipping: result is not used
+ ├failed to expand: match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+ ├───error message: "if" failed and "fail" requested
+ └failure was forced
+ ┌considering: ${if eq {1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+  ┌considering: 1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+  ├──expanding: 1
+  └─────result: 1
+  ┌considering: 1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+  ├──expanding: 1
+  └─────result: 1
+ ├──condition: eq {1}{1}
+ ├─────result: true
+  ┌considering: yes}{${lookup{xx}lsearch{/non/exist}}}}
+  ├──expanding: yes
+  └─────result: yes
+  ┌───scanning: ${lookup{xx}lsearch{/non/exist}}}}
+   ┌───scanning: xx}lsearch{/non/exist}}}}
+   ├──expanding: xx
+   ├─────result: xx
+   └───skipping: result is not used
+   ┌───scanning: /non/exist}}}}
+   ├──expanding: /non/exist
+   ├─────result: /non/exist
+   └───skipping: result is not used
+  ├──expanding: ${lookup{xx}lsearch{/non/exist}}
+  ├─────result: 
+  └───skipping: result is not used
+ ├──expanding: ${if eq {1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+ └─────result: yes
+ ┌considering: match_address:   ${if match_address{a.b.c}{a.b.c}{yes}{no}}
+  ┌considering: a.b.c}{a.b.c}{yes}{no}}
+  ├──expanding: a.b.c
+  └─────result: a.b.c
+  ┌considering: a.b.c}{yes}{no}}
+  ├──expanding: a.b.c
+  └─────result: a.b.c
 LOG: MAIN PANIC
   no @ found in the subject of an address list match: subject="a.b.c" pattern="a.b.c"
-condition: match_address{a.b.c}{a.b.c}
-   result: false
-expanding: yes
-   result: yes
-skipping: result is not used
-expanding: no
-   result: no
-expanding: match_address:   ${if match_address{a.b.c}{a.b.c}{yes}{no}}
-   result: match_address:   no
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+ ├──condition: match_address{a.b.c}{a.b.c}
+ ├─────result: false
+  ┌───scanning: yes}{no}}
+  ├──expanding: yes
+  ├─────result: yes
+  └───skipping: result is not used
+  ┌considering: no}}
+  ├──expanding: no
+  └─────result: no
+ ├──expanding: a.b.c
+ └─────result: match_address:   no
+>>>>>>>>>>>>>>>> Exim pid=pppp (main: expansion test) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-expanding: -oMa  sender_host_address = $sender_host_address
-   result: -oMa  sender_host_address = V4NET.0.0.1
-expanding:       sender_host_port = $sender_host_port
-   result:       sender_host_port = 1234
-expanding: -oMaa sender_host_authenticated = $sender_host_authenticated
-   result: -oMaa sender_host_authenticated = AAA
-expanding: -oMai authenticated_id = $authenticated_id
-   result: -oMai authenticated_id = philip
-expanding: -oMas authenticated_sender = $authenticated_sender
-   result: -oMas authenticated_sender = xx@yy.zz
-expanding: -oMi  interface_address = $interface_address
-   result: -oMi  interface_address = 1.1.1.1
-expanding:       interface_port = $interface_port
-   result:       interface_port = 99
-expanding: -oMr  received_protocol = $received_protocol
-   result: -oMr  received_protocol = special
-expanding: -oMt  sender_ident = $sender_ident
-   result: -oMt  sender_ident = me
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+ /considering: primary_hostname: $primary_hostname
+ |--expanding: primary_hostname: $primary_hostname
+ \_____result: primary_hostname: myhost.test.ex
+ /considering: match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  /considering: abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  |--expanding: abcd
+  \_____result: abcd
+  /considering: \N^([ab]+)(\w+)$\N}{$2$1}fail}
+  |--expanding: \N^([ab]+)(\w+)$\N
+  \_____result: ^([ab]+)(\w+)$
+ |--condition: match{abcd}{\N^([ab]+)(\w+)$\N}
+ |-----result: true
+  /considering: $2$1}fail}
+  |--expanding: $2$1
+  \_____result: cdab
+ |--expanding: match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+ \_____result: match:  cdab
+ /considering: match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  /considering: wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+  |--expanding: wxyz
+  \_____result: wxyz
+  /considering: \N^([ab]+)(\w+)$\N}{$2$1}fail}
+  |--expanding: \N^([ab]+)(\w+)$\N
+  \_____result: ^([ab]+)(\w+)$
+ |--condition: match{wxyz}{\N^([ab]+)(\w+)$\N}
+ |-----result: false
+  /---scanning: $2$1}fail}
+  |--expanding: $2$1
+  |-----result: 
+  \___skipping: result is not used
+ |failed to expand: match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+ |---error message: "if" failed and "fail" requested
+ \failure was forced
+ /considering: ${if eq {1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+  /considering: 1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+  |--expanding: 1
+  \_____result: 1
+  /considering: 1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+  |--expanding: 1
+  \_____result: 1
+ |--condition: eq {1}{1}
+ |-----result: true
+  /considering: yes}{${lookup{xx}lsearch{/non/exist}}}}
+  |--expanding: yes
+  \_____result: yes
+  /---scanning: ${lookup{xx}lsearch{/non/exist}}}}
+   /---scanning: xx}lsearch{/non/exist}}}}
+   |--expanding: xx
+   |-----result: xx
+   \___skipping: result is not used
+   /---scanning: /non/exist}}}}
+   |--expanding: /non/exist
+   |-----result: /non/exist
+   \___skipping: result is not used
+  |--expanding: ${lookup{xx}lsearch{/non/exist}}
+  |-----result: 
+  \___skipping: result is not used
+ |--expanding: ${if eq {1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+ \_____result: yes
+ /considering: match_address:   ${if match_address{a.b.c}{a.b.c}{yes}{no}}
+  /considering: a.b.c}{a.b.c}{yes}{no}}
+  |--expanding: a.b.c
+  \_____result: a.b.c
+  /considering: a.b.c}{yes}{no}}
+  |--expanding: a.b.c
+  \_____result: a.b.c
+LOG: MAIN PANIC
+  no @ found in the subject of an address list match: subject="a.b.c" pattern="a.b.c"
+ |--condition: match_address{a.b.c}{a.b.c}
+ |-----result: false
+  /---scanning: yes}{no}}
+  |--expanding: yes
+  |-----result: yes
+  \___skipping: result is not used
+  /considering: no}}
+  |--expanding: no
+  \_____result: no
+ |--expanding: a.b.c
+ \_____result: match_address:   no
+>>>>>>>>>>>>>>>> Exim pid=pppp (main: expansion test) terminating with rc=0 >>>>>>>>>>>>>>>>
+Exim version x.yz ....
+configuration file is TESTSUITE/test-config
+admin user
+ ┌considering: -oMa  sender_host_address = $sender_host_address
+ ├──expanding: -oMa  sender_host_address = $sender_host_address
+ └─────result: -oMa  sender_host_address = V4NET.0.0.1
+ ┌considering:       sender_host_port = $sender_host_port
+ ├──expanding:       sender_host_port = $sender_host_port
+ └─────result:       sender_host_port = 1234
+ ┌considering: -oMaa sender_host_authenticated = $sender_host_authenticated
+ ├──expanding: -oMaa sender_host_authenticated = $sender_host_authenticated
+ └─────result: -oMaa sender_host_authenticated = AAA
+ ┌considering: -oMai authenticated_id = $authenticated_id
+ ├──expanding: -oMai authenticated_id = $authenticated_id
+ └─────result: -oMai authenticated_id = philip
+ ┌considering: -oMas authenticated_sender = $authenticated_sender
+ ├──expanding: -oMas authenticated_sender = $authenticated_sender
+ └─────result: -oMas authenticated_sender = xx@yy.zz
+ ┌considering: -oMi  interface_address = $interface_address
+ ├──expanding: -oMi  interface_address = $interface_address
+ └─────result: -oMi  interface_address = 1.1.1.1
+ ┌considering:       interface_port = $interface_port
+ ├──expanding:       interface_port = $interface_port
+ └─────result:       interface_port = 99
+ ┌considering: -oMr  received_protocol = $received_protocol
+ ├──expanding: -oMr  received_protocol = $received_protocol
+ └─────result: -oMr  received_protocol = special
+ ┌considering: -oMt  sender_ident = $sender_ident
+ ├──expanding: -oMt  sender_ident = $sender_ident
+ └─────result: -oMt  sender_ident = me
+>>>>>>>>>>>>>>>> Exim pid=pppp (main: expansion test) terminating with rc=0 >>>>>>>>>>>>>>>>
 1999-03-02 09:44:33 no host name found for IP address V4NET.11.12.13
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-expanding: -oMa  sender_host_address = $sender_host_address
-   result: -oMa  sender_host_address = V4NET.0.0.1
-expanding:       sender_host_port = $sender_host_port
-   result:       sender_host_port = 1234
-expanding: -oMaa sender_host_authenticated = $sender_host_authenticated
-   result: -oMaa sender_host_authenticated = AAA
-expanding: -oMai authenticated_id = $authenticated_id
-   result: -oMai authenticated_id = philip
-expanding: -oMas authenticated_sender = $authenticated_sender
-   result: -oMas authenticated_sender = xx@yy.zz
-expanding: -oMi  interface_address = $interface_address
-   result: -oMi  interface_address = 1.1.1.1
-expanding:       interface_port = $interface_port
-   result:       interface_port = 99
-expanding: -oMr  received_protocol = $received_protocol
-   result: -oMr  received_protocol = special
-expanding: black
-   result: black
-expanding: white
-   result: white
-condition: eq{black}{white}
-   result: false
-expanding: $sender_host_name
-   result: 
-skipping: result is not used
-expanding: No
-   result: No
-expanding: ----> No lookup yet: ${if eq{black}{white}{$sender_host_name}{No}}
-   result: ----> No lookup yet: No
+ ┌considering: -oMa  sender_host_address = $sender_host_address
+ ├──expanding: -oMa  sender_host_address = $sender_host_address
+ └─────result: -oMa  sender_host_address = V4NET.0.0.1
+ ┌considering:       sender_host_port = $sender_host_port
+ ├──expanding:       sender_host_port = $sender_host_port
+ └─────result:       sender_host_port = 1234
+ ┌considering: -oMaa sender_host_authenticated = $sender_host_authenticated
+ ├──expanding: -oMaa sender_host_authenticated = $sender_host_authenticated
+ └─────result: -oMaa sender_host_authenticated = AAA
+ ┌considering: -oMai authenticated_id = $authenticated_id
+ ├──expanding: -oMai authenticated_id = $authenticated_id
+ └─────result: -oMai authenticated_id = philip
+ ┌considering: -oMas authenticated_sender = $authenticated_sender
+ ├──expanding: -oMas authenticated_sender = $authenticated_sender
+ └─────result: -oMas authenticated_sender = xx@yy.zz
+ ┌considering: -oMi  interface_address = $interface_address
+ ├──expanding: -oMi  interface_address = $interface_address
+ └─────result: -oMi  interface_address = 1.1.1.1
+ ┌considering:       interface_port = $interface_port
+ ├──expanding:       interface_port = $interface_port
+ └─────result:       interface_port = 99
+ ┌considering: -oMr  received_protocol = $received_protocol
+ ├──expanding: -oMr  received_protocol = $received_protocol
+ └─────result: -oMr  received_protocol = special
+ ┌considering: ----> No lookup yet: ${if eq{black}{white}{$sender_host_name}{No}}
+  ┌considering: black}{white}{$sender_host_name}{No}}
+  ├──expanding: black
+  └─────result: black
+  ┌considering: white}{$sender_host_name}{No}}
+  ├──expanding: white
+  └─────result: white
+ ├──condition: eq{black}{white}
+ ├─────result: false
+  ┌───scanning: $sender_host_name}{No}}
+  ├──expanding: $sender_host_name
+  ├─────result: 
+  └───skipping: result is not used
+  ┌considering: No}}
+  ├──expanding: No
+  └─────result: No
+ ├──expanding: ----> No lookup yet: ${if eq{black}{white}{$sender_host_name}{No}}
+ └─────result: ----> No lookup yet: No
+ ┌considering: -oMs  sender_host_name = $sender_host_name
 looking up host name for V4NET.0.0.1
-IP address lookup yielded ten-1.test.ex
-using host_fake_gethostbyname for ten-1.test.ex (IPv4)
-MUNGED: ::1 will be omitted in what follows
-get[host|ipnode]byname[2] looked up these IP addresses:
-  name=ten-1.test.ex address=V4NET.0.0.1
+IP address lookup yielded "ten-1.test.ex"
+ten-1.test.ex V4NET.0.0.1 mx=-1 sort=xx 
 checking addresses for ten-1.test.ex
   V4NET.0.0.1 OK
 sender_fullhost = ten-1.test.ex [V4NET.0.0.1]
 sender_rcvhost = ten-1.test.ex ([V4NET.0.0.1] ident=me)
-expanding: -oMs  sender_host_name = $sender_host_name
-   result: -oMs  sender_host_name = ten-1.test.ex
-expanding: -oMt  sender_ident = $sender_ident
-   result: -oMt  sender_ident = me
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+ ├──expanding: -oMs  sender_host_name = $sender_host_name
+ └─────result: -oMs  sender_host_name = ten-1.test.ex
+ ┌considering: -oMt  sender_ident = $sender_ident
+ ├──expanding: -oMt  sender_ident = $sender_ident
+ └─────result: -oMt  sender_ident = me
+>>>>>>>>>>>>>>>> Exim pid=pppp (main: expansion test) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -159,14 +284,12 @@ sender host name required, to match against partial-lsearch;TESTSUITE/aux-fixed/
 looking up host name for V4NET.0.0.1
 DNS lookup of 1.0.0.V4NET.in-addr.arpa (PTR) using fakens
 DNS lookup of 1.0.0.V4NET.in-addr.arpa (PTR) succeeded
-IP address lookup yielded ten-1.test.ex
-using host_fake_gethostbyname for ten-1.test.ex (IPv4)
+IP address lookup yielded "ten-1.test.ex"
 DNS lookup of ten-1.test.ex (A) using fakens
 DNS lookup of ten-1.test.ex (A) succeeded
-MUNGED: ::1 will be omitted in what follows
-get[host|ipnode]byname[2] looked up these IP addresses:
-  name=ten-1.test.ex address=V4NET.0.0.1
+ten-1.test.ex V4NET.0.0.1 mx=-1 sort=xx 
 checking addresses for ten-1.test.ex
+Forward DNS security status: unverified
   V4NET.0.0.1 OK
 sender_fullhost = ten-1.test.ex [V4NET.0.0.1]
 sender_rcvhost = ten-1.test.ex ([V4NET.0.0.1])
@@ -185,11 +308,12 @@ host in "<
  partial-lsearch;TESTSUITE/aux-fixed/0002.lsearch 
  1.2.3.4"? yes (matched "partial-lsearch;TESTSUITE/aux-fixed/0002.lsearch")
 deny: condition test succeeded in ACL "connect1"
+end of ACL "connect1": DENY
 SMTP>> 550 Administrative prohibition
-LOG: MAIN REJECT
+LOG: connection_reject MAIN REJECT
   H=ten-1.test.ex [V4NET.0.0.1] rejected connection in "connect" ACL
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -230,10 +354,10 @@ host in "net-lsearch;TESTSUITE/aux-fixed/0002.lsearch"? no (end of list)
 deny: condition test failed in ACL "connect2"
 end of ACL "connect2": implicit DENY
 SMTP>> 550 Administrative prohibition
-LOG: MAIN REJECT
+LOG: connection_reject MAIN REJECT
   H=[V4NET.0.0.2] rejected connection in "connect" ACL
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
 >>> host in host_reject_connection? no (option unset)
@@ -245,8 +369,10 @@ search_tidyup called
 >>> using ACL "connect0"
 >>> processing "accept"
 >>> accept: condition test succeeded in ACL "connect0"
+>>> end of ACL "connect0": ACCEPT
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> using ACL "check_data"
 >>> processing "warn"
 >>> check logwrite = Subject is: "$h_subject:"
@@ -254,10 +380,13 @@ search_tidyup called
 LOG: 10HmaX-0005vi-00 Subject is: ""
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmaX-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> host in ignore_fromline_hosts? no (option unset)
 >>> using ACL "check_data"
 >>> processing "warn"
@@ -266,10 +395,13 @@ LOG: 10HmaX-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 LOG: 10HmaY-0005vi-00 Subject is: ""
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmaY-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<a@b>
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> host in ignore_fromline_hosts? no (option unset)
 >>> using ACL "check_data"
 >>> processing "warn"
@@ -278,10 +410,13 @@ LOG: 10HmaY-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<a
 LOG: 10HmaZ-0005vi-00 Subject is: ""
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmaZ-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<c@d>
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> host in ignore_fromline_hosts? no (option unset)
 >>> using ACL "check_data"
 >>> processing "warn"
@@ -290,10 +425,13 @@ LOG: 10HmaZ-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<c
 LOG: 10HmbA-0005vi-00 Subject is: ""
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmbA-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> host in ignore_fromline_hosts? no (option unset)
 >>> using ACL "check_data"
 >>> processing "warn"
@@ -302,7 +440,9 @@ LOG: 10HmbA-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 LOG: 10HmbB-0005vi-00 Subject is: ""
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmbB-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<x@y>
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -315,8 +455,10 @@ LOG: 10HmbB-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<x
 >>> using ACL "connect0"
 >>> processing "accept"
 >>> accept: condition test succeeded in ACL "connect0"
+>>> end of ACL "connect0": ACCEPT
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> host in ignore_fromline_hosts? no (option unset)
 >>> using ACL "check_data"
 >>> processing "warn"
@@ -325,7 +467,9 @@ LOG: 10HmbB-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<x
 LOG: 10HmbC-0005vi-00 Subject is: "=?iso-8859-8?Q?_here_we_go=3A_a_string_that_is_going_to_be_encoded=3A_it_will_go_over_the_75-char_limit_by_a_long_way=3B_in_fact_this_one_will_go_over_the_150_character_limit?="
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmbC-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -338,8 +482,10 @@ LOG: 10HmbC-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 >>> using ACL "connect0"
 >>> processing "accept"
 >>> accept: condition test succeeded in ACL "connect0"
+>>> end of ACL "connect0": ACCEPT
 >>> processing "accept"
 >>> accept: condition test succeeded in inline ACL
+>>> end of inline ACL: ACCEPT
 >>> host in ignore_fromline_hosts? no (option unset)
 >>> using ACL "check_data"
 >>> processing "warn"
@@ -348,7 +494,9 @@ LOG: 10HmbC-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 LOG: 10HmbD-0005vi-00 Subject is: " here we go: a string that is going to be encoded: it will go over the 75-char limit by a long way; in fact this one will go over the 150 character limit"
 >>> warn: condition test succeeded in ACL "check_data"
 >>> processing "deny"
+>>>   message: reply_address=<$reply_address>
 >>> deny: condition test succeeded in ACL "check_data"
+>>> end of ACL "check_data": DENY
 LOG: 10HmbD-0005vi-00 H=[V4NET.0.0.0] F=<> rejected after DATA: reply_address=<>
 Exim version x.yz ....
 changed uid/gid: -C, -D, -be or -bf forces real uid
@@ -360,4 +508,4 @@ sender address = CALLER@myhost.test.ex
 1.2.3.4 in "1.2.3"? no (malformed IPv4 address or address mask)
 1.2.3.4 in "1.2.3.4/abc"? no (malformed IPv4 address or address mask)
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main: expansion test) terminating with rc=0 >>>>>>>>>>>>>>>>

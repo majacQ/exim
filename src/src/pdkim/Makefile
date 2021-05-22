@@ -1,6 +1,7 @@
 # Make file for building the pdkim library.
+# Copyright (c) The Exim Maintainers 1995 - 2018
 
-OBJ = base64.o bignum.o pdkim.o rsa.o sha1.o sha2.o
+OBJ = pdkim.o signing.o
 
 pdkim.a:         $(OBJ)
 		 @$(RM_COMMAND) -f pdkim.a
@@ -10,13 +11,9 @@ pdkim.a:         $(OBJ)
 
 .SUFFIXES:       .o .c
 .c.o:;           @echo "$(CC) $*.c"
-		 $(FE)$(CC) -c $(CFLAGS) $(INCLUDE) $*.c
+		 $(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -I. $*.c
 
-base64.o:           $(HDRS) base64.c
-bignum.o:           $(HDRS) bignum.c
-pdkim.o:            $(HDRS) pdkim.c
-rsa.o:              $(HDRS) rsa.c
-sha1.o:             $(HDRS) sha1.c
-sha2.o:             $(HDRS) sha2.c
+pdkim.o: $(HDRS) crypt_ver.h pdkim.h pdkim.c
+signing.o: $(HDRS) crypt_ver.h signing.h signing.c
 
 # End

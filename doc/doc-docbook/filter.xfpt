@@ -8,6 +8,7 @@
 
 .include stdflags
 .include stdmacs
+.include ./local_params
 .docbook
 
 . /////////////////////////////////////////////////////////////////////////////
@@ -44,6 +45,13 @@
 .endmacro
 . ===========================================================================
 
+. Copyright year.  Update this (only) when changing content.
+
+.macro copyyear
+2014
+.endmacro
+
+. ===========================================================================
 
 . /////////////////////////////////////////////////////////////////////////////
 . /////////////////////////////////////////////////////////////////////////////
@@ -59,15 +67,18 @@
 <bookinfo>
 <title>Exim's interfaces to mail filtering</title>
 <titleabbrev>Exim filtering</titleabbrev>
-<date>23 November 2009</date>
+<date>
+.fulldate
+</date>
 <author><firstname>Philip</firstname><surname>Hazel</surname></author>
 <authorinitials>PH</authorinitials>
 <revhistory><revision>
-  <revnumber>4.80</revnumber>
-  <date>17 May 2012</date>
+.versiondatexml
   <authorinitials>PH</authorinitials>
 </revision></revhistory>
-<copyright><year>2010</year><holder>University of Cambridge</holder></copyright>
+<copyright><year>
+.copyyear
+           </year><holder>University of Cambridge</holder></copyright>
 </bookinfo>
 .literal off
 
@@ -77,8 +88,8 @@
 
 .chapter "Forwarding and filtering in Exim" "CHAPforandfilt"
 This document describes the user interfaces to Exim's in-built mail filtering
-facilities, and is copyright &copy; University of Cambridge 2007. It
-corresponds to Exim version 4.80.
+facilities, and is copyright &copy; University of Cambridge &copyyear(). It
+corresponds to Exim version &version().
 
 
 
@@ -1178,7 +1189,9 @@ been obeyed, the &(logwrite)& command can be used to write to it:
 &`e.g. logwrite "$tod_log $message_id processed"`&
 .endd
 It is possible to have more than one &(logfile)& command, to specify writing to
-different log files in different circumstances. Writing takes place at the end
+different log files in different circumstances.
+A previously opened log is closed on a subsequent &(logfile)& command.
+Writing takes place at the end
 of the file, and a newline character is added to the end of each string if
 there isn't one already there. Newlines can be put in the middle of the string
 by using the &"\n"& escape sequence. Lines from simultaneous deliveries may get

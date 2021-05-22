@@ -23,6 +23,7 @@ LOG: rejected HELO from [V4NET.0.0.0]: syntactically invalid argument(s): @#$%^&
 >>> test.ex in "Test.ex : myhost.test.EX"? yes (matched "Test.ex")
 >>> test.ex in "+local_domains"? yes (matched "+local_domains")
 >>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT
 >>> using ACL "check_recipient"
 >>> processing "accept"
 >>> check hosts = :
@@ -39,17 +40,16 @@ LOG: rejected HELO from [V4NET.0.0.0]: syntactically invalid argument(s): @#$%^&
 >>> else.where in "+relay_domains"? no (end of list)
 >>> accept: condition test failed in ACL "check_recipient"
 >>> processing "deny"
+>>>   message: relay not permitted
 >>> deny: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": DENY
 LOG: H=(abc_xyz) [V4NET.0.0.0] F=<userx@cus.cam.ac.uk> rejected RCPT <userx@else.where>: relay not permitted
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
 >>> host in host_reject_connection? no (option unset)
 >>> sender host name required, to match against *N-99.test.EX
 >>> looking up host name for V4NET.0.0.99
->>> IP address lookup yielded ten-99.test.ex
-MUNGED: ::1 will be omitted in what follows
->>> get[host|ipnode]byname[2] looked up these IP addresses:
->>>   name=ten-99.test.ex address=V4NET.0.0.99
+>>> IP address lookup yielded "ten-99.test.ex"
 >>> checking addresses for ten-99.test.ex
 >>>   V4NET.0.0.99 OK
 >>> host in sender_unqualified_hosts? yes (matched "*N-99.test.EX")
@@ -72,6 +72,7 @@ MUNGED: ::1 will be omitted in what follows
 >>> relay.one.ex in "Test.ex : Relay.one.ex"? yes (matched "Relay.one.ex")
 >>> relay.one.ex in "+relay_domains"? yes (matched "+relay_domains")
 >>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT
 >>> using ACL "check_recipient"
 >>> processing "accept"
 >>> check hosts = :
@@ -88,5 +89,7 @@ MUNGED: ::1 will be omitted in what follows
 >>> relay.two.ex in "+relay_domains"? no (end of list)
 >>> accept: condition test failed in ACL "check_recipient"
 >>> processing "deny"
+>>>   message: relay not permitted
 >>> deny: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": DENY
 LOG: H=ten-99.test.ex (@#$%^&*()) [V4NET.0.0.99] F=<root@myhost.test.ex> rejected RCPT <yy@relay.two.ex>: relay not permitted

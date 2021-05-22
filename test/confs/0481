@@ -1,13 +1,8 @@
 # Exim test configuration 0481
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -23,13 +18,16 @@ r1:
 
 r2:
   driver = redirect
+  headers_remove = Remove-Me-Also:
   headers_remove = Remove-Me:
+  headers_remove = <; Remove-Me-Too ; Remove-Me-Too2
   data = $local_part@domain
 
 r3:
   driver = accept
   headers_remove = Remove-Me:
   headers_add = X-Was-Remove-Me: >$h_remove-me:<
+  headers_add = ${if def:h_remove-me-also {X-Was-Remove-Me-Also: >$h_remove-me-also:<}}
   transport = t1
 
 

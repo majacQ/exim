@@ -1,23 +1,26 @@
 # Exim test configuration 0218
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
 log_selector =  \
-              +sender_on_delivery
+              +sender_on_delivery \
+	      +pipelining
 ignore_bounce_errors_after = 0s
 qualify_domain = test.ex
 queue_run_in_order
 queue_only
 
+
+# ----- ACLs ----
+
+begin acl
+
+expand_check:
+  accept message = ACL
 
 # ----- Routers -----
 
@@ -30,11 +33,13 @@ bounce:
   data = :fail: just discard
   retry_use_local_part
   senders = :
+  debug_print = R: $router_name  (${acl {expand_check}})
 
 client:
   driver = accept
   retry_use_local_part
   transport = send_to_server
+  debug_print = R: $router_name  (${acl {expand_check}})
 
 
 # ----- Transports -----
@@ -47,6 +52,7 @@ send_to_server:
   command_timeout = 1s
   hosts = 127.0.0.1
   port = PORT_S
+  debug_print = T: $transport_name  (${acl {expand_check}})
 
 
 # ----- Retry -----

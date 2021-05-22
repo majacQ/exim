@@ -14,6 +14,8 @@ getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@test.ex
 set_process_info: pppp accepting a local non-SMTP message from <CALLER@test.ex>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 Sender: CALLER@test.ex
 Recipients:
   CALLER@test.ex
@@ -32,64 +34,128 @@ I Message-Id: <E10HmaX-0005vi-00@mail.test.ex>
 F From: CALLER_NAME <CALLER@test.ex>
   Date: Tue, 2 Mar 1999 09:44:33 +0000
 
+Data file name: TESTSUITE/spool//input//10HmaX-0005vi-00-D
 Data file written for message 10HmaX-0005vi-00
-expanding: ${tod_full}
-   result: Tue, 2 Mar 1999 09:44:33 +0000
-condition: def:sender_rcvhost
-   result: false
-expanding: from $sender_rcvhost
-	
-   result: from 
-	
-skipping: result is not used
-condition: def:sender_ident
-   result: true
-expanding: $sender_ident
-   result: CALLER
-expanding: from ${quote_local_part:$sender_ident} 
-   result: from CALLER 
-condition: def:sender_helo_name
-   result: false
-expanding: (helo=$sender_helo_name)
-	
-   result: (helo=)
-	
-skipping: result is not used
-expanding: ${if def:sender_ident {from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
-	}}
-   result: from CALLER 
-condition: def:received_protocol
-   result: true
-expanding: with $received_protocol
-   result: with local
-condition: def:sender_address
-   result: true
-expanding: (envelope-from <$sender_address>)
-	
-   result: (envelope-from <CALLER@test.ex>)
-	
-condition: def:received_for
-   result: false
-expanding: 
-	for $received_for
-   result: 
-	for 
-skipping: result is not used
+ ┌considering: ${tod_full}
+ ├──expanding: ${tod_full}
+ └─────result: Tue, 2 Mar 1999 09:44:33 +0000
+ ┌considering: Received: ${if def:sender_rcvhost {from $sender_rcvhost
+ 	}{${if def:sender_ident {from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+ 	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+ 	${if def:sender_address {(envelope-from <$sender_address>)
+ 	}}id $message_exim_id${if def:received_for {
+ 	for $received_for}}
+ ├──condition: def:sender_rcvhost
+ ├─────result: false
+  ┌───scanning: from $sender_rcvhost
+  	}{${if def:sender_ident {from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+  	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+  	${if def:sender_address {(envelope-from <$sender_address>)
+  	}}id $message_exim_id${if def:received_for {
+  	for $received_for}}
+  ├──expanding: from $sender_rcvhost
+  	
+  ├─────result: from 
+  	
+  └───skipping: result is not used
+  ┌considering: ${if def:sender_ident {from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+  	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+  	${if def:sender_address {(envelope-from <$sender_address>)
+  	}}id $message_exim_id${if def:received_for {
+  	for $received_for}}
+  ├──condition: def:sender_ident
+  ├─────result: true
+   ┌considering: from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+   	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+   	${if def:sender_address {(envelope-from <$sender_address>)
+   	}}id $message_exim_id${if def:received_for {
+   	for $received_for}}
+   ╎┌considering: $sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+   ╎	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+   ╎	${if def:sender_address {(envelope-from <$sender_address>)
+   ╎	}}id $message_exim_id${if def:received_for {
+   ╎	for $received_for}}
+   ╎├──expanding: $sender_ident
+   ╎└─────result: CALLER
+   ├──expanding: from ${quote_local_part:$sender_ident} 
+   └─────result: from CALLER 
+  ├──condition: def:sender_helo_name
+  ├─────result: false
+   ┌───scanning: (helo=$sender_helo_name)
+   	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+   	${if def:sender_address {(envelope-from <$sender_address>)
+   	}}id $message_exim_id${if def:received_for {
+   	for $received_for}}
+   ├──expanding: (helo=$sender_helo_name)
+   	
+   ├─────result: (helo=)
+   	
+   └───skipping: result is not used
+  ├──expanding: ${if def:sender_ident {from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+  	}}
+  └─────result: from CALLER 
+ ├──condition: def:received_protocol
+ ├─────result: true
+  ┌considering: with $received_protocol}} (Exim $version_number)
+  	${if def:sender_address {(envelope-from <$sender_address>)
+  	}}id $message_exim_id${if def:received_for {
+  	for $received_for}}
+  ├──expanding: with $received_protocol
+  └─────result: with local
+ ├──condition: def:sender_address
+ ├─────result: true
+  ┌considering: (envelope-from <$sender_address>)
+  	}}id $message_exim_id${if def:received_for {
+  	for $received_for}}
+  ├──expanding: (envelope-from <$sender_address>)
+  	
+  └─────result: (envelope-from <CALLER@test.ex>)
+  	
+ ├──condition: def:received_for
+ ├─────result: false
+  ┌───scanning: 
+  	for $received_for}}
+  ├──expanding: 
+  	for $received_for
+  ├─────result: 
+  	for 
+  └───skipping: result is not used
+ ├──expanding: Received: ${if def:sender_rcvhost {from $sender_rcvhost
+ 	}{${if def:sender_ident {from ${quote_local_part:$sender_ident} }}${if def:sender_helo_name {(helo=$sender_helo_name)
+ 	}}}}by $primary_hostname ${if def:received_protocol {with $received_protocol}} (Exim $version_number)
+ 	${if def:sender_address {(envelope-from <$sender_address>)
+ 	}}id $message_exim_id${if def:received_for {
+ 	for $received_for}}
+ └─────result: Received: from CALLER by mail.test.ex with local (Exim x.yz)
+ 	(envelope-from <CALLER@test.ex>)
+ 	id 10HmaX-0005vi-00
 >>Generated Received: header line
 P Received: from CALLER by mail.test.ex with local (Exim x.yz)
 	(envelope-from <CALLER@test.ex>)
 	id 10HmaX-0005vi-00; Tue, 2 Mar 1999 09:44:33 +0000
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
-expanding: ${tod_full}
-   result: Tue, 2 Mar 1999 09:44:33 +0000
-Writing spool header file
+ ┌considering: ${tod_full}
+ ├──expanding: ${tod_full}
+ └─────result: Tue, 2 Mar 1999 09:44:33 +0000
+Writing spool header file: TESTSUITE/spool//input//hdr.pppp
+DSN: Write SPOOL :-dsn_envid NULL
+DSN: Write SPOOL :-dsn_ret 0
+DSN: Flags :0
+DSN: **** SPOOL_OUT - address: |CALLER@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+DSN: Flags :0
+DSN: **** SPOOL_OUT - address: |usery@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+DSN: Flags :0
+DSN: **** SPOOL_OUT - address: |userz@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+DSN: Flags :0
+DSN: **** SPOOL_OUT - address: |rd+CALLER@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+DSN: Flags :0
+DSN: **** SPOOL_OUT - address: |rd+usery@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+Renaming spool header file: TESTSUITE/spool//input//10HmaX-0005vi-00-H
 Size of headers = sss
 LOG: MAIN
   <= CALLER@test.ex U=CALLER P=local S=sss
 created log directory TESTSUITE/spool/log
 search_tidyup called
-exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xfbb95dfd -odi -Mc 10HmaX-0005vi-00
+exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xf7715dfd -odi -Mc 10HmaX-0005vi-00
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=EXIM_GID pid=pppp
@@ -104,6 +170,7 @@ seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 set_process_info: pppp delivering specified messages
 set_process_info: pppp delivering 10HmaX-0005vi-00
+Trying spool file TESTSUITE/spool//input//10HmaX-0005vi-00-D
 reading spool file 10HmaX-0005vi-00-H
 user=CALLER uid=CALLER_UID gid=CALLER_GID sender=CALLER@test.ex
 sender_local=1 ident=CALLER
@@ -111,48 +178,58 @@ Non-recipients:
 Empty Tree
 ---- End of tree ----
 recipients_count=5
+**** SPOOL_IN - No additional fields
+**** SPOOL_IN - No additional fields
+**** SPOOL_IN - No additional fields
+**** SPOOL_IN - No additional fields
+**** SPOOL_IN - No additional fields
 body_linecount=0 message_linecount=6
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
 Delivery address list:
   CALLER@test.ex 
   usery@test.ex 
   userz@test.ex 
   rd+CALLER@test.ex 
   rd+usery@test.ex 
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
-ensuring TESTSUITE/spool/db/retry.lockfile is owned by exim
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: CALLER@test.ex
 unique = CALLER@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 CALLER@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: usery@test.ex
 unique = usery@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 usery@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: userz@test.ex
 unique = userz@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 userz@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: rd+CALLER@test.ex
 unique = rd+CALLER@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 rd+CALLER@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: rd+usery@test.ex
 unique = rd+usery@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 rd+usery@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing rd+usery@test.ex
@@ -182,8 +259,9 @@ local_part=rd+usery domain=test.ex
 stripped prefix rd+
 checking local_parts
 usery in "usery"? yes (matched "usery")
-expanding: /non-exist/$domain
-   result: /non-exist/test.ex
+ ┌considering: /non-exist/$domain
+ ├──expanding: /non-exist/$domain
+ └─────result: /non-exist/test.ex
 calling r5 router
 rda_interpret (string): TESTSUITE/test-mail/junk
 expanded: TESTSUITE/test-mail/junk
@@ -220,8 +298,9 @@ local_part=rd+CALLER domain=test.ex
 stripped prefix rd+
 checking local_parts
 CALLER in "CALLER"? yes (matched "CALLER")
-expanding: /non-exist/$local_part
-   result: /non-exist/CALLER
+ ┌considering: /non-exist/$local_part
+ ├──expanding: /non-exist/$local_part
+ └─────result: /non-exist/CALLER
 calling r4 router
 rda_interpret (string): TESTSUITE/test-mail/junk
 expanded: TESTSUITE/test-mail/junk
@@ -252,8 +331,9 @@ r2 router skipped: local_parts mismatch
 local_part=userz domain=test.ex
 checking local_parts
 userz in "userz"? yes (matched "userz")
-expanding: /non-exist/$domain
-   result: /non-exist/test.ex
+ ┌considering: /non-exist/$domain
+ ├──expanding: /non-exist/$domain
+ └─────result: /non-exist/test.ex
 calling r3 router
 r3 router called for userz@test.ex
   domain = test.ex
@@ -276,8 +356,9 @@ r1 router skipped: local_parts mismatch
 local_part=usery domain=test.ex
 checking local_parts
 usery in "usery"? yes (matched "usery")
-expanding: /non-exist/$domain
-   result: /non-exist/test.ex
+ ┌considering: /non-exist/$domain
+ ├──expanding: /non-exist/$domain
+ └─────result: /non-exist/test.ex
 calling r2 router
 r2 router called for usery@test.ex
   domain = test.ex
@@ -295,8 +376,9 @@ routing CALLER@test.ex
 local_part=CALLER domain=test.ex
 checking local_parts
 CALLER in "CALLER"? yes (matched "CALLER")
-expanding: /non-exist/$local_part
-   result: /non-exist/CALLER
+ ┌considering: /non-exist/$local_part
+ ├──expanding: /non-exist/$local_part
+ └─────result: /non-exist/CALLER
 calling r1 router
 r1 router called for CALLER@test.ex
   domain = test.ex
@@ -308,10 +390,11 @@ domain = test.ex
 routed by r1 router
   envelope to: CALLER@test.ex
   transport: t1
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: TESTSUITE/test-mail/junk
@@ -335,21 +418,24 @@ After routing:
 search_tidyup called
 >>>>>>>>>>>>>>>> Local deliveries >>>>>>>>>>>>>>>>
 --------> TESTSUITE/test-mail/junk <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
-expanding: /non-exist/$local_part
-   result: /non-exist/usery
+ ┌considering: /non-exist/$local_part
+ ├──expanding: /non-exist/$local_part
+ └─────result: /non-exist/usery
 search_tidyup called
 changed uid/gid: local delivery to TESTSUITE/test-mail/junk <TESTSUITE/test-mail/junk> transport=ft1
   uid=CALLER_UID gid=CALLER_GID pid=pppp
   home=/non-exist/usery current=/
 set_process_info: pppp delivering 10HmaX-0005vi-00 to TESTSUITE/test-mail/junk using ft1
 appendfile transport entered
-expanding: $address_file
-   result: TESTSUITE/test-mail/junk
+ ┌considering: $address_file
+ ├──expanding: $address_file
+ └─────result: TESTSUITE/test-mail/junk
 appendfile: mode=600 notify_comsat=0 quota=0 warning=0
   file=TESTSUITE/test-mail/junk format=unix
   message_prefix=From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}\n
@@ -361,18 +447,25 @@ hitch name: TESTSUITE/test-mail/junk.lock.test.ex.dddddddd.pppppppp
 lock file created
 mailbox TESTSUITE/test-mail/junk is locked
 writing to file TESTSUITE/test-mail/junk
-condition: def:return_path
-   result: true
-expanding: $return_path
-   result: CALLER@test.ex
-expanding: MAILER-DAEMON
-   result: MAILER-DAEMON
-skipping: result is not used
-expanding: From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
-
-   result: From CALLER@test.ex Tue Mar 02 09:44:33 1999
-
+ ┌considering: From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
+ 
+ ├──condition: def:return_path
+ ├─────result: true
+  ┌considering: $return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
+  
+  ├──expanding: $return_path
+  └─────result: CALLER@test.ex
+  ┌───scanning: MAILER-DAEMON}} ${tod_bsdinbox}
+  
+  ├──expanding: MAILER-DAEMON
+  ├─────result: MAILER-DAEMON
+  └───skipping: result is not used
+ ├──expanding: From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
+ 
+ └─────result: From CALLER@test.ex Tue Mar 02 09:44:33 1999
+ 
 writing data block fd=dddd size=sss timeout=0
+cannot use sendfile for body: spoolfile not wireformat
 writing data block fd=dddd size=sss timeout=0
 writing data block fd=dddd size=sss timeout=0
 appendfile yields 0 with errno=dd more_errno=dd
@@ -385,10 +478,11 @@ rd+usery@test.ex: children all complete
 LOG: MAIN
   => TESTSUITE/test-mail/junk <rd+usery@test.ex> R=r5 T=ft1
 --------> TESTSUITE/test-mail/junk <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 search_tidyup called
 changed uid/gid: local delivery to TESTSUITE/test-mail/junk <TESTSUITE/test-mail/junk> transport=ft1
@@ -396,8 +490,9 @@ changed uid/gid: local delivery to TESTSUITE/test-mail/junk <TESTSUITE/test-mail
   home=/non-exist/CALLER current=/
 set_process_info: pppp delivering 10HmaX-0005vi-00 to TESTSUITE/test-mail/junk using ft1
 appendfile transport entered
-expanding: $address_file
-   result: TESTSUITE/test-mail/junk
+ ┌considering: $address_file
+ ├──expanding: $address_file
+ └─────result: TESTSUITE/test-mail/junk
 appendfile: mode=600 notify_comsat=0 quota=0 warning=0
   file=TESTSUITE/test-mail/junk format=unix
   message_prefix=From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}\n
@@ -409,18 +504,25 @@ hitch name: TESTSUITE/test-mail/junk.lock.test.ex.dddddddd.pppppppp
 lock file created
 mailbox TESTSUITE/test-mail/junk is locked
 writing to file TESTSUITE/test-mail/junk
-condition: def:return_path
-   result: true
-expanding: $return_path
-   result: CALLER@test.ex
-expanding: MAILER-DAEMON
-   result: MAILER-DAEMON
-skipping: result is not used
-expanding: From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
-
-   result: From CALLER@test.ex Tue Mar 02 09:44:33 1999
-
+ ┌considering: From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
+ 
+ ├──condition: def:return_path
+ ├─────result: true
+  ┌considering: $return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
+  
+  ├──expanding: $return_path
+  └─────result: CALLER@test.ex
+  ┌───scanning: MAILER-DAEMON}} ${tod_bsdinbox}
+  
+  ├──expanding: MAILER-DAEMON
+  ├─────result: MAILER-DAEMON
+  └───skipping: result is not used
+ ├──expanding: From ${if def:return_path{$return_path}{MAILER-DAEMON}} ${tod_bsdinbox}
+ 
+ └─────result: From CALLER@test.ex Tue Mar 02 09:44:33 1999
+ 
 writing data block fd=dddd size=sss timeout=0
+cannot use sendfile for body: spoolfile not wireformat
 writing data block fd=dddd size=sss timeout=0
 writing data block fd=dddd size=sss timeout=0
 appendfile yields 0 with errno=dd more_errno=dd
@@ -433,10 +535,11 @@ rd+CALLER@test.ex: children all complete
 LOG: MAIN
   => TESTSUITE/test-mail/junk <rd+CALLER@test.ex> R=r4 T=ft1
 --------> CALLER@test.ex <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 search_tidyup called
 changed uid/gid: local delivery to CALLER <CALLER@test.ex> transport=t1
@@ -458,13 +561,15 @@ CALLER@test.ex delivered
 LOG: MAIN
   => CALLER <CALLER@test.ex> R=r1 T=t1
 --------> usery@test.ex <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
-expanding: /non-exist/$local_part
-   result: /non-exist/usery
+ ┌considering: /non-exist/$local_part
+ ├──expanding: /non-exist/$local_part
+ └─────result: /non-exist/usery
 search_tidyup called
 changed uid/gid: local delivery to usery <usery@test.ex> transport=t1
   uid=CALLER_UID gid=CALLER_GID pid=pppp
@@ -485,13 +590,15 @@ usery@test.ex delivered
 LOG: MAIN
   => usery <usery@test.ex> R=r2 T=t1
 --------> userz@test.ex <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
-expanding: /$local_part
-   result: /userz
+ ┌considering: /$local_part
+ ├──expanding: /$local_part
+ └─────result: /userz
 search_tidyup called
 changed uid/gid: local delivery to userz <userz@test.ex> transport=t2
   uid=CALLER_UID gid=CALLER_GID pid=pppp
@@ -517,23 +624,79 @@ changed uid/gid: post-delivery tidying
 set_process_info: pppp tidying up after delivering 10HmaX-0005vi-00
 Processing retry items
 Succeeded addresses:
-userz@test.ex: no retry items
-usery@test.ex: no retry items
-CALLER@test.ex: no retry items
-TESTSUITE/test-mail/junk: no retry items
-rd+CALLER@test.ex: no retry items
-TESTSUITE/test-mail/junk: no retry items
-rd+usery@test.ex: no retry items
-rd+CALLER@test.ex: no retry items
-rd+usery@test.ex: no retry items
+ userz@test.ex: no retry items
+ usery@test.ex: no retry items
+ CALLER@test.ex: no retry items
+ TESTSUITE/test-mail/junk: no retry items
+ rd+CALLER@test.ex: no retry items
+ TESTSUITE/test-mail/junk: no retry items
+ rd+usery@test.ex: no retry items
+ rd+CALLER@test.ex: no retry items
+ rd+usery@test.ex: no retry items
 Failed addresses:
 Deferred addresses:
 end of retry processing
+DSN: processing router : r3
+DSN: processing successful delivery address: userz@test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: userz@test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r2
+DSN: processing successful delivery address: usery@test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: usery@test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r1
+DSN: processing successful delivery address: CALLER@test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: CALLER@test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r4
+DSN: processing successful delivery address: TESTSUITE/test-mail/junk
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: TESTSUITE/test-mail/junk
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r5
+DSN: processing successful delivery address: TESTSUITE/test-mail/junk
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: TESTSUITE/test-mail/junk
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r4
+DSN: processing successful delivery address: rd+CALLER@test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: rd+CALLER@test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r5
+DSN: processing successful delivery address: rd+usery@test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: rd+usery@test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
 LOG: MAIN
   Completed
 end delivery of 10HmaX-0005vi-00
 search_tidyup called
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

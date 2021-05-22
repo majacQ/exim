@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -25,20 +25,29 @@ struct smtp_outblock;
 struct transport_info;
 struct router_info;
 
+/* Growable-string */
+typedef struct gstring {
+  int	size;		/* Current capacity of string memory */
+  int	ptr;		/* Offset at which to append further chars */
+  uschar * s;		/* The string memory */
+} gstring;
+
 /* Structure for remembering macros for the configuration file */
 
 typedef struct macro_item {
-  struct  macro_item *next;
-  BOOL    command_line;
-  uschar *replacement;
-  uschar  name[1];
+  struct  macro_item * next;
+  BOOL     	command_line;
+  unsigned	namelen;
+  unsigned	replen;
+  const uschar * name;
+  const uschar * replacement;
 } macro_item;
 
 /* Structure for bit tables for debugging and logging */
 
 typedef struct bit_table {
   uschar *name;
-  unsigned int bit;
+  int bit;
 } bit_table;
 
 /* Block for holding a uid and gid, possibly unset, and an initgroups flag. */
@@ -51,20 +60,34 @@ typedef struct ugid_block {
   BOOL    initgroups;
 } ugid_block;
 
+typedef enum {	CHUNKING_NOT_OFFERED = -1,
+		CHUNKING_OFFERED,
+		CHUNKING_ACTIVE,
+		CHUNKING_LAST} chunking_state_t;
+
+typedef enum {	TFO_NOT_USED = 0,
+		TFO_ATTEMPTED_NODATA,
+		TFO_ATTEMPTED_DATA,
+		TFO_USED_NODATA,
+		TFO_USED_DATA } tfo_state_t;
+
 /* Structure for holding information about a host for use mainly by routers,
 but also used when checking lists of hosts and when transporting. Looking up
 host addresses is done using this structure. */
 
+typedef enum {DS_UNK=-1, DS_NO, DS_YES} dnssec_status_t;
+
 typedef struct host_item {
   struct host_item *next;
-  uschar *name;                   /* Host name */
-  uschar *address;                /* IP address in text form */
+  const uschar *name;             /* Host name */
+  const uschar *address;          /* IP address in text form */
   int     port;                   /* port value in host order (if SRV lookup) */
   int     mx;                     /* MX value if found via MX records */
   int     sort_key;               /* MX*1000 plus random "fraction" */
   int     status;                 /* Usable, unusable, or unknown */
   int     why;                    /* Why host is unusable */
   int     last_try;               /* Time of last try if known */
+  dnssec_status_t dnssec;
 } host_item;
 
 /* Chain of rewrite rules, read from the rewrite config, or parsed from the
@@ -145,6 +168,7 @@ typedef struct transport_instance {
   uschar *home_dir;               /* ) Used only for local transports   */
   uschar *current_dir;            /* )                                  */
                                   /**************************************/
+  uschar *expand_multi_domain;    /* )                                  */
   BOOL    multi_domain;           /* )                                  */
   BOOL    overrides_hosts;        /* ) Used only for remote transports  */
   int     max_addresses;          /* )                                  */
@@ -167,6 +191,7 @@ typedef struct transport_instance {
   uschar *remove_headers;         /* Remove these headers */
   uschar *return_path;            /* Overriding (rewriting) return path */
   uschar *debug_string;           /* Debugging output */
+  uschar *max_parallel;           /* Number of concurrent instances */
   uschar *message_size_limit;     /* Biggest message this transport handles */
   uschar *headers_rewrite;        /* Rules for rewriting headers */
   rewrite_rule *rewrite_rules;    /* Parsed rewriting rules */
@@ -184,6 +209,9 @@ typedef struct transport_instance {
   BOOL    log_fail_output;
   BOOL    log_defer_output;
   BOOL    retry_use_local_part;   /* Defaults true for local, false for remote */
+#ifndef DISABLE_EVENT
+  uschar  *event_action;          /* String to expand on notable events */
+#endif
 } transport_instance;
 
 
@@ -210,6 +238,38 @@ typedef struct transport_info {
 } transport_info;
 
 
+/* smtp transport datachunk callback */
+
+#define tc_reap_prev	BIT(0)	/* Flags: reap previous SMTP cmd responses */
+#define tc_chunk_last	BIT(1)	/* annotate chunk SMTP cmd as LAST */
+
+struct transport_context;
+typedef int (*tpt_chunk_cmd_cb)(struct transport_context *, unsigned, unsigned);
+
+/* Structure for information about a delivery-in-progress */
+
+typedef struct transport_context {
+  union {			/* discriminated by option topt_output_string */
+    int			  fd;	/* file descriptor to write message to */
+    gstring *		  msg;	/* allocated string with written message */
+  } u;
+  transport_instance	* tblock;		/* transport */
+  struct address_item	* addr;
+  uschar		* check_string;		/* string replacement */
+  uschar		* escape_string;
+  int		  	  options;		/* output processing topt_* */
+
+  /* items below only used with option topt_use_bdat */
+  tpt_chunk_cmd_cb	  chunk_cb;		/* per-datachunk callback */
+  void			* smtp_context;
+} transport_ctx;
+
+
+
+typedef struct {
+  uschar *request;
+  uschar *require;
+} dnssec_domains;
 
 /* Structure for holding information about the configured routers. */
 
@@ -279,6 +339,7 @@ typedef struct router_instance {
   BOOL    verify_sender;          /* Use this router when verifying a sender */
   BOOL    uid_set;                /* Flag to indicate uid is set */
   BOOL    unseen;                 /* If TRUE carry on, even after success */
+  BOOL    dsn_lasthop;            /* If TRUE, this router is a DSN endpoint */
 
   int     self_code;              /* Encoded version of "self" */
   uid_t   uid;                    /* Fixed uid value */
@@ -288,6 +349,8 @@ typedef struct router_instance {
   transport_instance *transport;  /* Transport block (when found) */
   struct router_instance *pass_router; /* Actual router for passed address */
   struct router_instance *redirect_router; /* Actual router for generated address */
+
+  dnssec_domains dnssec;
 } router_instance;
 
 
@@ -335,7 +398,8 @@ typedef struct auth_instance {
   uschar *advertise_condition;    /* Are we going to advertise this?*/
   uschar *client_condition;       /* Should the client try this? */
   uschar *public_name;            /* Advertised name */
-  uschar *set_id;                 /* String to set as authenticated id */
+  uschar *set_id;                 /* String to set when server as authenticated id */
+  uschar *set_client_id;          /* String to set when client as client_authenticated id */
   uschar *mail_auth_condition;    /* Condition for AUTH on MAIL command */
   uschar *server_debug_string;    /* Debugging output */
   uschar *server_condition;       /* Authorization condition */
@@ -362,8 +426,7 @@ typedef struct auth_info {
     uschar *);                    /* rest of AUTH command */
   int (*clientcode)(              /* client function */
     struct auth_instance *,
-    struct smtp_inblock *,        /* socket and input buffer */
-    struct smtp_outblock *,       /* socket and output buffer */
+    void *,			  /* smtp conn, with socket, output and input buffers */
     int,                          /* command timeout */
     uschar *,                     /* buffer for reading response */
     int);                         /* sizeof buffer */
@@ -381,6 +444,7 @@ typedef struct ip_address_item {
   int    port;
   BOOL   v6_include_v4;            /* Used in the daemon */
   uschar address[46];
+  uschar * log;			   /* portion of "listening on" log line */
 } ip_address_item;
 
 /* Structure for chaining together arbitrary strings. */
@@ -450,41 +514,14 @@ typedef struct address_item_propagated {
   #ifdef EXPERIMENTAL_SRS
   uschar *srs_sender;             /* Change return path when delivering */
   #endif
+  BOOL    ignore_error:1;	  /* ignore delivery error */
+  #ifdef SUPPORT_I18N
+  BOOL    utf8_msg:1;		  /* requires SMTPUTF8 processing */
+  BOOL	  utf8_downcvt:1;	  /* mandatory downconvert on delivery */
+  BOOL	  utf8_downcvt_maybe:1;	  /* optional downconvert on delivery */
+  #endif
 } address_item_propagated;
 
-/* Bits for the flags field below */
-
-#define af_allow_file          0x00000001 /* allow file in generated address */
-#define af_allow_pipe          0x00000002 /* allow pipe in generated address */
-#define af_allow_reply         0x00000004 /* allow autoreply in generated address */
-#define af_dr_retry_exists     0x00000008 /* router retry record exists */
-#define af_expand_pipe         0x00000010 /* expand pipe arguments */
-#define af_file                0x00000020 /* file delivery; always with pfr */
-#define af_gid_set             0x00000040 /* gid field is set */
-#define af_home_expanded       0x00000080 /* home_dir is already expanded */
-#define af_ignore_error        0x00000100 /* ignore delivery error */
-#define af_initgroups          0x00000200 /* use initgroups() for local transporting */
-#define af_local_host_removed  0x00000400 /* local host was backup */
-#define af_lt_retry_exists     0x00000800 /* local transport retry exists */
-#define af_pfr                 0x00001000 /* pipe or file or reply delivery */
-#define af_retry_skipped       0x00002000 /* true if retry caused some skipping */
-#define af_retry_timedout      0x00004000 /* true if retry timed out */
-#define af_uid_set             0x00008000 /* uid field is set */
-#define af_hide_child          0x00010000 /* hide child in bounce/defer msgs */
-#define af_sverify_told        0x00020000 /* sender verify failure notified */
-#define af_verify_pmfail       0x00040000 /* verify failure was postmaster callout */
-#define af_verify_nsfail       0x00080000 /* verify failure was null sender callout */
-#define af_homonym             0x00100000 /* an ancestor has same address */
-#define af_verify_routed       0x00200000 /* for cached sender verify: routed OK */
-#define af_verify_callout      0x00400000 /* for cached sender verify: callout was specified */
-#define af_include_affixes     0x00800000 /* delivered with affixes in RCPT */
-#define af_cert_verified       0x01000000 /* delivered with verified TLS cert */
-#define af_pass_message        0x02000000 /* pass message in bounces */
-#define af_bad_reply           0x04000000 /* filter could not generate autoreply */
-
-/* These flags must be propagated when a child is created */
-
-#define af_propagate           (af_ignore_error)
 
 /* The main address structure. Note that fields that are to be copied to
 generated addresses should be put in the address_item_propagated structure (see
@@ -514,7 +551,7 @@ typedef struct address_item {
   uschar *local_part;             /* points to cc or lc version */
   uschar *prefix;                 /* stripped prefix of local part */
   uschar *suffix;                 /* stripped suffix of local part */
-  uschar *domain;                 /* working domain (lower cased) */
+  const uschar *domain;           /* working domain (lower cased) */
 
   uschar *address_retry_key;      /* retry key including full address */
   uschar *domain_retry_key;       /* retry key for domain only */
@@ -530,23 +567,87 @@ typedef struct address_item {
   uschar *self_hostname;          /* after self=pass */
   uschar *shadow_message;         /* info about shadow transporting */
 
-  #ifdef SUPPORT_TLS
+#ifdef SUPPORT_TLS
   uschar *cipher;                 /* Cipher used for transport */
+  void   *ourcert;                /* Certificate offered to peer, binary */
+  void   *peercert;               /* Certificate from peer, binary */
   uschar *peerdn;                 /* DN of server's certificate */
-  #endif
+  int    ocsp;			  /* OCSP status of peer cert */
+#endif
+
+#ifdef EXPERIMENTAL_DSN_INFO
+  const uschar *smtp_greeting;	  /* peer self-identification */
+  const uschar *helo_response;	  /* peer message */
+#endif
+
+  uschar *authenticator;	  /* auth driver name used by transport */
+  uschar *auth_id;		  /* auth "login" name used by transport */
+  uschar *auth_sndr;		  /* AUTH arg to SMTP MAIL, used by transport */
+
+  uschar *dsn_orcpt;              /* DSN orcpt value */
+  int     dsn_flags;              /* DSN flags */
+  int     dsn_aware;              /* DSN aware flag */
 
   uid_t   uid;                    /* uid for transporting */
   gid_t   gid;                    /* gid for transporting */
 
-  unsigned int flags;             /* a row of bits, defined above */
+  				  /* flags */
+  struct {
+    BOOL af_allow_file:1;		/* allow file in generated address */
+    BOOL af_allow_pipe:1;		/* allow pipe in generated address */
+    BOOL af_allow_reply:1;		/* allow autoreply in generated address */
+    BOOL af_dr_retry_exists:1;		/* router retry record exists */
+    BOOL af_expand_pipe:1;		/* expand pipe arguments */
+    BOOL af_file:1;			/* file delivery; always with pfr */
+    BOOL af_gid_set:1;			/* gid field is set */
+    BOOL af_home_expanded:1;		/* home_dir is already expanded */
+    BOOL af_initgroups:1;		/* use initgroups() for local transporting */
+    BOOL af_local_host_removed:1;	/* local host was backup */
+    BOOL af_lt_retry_exists:1;		/* local transport retry exists */
+    BOOL af_pfr:1;			/* pipe or file or reply delivery */
+    BOOL af_retry_skipped:1;		/* true if retry caused some skipping */
+    BOOL af_retry_timedout:1;		/* true if retry timed out */
+    BOOL af_uid_set:1;			/* uid field is set */
+    BOOL af_hide_child:1;		/* hide child in bounce/defer msgs */
+    BOOL af_sverify_told:1;		/* sender verify failure notified */
+    BOOL af_verify_pmfail:1;		/* verify failure was postmaster callout */
+    BOOL af_verify_nsfail:1;		/* verify failure was null sender callout */
+    BOOL af_homonym:1;			/* an ancestor has same address */
+    BOOL af_verify_routed:1;		/* for cached sender verify: routed OK */
+    BOOL af_verify_callout:1;		/* for cached sender verify: callout was specified */
+    BOOL af_include_affixes:1;		/* delivered with affixes in RCPT */
+    BOOL af_cert_verified:1;		/* delivered with verified TLS cert */
+    BOOL af_pass_message:1;		/* pass message in bounces */
+    BOOL af_bad_reply:1;		/* filter could not generate autoreply */
+    BOOL af_tcp_fastopen_conn:1;	/* delivery connection used TCP Fast Open */
+    BOOL af_tcp_fastopen:1;		/* delivery usefully used TCP Fast Open */
+    BOOL af_tcp_fastopen_data:1;	/* delivery sent SMTP commands on TCP Fast Open */
+    BOOL af_pipelining:1;		/* delivery used (traditional) pipelining */
+#ifdef EXPERIMENTAL_PIPE_CONNECT
+    BOOL af_early_pipe:1;		/* delivery used connect-time pipelining */
+#endif
+#ifndef DISABLE_PRDR
+    BOOL af_prdr_used:1;		/* delivery used SMTP PRDR */
+#endif
+    BOOL af_chunking_used:1;		/* delivery used SMTP CHUNKING */
+    BOOL af_force_command:1;		/* force_command in pipe transport */
+#ifdef SUPPORT_DANE
+    BOOL af_dane_verified:1;		/* TLS cert verify done with DANE */
+#endif
+#ifdef SUPPORT_I18N
+    BOOL af_utf8_downcvt:1;		/* downconvert was done for delivery */
+#endif
+  } flags;
+
   unsigned int domain_cache[(MAX_NAMED_LIST * 2)/32];
   unsigned int localpart_cache[(MAX_NAMED_LIST * 2)/32];
   int     mode;                   /* mode for local transporting to a file */
   int     more_errno;             /* additional error information */
                                   /* (may need to hold a timestamp) */
+  unsigned int delivery_usec;	  /* subsecond part of delivery time */
 
   short int basic_errno;          /* status after failure */
-  short int child_count;          /* number of child addresses */
+  unsigned short child_count;     /* number of child addresses */
   short int return_file;          /* fileno of return data file */
   short int special_action;       /* ( used when when deferred or failed */
                                   /* (  also  */
@@ -554,7 +655,7 @@ typedef struct address_item {
                                   /* (  also  */
                                   /* ( contains verify rc in sender verify cache */
   short int transport_return;     /* result of delivery attempt */
-  address_item_propagated p;      /* fields that are propagated to children */
+  address_item_propagated prop;   /* fields that are propagated to children */
 } address_item;
 
 /* The table of header names consists of items of this type */
@@ -570,7 +671,7 @@ typedef struct {
 
 typedef struct error_block {
   struct error_block *next;
-  uschar *text1;
+  const uschar *text1;
   uschar *text2;
 } error_block;
 
@@ -615,6 +716,16 @@ typedef struct tree_node {
   uschar  name[1];                /* node name - variable length */
 } tree_node;
 
+/* Structure for holding time-limited data such as DNS returns.
+We use this rather than extending tree_node to avoid wasting
+space for most tree use (variables...) at the cost of complexity
+for the lookups cache */
+
+typedef struct expiring_data {
+  time_t expiry;		  /* if nonzero, data invalid after this time */
+  void   *ptr;			  /* pointer to data */
+} expiring_data;
+
 /* Structure for holding the handle and the cached last lookup for searches.
 This block is pointed to by the tree entry for the file. The file can get
 closed if too many are opened at once. There is a LRU chain for deciding which
@@ -632,26 +743,28 @@ typedef struct search_cache {
 uncompressed, but the data pointer is into the raw data. */
 
 typedef struct {
-  uschar  name[DNS_MAXNAME];      /* domain name */
-  int     type;                   /* record type */
-  int     size;                   /* size of data */
-  uschar *data;                   /* pointer to data */
+  uschar        name[DNS_MAXNAME];      /* domain name */
+  int           type;                   /* record type */
+  unsigned short ttl;		        /* time-to-live, seconds */
+  int           size;                   /* size of data */
+  const uschar *data;                   /* pointer to data */
 } dns_record;
 
-/* Structure for holding the result of a DNS query. */
+/* Structure for holding the result of a DNS query.  A touch over
+64k big, so take care to release as soon as possible. */
 
 typedef struct {
   int     answerlen;              /* length of the answer */
-  uschar  answer[MAXPACKET];      /* the answer itself */
+  uschar  answer[NS_MAXMSG];      /* the answer itself */
 } dns_answer;
 
 /* Structure for holding the intermediate data while scanning a DNS answer
 block. */
 
 typedef struct {
-  int     rrcount;                /* count of RRs in the answer */
-  uschar *aptr;                   /* pointer in the answer while scanning */
-  dns_record srr;                 /* data from current record in scan */
+  int            rrcount;         /* count of RRs in the answer */
+  const uschar *aptr;             /* pointer in the answer while scanning */
+  dns_record     srr;             /* data from current record in scan */
 } dns_scan;
 
 /* Structure for holding a chain of IP addresses that are extracted from
@@ -679,15 +792,30 @@ md5;
 typedef struct sha1 {
   unsigned int H[5];
   unsigned int length;
-  }
-sha1;
+} sha1;
+
+/* Information for making an smtp connection */
+typedef struct {
+  transport_instance *  tblock;
+  void *		ob;	/* smtp_transport_options_block * */
+  host_item *           host;
+  int                   host_af;
+  uschar *              interface;
+} smtp_connect_args;
+
+/* A client-initiated connection. If TLS, the second element is non-NULL */
+typedef struct {
+  int	sock;
+  void * tls_ctx;
+} client_conn_ctx;
+
 
 /* Structure used to hold incoming packets of SMTP responses for a specific
 socket. The packets which may contain multiple lines (and in some cases,
 multiple responses). */
 
 typedef struct smtp_inblock {
-  int     sock;                   /* the socket */
+  client_conn_ctx * cctx;	  /* the connection */
   int     buffersize;             /* the size of the buffer */
   uschar *ptr;                    /* current position in the buffer */
   uschar *ptrend;                 /* end of data in the buffer */
@@ -699,12 +827,14 @@ specific socket. The packets which may contain multiple lines when pipelining
 is in use. */
 
 typedef struct smtp_outblock {
-  int     sock;                   /* the socket */
+  client_conn_ctx * cctx;	  /* the connection */
   int     cmd_count;              /* count of buffered commands */
   int     buffersize;             /* the size of the buffer */
   BOOL    authenticating;         /* TRUE when authenticating */
   uschar *ptr;                    /* current position in the buffer */
   uschar *buffer;                 /* the buffer itself */
+
+  smtp_connect_args * conn_args;  /* to make connection, if not yet made */
 } smtp_outblock;
 
 /* Structure to hold information about the source of redirection information */
@@ -723,9 +853,9 @@ typedef struct redirect_block {
 /* Structure for passing arguments to check_host() */
 
 typedef struct check_host_block {
-  uschar *host_name;
-  uschar *host_address;
-  uschar *host_ipv4;
+  const uschar *host_name;
+  const uschar *host_address;
+  const uschar *host_ipv4;
   BOOL   negative;
 } check_host_block;
 
@@ -741,7 +871,7 @@ typedef struct namedlist_cacheblock {
 /* Structure for holding data for an entry in a named list */
 
 typedef struct namedlist_block {
-  uschar *string;                    /* the list string */
+  const uschar *string;              /* the list string */
   namedlist_cacheblock *cache_data;  /* cached domain_data or localpart_data */
   int number;                        /* the number of the list for caching */
 } namedlist_block;
@@ -763,5 +893,26 @@ typedef struct acl_block {
   acl_condition_block *condition;
   int verb;
 } acl_block;
+
+/* smtp transport calc outbound_ip */
+typedef BOOL (*oicf) (uschar *message_id, void *data);
+
+/* DKIM information for transport */
+struct ob_dkim {
+  uschar *dkim_domain;
+  uschar *dkim_identity;
+  uschar *dkim_private_key;
+  uschar *dkim_selector;
+  uschar *dkim_canon;
+  uschar *dkim_sign_headers;
+  uschar *dkim_strict;
+  uschar *dkim_hash;
+  uschar *dkim_timestamps;
+  BOOL    dot_stuffed;
+  BOOL    force_bodyhash;
+#ifdef EXPERIMENTAL_ARC
+  uschar *arc_signspec;
+#endif
+};
 
 /* End of structs.h */

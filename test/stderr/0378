@@ -27,7 +27,7 @@ defer router skipped: local_parts mismatch
 --------> aaaa_2nd_time router <--------
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
-checking "condition"
+checking "condition" "${if first_delivery{no}{yes}}"...
 aaaa_2nd_time router skipped: condition failure
 --------> aaaa router <--------
 local_part=aaaa domain=myhost.test.ex
@@ -155,8 +155,8 @@ After routing:
   Deferred addresses:
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 LOG: MAIN
   => >CALLER@myhost.test.ex <aaaa@myhost.test.ex> R=aaaa T=t3
 locking TESTSUITE/spool/db/retry.lockfile
@@ -167,8 +167,8 @@ locking TESTSUITE/spool/db/retry.lockfile
 LOG: MAIN
   => TESTSUITE/test-mail/file <aaaa@myhost.test.ex> R=aaaa T=t1
 locking TESTSUITE/spool/db/retry.lockfile
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
@@ -192,7 +192,7 @@ defer router skipped: local_parts mismatch
 --------> aaaa_2nd_time router <--------
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
-checking "condition"
+checking "condition" "${if first_delivery{no}{yes}}"...
 calling aaaa_2nd_time router
 rda_interpret (string): aaaa@$domain
 expanded: aaaa@myhost.test.ex
@@ -309,4 +309,4 @@ After routing:
 locking TESTSUITE/spool/db/retry.lockfile
 LOG: queue_run MAIN
   End queue run: pid=pppp -qf
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

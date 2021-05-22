@@ -1,13 +1,8 @@
 # Exim test configuration 0143
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -18,12 +13,13 @@ domainlist local_domains = test.ex : *.test.ex
 
 begin routers
 
-all:
+my_main_router:
   driver = manualroute
   domains = ! +local_domains
   route_list = * 127.0.0.1
   self = send
-  transport = smtp
+  transport = my_smtp
+  debug_print = router_name <$router_name>
   no_more
 
 
@@ -31,10 +27,11 @@ all:
 
 begin transports
 
-smtp:
+my_smtp:
   driver = smtp
   interface = HOSTIPV4
   port = PORT_S
+  debug_print = transport_name <$transport_name>
 
 
 # End

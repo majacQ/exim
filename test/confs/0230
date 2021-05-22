@@ -2,14 +2,9 @@
 
 SERVER=
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -37,6 +32,14 @@ check_recipient:
 
 begin routers
 
+.ifdef OPT
+to_server:
+  driver = manualroute
+  transport = remote
+  route_list = * 127.0.0.1
+  self = send
+.endif
+
 fail_remote_domains:
   driver = redirect
   domains = ! +local_domains
@@ -58,6 +61,9 @@ local_delivery:
   headers_add = Port: $sender_host_port
   user = CALLER
 
+remote:
+  driver = smtp
+  port = PORT_D
 
 # ----- Retry -----
 

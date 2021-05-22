@@ -2,14 +2,9 @@
 
 SERVER =
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -28,6 +23,9 @@ tls_privatekey = ${if eq {SERVER}{server}{DIR/aux-fixed/cert1}fail}
 tls_verify_hosts = *
 tls_verify_certificates = ${if eq {SERVER}{server}{DIR/aux-fixed/cert2}fail}
 
+.ifdef _OPT_OPENSSL_NO_TLSV1_3_X
+openssl_options = +no_tlsv1_3
+.endif
 
 # ----- Routers -----
 
@@ -52,7 +50,7 @@ send_to_server:
   port = PORT_D
   tls_certificate = DIR/aux-fixed/cert2
   tls_privatekey = DIR/aux-fixed/cert2
-  tls_require_ciphers = IDEA-CBC-MD5 \
-    ${if eq{$host_address}{127.0.0.1}{:DES-CBC3-SHA:RSA_ARCFOUR_SHA}}
+  tls_require_ciphers = IDEA-CBC-MD5:\
+    ${if eq{$host_address}{127.0.0.1}{:AES256-SHA:RSA_ARCFOUR_SHA}}
 
 # End
