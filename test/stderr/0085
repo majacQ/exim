@@ -81,8 +81,8 @@ smart1 router called for x@smart.domain
   domain = smart.domain
 route_item = *
 smart.domain in "*"? yes (matched "*")
-original list of hosts = "" options = 
-expanded list of hosts = "" options = 
+original list of hosts = '' options = ''
+expanded list of hosts = '' options = ''
 queued for <unset> transport: local_part = x
 domain = smart.domain
   errors_to=NULL
@@ -196,7 +196,7 @@ myhost.test.ex in "test.ex"? no (end of list)
 smart2 router skipped: domains mismatch
 no more routers
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=2 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=2 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -367,4 +367,4 @@ myhost.test.ex in "test.ex"? no (end of list)
 smart2 router skipped: domains mismatch
 no more routers
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=2 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=2 >>>>>>>>>>>>>>>>

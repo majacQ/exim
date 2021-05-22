@@ -18,7 +18,10 @@
 # Version 1.2
 
 use strict;
+BEGIN { pop @INC if $INC[-1] eq '.' };
+
 use Getopt::Std;
+use File::Basename;
 
 # Have this variable point to your exim binary.
 my $exim = 'BIN_DIRECTORY/exim';
@@ -43,8 +46,18 @@ if ($^O eq 'darwin') { # aka MacOS X
   $base = 62;
 };
 
-getopts('hf:r:y:o:s:zxlibRc',\%opt);
+if ($ARGV[0] eq '--version') {
+    print basename($0) . ": $0\n",
+        "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+        "perl(runtime): $]\n";
+        exit 0;
+}
+
+getopts('hf:r:y:o:s:C:zxlibRca',\%opt);
+if ($ARGV[0]) { &help; exit;}
 if ($opt{h}) { &help; exit;}
+if ($opt{a}) { $eargs = '-bp'; }
+if ($opt{C} && -e $opt{C} && -f $opt{C} && -R $opt{C}) { $eargs .= ' -C '.$opt{C}; }
 
 # Read message queue output into hash
 &collect();
@@ -60,6 +73,7 @@ sub help() {
 Exim message queue display utility.
 
 	-h		This help message.
+	-C		Specify which exim.conf to use.
 
 Selection criteria:
 	-f <regexp>	Match sender address sender (field is "< >" wrapped)
@@ -78,11 +92,12 @@ Display options:
 	-i		Message IDs only
 	-b		Brief Format
 	-R		Reverse order
+	-a		All recipients (including delivered)
 EOF
 }
 
 sub collect() {
-	open(QUEUE,"$exim $eargs |") or die("Error openning pipe: $!\n");
+	open(QUEUE,"$exim $eargs |") or die("Error opening pipe: $!\n");
 	while(<QUEUE>) {
 		chomp();
 		my $line = $_;

@@ -3,8 +3,12 @@
 # This script outputs certain information about the environment, for use when
 # testing pipe transports.
 
+cmd=/usr/xpg4/bin/id
+[ -x $cmd ] || cmd=id
+name=`$cmd -un`
+
 echo Test pipe script
-echo Running as: `whoami`
+echo Running as: $name
 echo ------------------
 echo Args:
 while [ "$1" != "" ]; do

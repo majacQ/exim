@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This code originally came from Robert Wal. */
@@ -36,7 +36,7 @@ return (void *)(1);    /* Just return something non-null */
 
 static int
 whoson_find(void *handle, uschar *filename, uschar *query, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 uschar buffer[80];
 handle = handle;          /* Keep picky compilers happy */

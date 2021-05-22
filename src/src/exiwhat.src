@@ -15,6 +15,7 @@
 # EXIWHAT_EGREP_ARG
 # EXIWHAT_MULTIKILL_CMD
 # EXIWHAT_MULTIKILL_ARG
+# RM_COMMAND
 
 # PROCESSED_FLAG
 
@@ -28,6 +29,8 @@
 # without rebuilding things, as long are you are careful not to overwrite
 # the script in the next Exim rebuild/install. However, it's best to
 # arrange your build-time configuration file to get the correct values.
+
+rm=RM_COMMAND
 
 # Some operating systems have a command that finds processes that match
 # certain conditions (by default usually those running specific commands)
@@ -51,6 +54,13 @@ signal=EXIWHAT_KILL_SIGNAL
 
 # See if this installation is using the esoteric "USE_NODE" feature of Exim,
 # in which it uses the host's name as a suffix for the configuration file name.
+
+if test "x$1" = x--version
+then
+    echo "`basename $0`: $0"
+    echo "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION"
+    exit 0
+fi
 
 if [ "CONFIGURE_FILE_USE_NODE" = "yes" ]; then
   hostsuffix=.`uname -n`
@@ -103,7 +113,7 @@ fi
 
 # Now do the job.
 
-/bin/rm -f ${log}
+$rm -f ${log}
 if [ -f ${log} ]; then
   echo "** Failed to remove ${log}"
   exit 1

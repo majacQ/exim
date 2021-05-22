@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -43,6 +43,20 @@ address can appear in the tables drtables.c. */
 
 int iplookup_router_options_count =
   sizeof(iplookup_router_options)/sizeof(optionlist);
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+iplookup_router_options_block iplookup_router_option_defaults = {0};
+void iplookup_router_init(router_instance *rblock) {}
+int iplookup_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
 
 /* Default private options block for the iplookup router. */
 
@@ -143,7 +157,8 @@ iplookup_router_entry(
 {
 uschar *query = NULL;
 uschar *reply;
-uschar *hostname, *reroute, *domain, *listptr;
+uschar *hostname, *reroute, *domain;
+const uschar *listptr;
 uschar host_buffer[256];
 host_item *host = store_get(sizeof(host_item));
 address_item *new_addr;
@@ -190,7 +205,7 @@ being a host list. */
 
 listptr = ob->hosts;
 while ((hostname = string_nextinlist(&listptr, &sep, host_buffer,
-       sizeof(host_buffer))) != NULL)
+       sizeof(host_buffer))))
   {
   host_item *h;
 
@@ -206,27 +221,30 @@ while ((hostname = string_nextinlist(&listptr, &sep, host_buffer,
     host->address = host->name;
   else
     {
+/*XXX might want dnssec request/require on an iplookup router? */
     int rc = host_find_byname(host, NULL, HOST_FIND_QUALIFY_SINGLE, NULL, TRUE);
     if (rc == HOST_FIND_FAILED || rc == HOST_FIND_AGAIN) continue;
     }
 
   /* Loop for possible multiple IP addresses for the given name. */
 
-  for (h = host; h != NULL; h = h->next)
+  for (h = host; h; h = h->next)
     {
-    int host_af, query_socket;
+    int host_af;
+    client_conn_ctx query_cctx = {0};
 
     /* Skip any hosts for which we have no address */
 
-    if (h->address == NULL) continue;
+    if (!h->address) continue;
 
     /* Create a socket, for UDP or TCP, as configured. IPv6 addresses are
     detected by checking for a colon in the address. */
 
     host_af = (Ustrchr(h->address, ':') != NULL)? AF_INET6 : AF_INET;
-    query_socket = ip_socket((ob->protocol == ip_udp)? SOCK_DGRAM:SOCK_STREAM,
+
+    query_cctx.sock = ip_socket(ob->protocol == ip_udp ? SOCK_DGRAM:SOCK_STREAM,
       host_af);
-    if (query_socket < 0)
+    if (query_cctx.sock < 0)
       {
       if (ob->optional) return PASS;
       addr->message = string_sprintf("failed to create socket in %s router",
@@ -237,10 +255,12 @@ while ((hostname = string_nextinlist(&listptr, &sep, host_buffer,
     /* Connect to the remote host, under a timeout. In fact, timeouts can occur
     here only for TCP calls; for a UDP socket, "connect" always works (the
     router will timeout later on the read call). */
+/*XXX could take advantage of TFO */
 
-    if (ip_connect(query_socket, host_af, h->address,ob->port, ob->timeout) < 0)
+    if (ip_connect(query_cctx.sock, host_af, h->address,ob->port, ob->timeout,
+		ob->protocol == ip_udp ? NULL : &tcp_fastopen_nodata) < 0)
       {
-      close(query_socket);
+      close(query_cctx.sock);
       DEBUG(D_route)
         debug_printf("connection to %s failed: %s\n", h->address,
           strerror(errno));
@@ -249,18 +269,18 @@ while ((hostname = string_nextinlist(&listptr, &sep, host_buffer,
 
     /* Send the query. If it fails, just continue with the next address. */
 
-    if (send(query_socket, query, query_len, 0) < 0)
+    if (send(query_cctx.sock, query, query_len, 0) < 0)
       {
       DEBUG(D_route) debug_printf("send to %s failed\n", h->address);
-      (void)close(query_socket);
+      (void)close(query_cctx.sock);
       continue;
       }
 
     /* Read the response and close the socket. If the read fails, try the
     next IP address. */
 
-    count = ip_recv(query_socket, reply, sizeof(reply) - 1, ob->timeout);
-    (void)close(query_socket);
+    count = ip_recv(&query_cctx, reply, sizeof(reply) - 1, ob->timeout);
+    (void)close(query_cctx.sock);
     if (count <= 0)
       {
       DEBUG(D_route) debug_printf("%s from %s\n", (errno == ETIMEDOUT)?
@@ -280,7 +300,7 @@ while ((hostname = string_nextinlist(&listptr, &sep, host_buffer,
   /* If h == NULL we have tried all the IP addresses and failed on all of them,
   so we must continue to try more host names. Otherwise we have succeeded. */
 
-  if (h != NULL) break;
+  if (h) break;
   }
 
 
@@ -375,27 +395,27 @@ the chain of new addressess. */
 new_addr = deliver_make_addr(reroute, TRUE);
 new_addr->parent = addr;
 
-copyflag(new_addr, addr, af_propagate);
-new_addr->p = addr->p;
+new_addr->prop = addr->prop;
 
-if (addr->child_count == SHRT_MAX)
+if (addr->child_count == USHRT_MAX)
   log_write(0, LOG_MAIN|LOG_PANIC_DIE, "%s router generated more than %d "
-    "child addresses for <%s>", rblock->name, SHRT_MAX, addr->address);
+    "child addresses for <%s>", rblock->name, USHRT_MAX, addr->address);
 addr->child_count++;
 new_addr->next = *addr_new;
 *addr_new = new_addr;
 
-/* Set up the errors address, if any, and the additional and removeable headers
+/* Set up the errors address, if any, and the additional and removable headers
 for this new address. */
 
-rc = rf_get_errors_address(addr, rblock, verify, &(new_addr->p.errors_address));
+rc = rf_get_errors_address(addr, rblock, verify, &new_addr->prop.errors_address);
 if (rc != OK) return rc;
 
-rc = rf_get_munge_headers(addr, rblock, &(new_addr->p.extra_headers),
-  &(new_addr->p.remove_headers));
+rc = rf_get_munge_headers(addr, rblock, &new_addr->prop.extra_headers,
+  &new_addr->prop.remove_headers);
 if (rc != OK) return rc;
 
 return OK;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/iplookup.c */

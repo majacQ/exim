@@ -7,9 +7,14 @@ X-Failed-Recipients: userx@domain1
 Auto-Submitted: auto-replied
 From: Mail Delivery System <Mailer-Daemon@test.ex>
 To: CALLER@test.ex
+Content-Type: multipart/report; report-type=delivery-status; boundary=NNNNNNNNNN-eximdsn-MMMMMMMMMM
+MIME-Version: 1.0
 Subject: Mail delivery failed: returning message to sender
 Message-Id: <E10HmaY-0005vi-00@the.local.host.name>
 Date: Tue, 2 Mar 1999 09:44:33 +0000
+
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM
+Content-type: text/plain; charset=us-ascii
 
 This message was created automatically by mail delivery software.
 
@@ -17,10 +22,23 @@ A message that you sent could not be delivered to one or more of its
 recipients. This is a permanent error. The following address(es) failed:
 
   userx@domain1
+  host localhost4.test.ex [127.0.0.1]
     SMTP error from remote mail server after initial connection:
-  host 127.0.0.1 [127.0.0.1]: 550 Go away
+    550 Go away (A)
 
------- This is a copy of the message, including all the headers. ------
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM
+Content-type: message/delivery-status
+
+Reporting-MTA: dns; the.local.host.name
+
+Action: failed
+Final-Recipient: rfc822;userx@domain1
+Status: 5.0.0
+Remote-MTA: dns; localhost4.test.ex
+Diagnostic-Code: smtp; 550 Go away (A)
+
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM
+Content-type: message/rfc822
 
 Return-path: <CALLER@test.ex>
 Received: from CALLER by the.local.host.name with local (Exim x.yz)
@@ -33,6 +51,8 @@ Date: Tue, 2 Mar 1999 09:44:33 +0000
 
 Test message 1
 
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM--
+
 From MAILER-DAEMON Tue Mar 02 09:44:33 1999
 Return-path: <>
 Received: from EXIMUSER by the.local.host.name with local (Exim x.yz)
@@ -43,9 +63,14 @@ X-Failed-Recipients: usery@domain2,
 Auto-Submitted: auto-replied
 From: Mail Delivery System <Mailer-Daemon@test.ex>
 To: CALLER@test.ex
+Content-Type: multipart/report; report-type=delivery-status; boundary=NNNNNNNNNN-eximdsn-MMMMMMMMMM
+MIME-Version: 1.0
 Subject: Mail delivery failed: returning message to sender
 Message-Id: <E10HmbA-0005vi-00@the.local.host.name>
 Date: Tue, 2 Mar 1999 09:44:33 +0000
+
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM
+Content-type: text/plain; charset=us-ascii
 
 This message was created automatically by mail delivery software.
 
@@ -53,13 +78,33 @@ A message that you sent could not be delivered to one or more of its
 recipients. This is a permanent error. The following address(es) failed:
 
   usery@domain2
+  host localhost4.test.ex [127.0.0.1]
     SMTP error from remote mail server after HELO the.local.host.name:
-  host 127.0.0.1 [127.0.0.1]: 550 Go away
+    550 Go away (C)
   userx@domain1
+  host localhost4.test.ex [127.0.0.1]
     SMTP error from remote mail server after HELO the.local.host.name:
-  host 127.0.0.1 [127.0.0.1]: 550 Go away
+    550 Go away (C)
 
------- This is a copy of the message, including all the headers. ------
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM
+Content-type: message/delivery-status
+
+Reporting-MTA: dns; the.local.host.name
+
+Action: failed
+Final-Recipient: rfc822;userx@domain1
+Status: 5.0.0
+Remote-MTA: dns; localhost4.test.ex
+Diagnostic-Code: smtp; 550 Go away (C)
+
+Action: failed
+Final-Recipient: rfc822;usery@domain2
+Status: 5.0.0
+Remote-MTA: dns; localhost4.test.ex
+Diagnostic-Code: smtp; 550 Go away (C)
+
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM
+Content-type: message/rfc822
 
 Return-path: <CALLER@test.ex>
 Received: from CALLER by the.local.host.name with local (Exim x.yz)
@@ -70,4 +115,6 @@ From: CALLER_NAME <CALLER@test.ex>
 Date: Tue, 2 Mar 1999 09:44:33 +0000
 
 Test message 2
+
+--NNNNNNNNNN-eximdsn-MMMMMMMMMM--
 

@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -35,7 +35,8 @@ Arguments:
   rblock               the router block
   addr                 the address being routed
   ignore_target_hosts  list of hosts to ignore
-  lookup_type          lk_default or lk_byname or lk_bydns
+  lookup_type          LK_DEFAULT or LK_BYNAME or LK_BYDNS,
+		       plus LK_IPV4_{ONLY,PREFER}
   hff_code             what to do for host find failed
   addr_new             passed to rf_self_action for self=reroute
 
@@ -61,14 +62,13 @@ host, omit it and any subsequent hosts - i.e. treat the list like an ordered
 list of MX hosts. If the first host is the local host, act according to the
 "self" option in the configuration. */
 
-prev = NULL;
-for (h = addr->host_list; h != NULL; h = next_h)
+for (prev = NULL, h = addr->host_list; h; h = next_h)
   {
-  uschar *canonical_name;
-  int rc, len, port;
+  const uschar *canonical_name;
+  int rc, len, port, mx, sort_key;
 
   next_h = h->next;
-  if (h->address != NULL) { prev = h; continue; }
+  if (h->address) { prev = h; continue; }
 
   DEBUG(D_route|D_host_lookup)
     debug_printf("finding IP address for %s\n", h->name);
@@ -78,30 +78,45 @@ for (h = addr->host_list; h != NULL; h = next_h)
 
   port = host_item_get_port(h);
 
+  /* Store the previous mx and sort_key values, which were assigned in
+  host_build_hostlist and will be overwritten by host_find_bydns. */
+
+  mx = h->mx;
+  sort_key = h->sort_key;
+
   /* If the name ends with "/MX", we interpret it to mean "the list of hosts
-  pointed to by MX records with this name". */
+  pointed to by MX records with this name", and the MX record values override
+  the ordering from host_build_hostlist. */
 
   len = Ustrlen(h->name);
   if (len > 3 && strcmpic(h->name + len - 3, US"/mx") == 0)
     {
+    int whichrrs = lookup_type & LK_IPV4_ONLY
+      ? HOST_FIND_BY_MX | HOST_FIND_IPV4_ONLY
+      : lookup_type & LK_IPV4_PREFER
+      ? HOST_FIND_BY_MX | HOST_FIND_IPV4_FIRST
+      : HOST_FIND_BY_MX;
+
     DEBUG(D_route|D_host_lookup)
       debug_printf("doing DNS MX lookup for %s\n", h->name);
 
+    mx = MX_NONE;
     h->name = string_copyn(h->name, len - 3);
     rc = host_find_bydns(h,
         ignore_target_hosts,
-        HOST_FIND_BY_MX,                /* look only for MX records */
-        NULL,                           /* SRV service not relevant */
-        NULL,                           /* failing srv domains not relevant */
-        NULL,                           /* no special mx failing domains */
-        NULL,                           /* fully_qualified_name */
-        NULL);                          /* indicate local host removed */
+        whichrrs,			/* look only for MX records */
+        NULL,				/* SRV service not relevant */
+        NULL,				/* failing srv domains not relevant */
+        NULL,				/* no special mx failing domains */
+        &rblock->dnssec,		/* dnssec request/require */
+        NULL,				/* fully_qualified_name */
+        NULL);				/* indicate local host removed */
     }
 
   /* If explicitly configured to look up by name, or if the "host name" is
   actually an IP address, do a byname lookup. */
 
-  else if (lookup_type == lk_byname || string_is_ip_address(h->name, NULL) != 0)
+  else if (lookup_type & LK_BYNAME || string_is_ip_address(h->name, NULL) != 0)
     {
     DEBUG(D_route|D_host_lookup) debug_printf("calling host_find_byname\n");
     rc = host_find_byname(h, ignore_target_hosts, HOST_FIND_QUALIFY_SINGLE,
@@ -115,27 +130,41 @@ for (h = addr->host_list; h != NULL; h = next_h)
   else
     {
     BOOL removed;
+    int whichrrs = lookup_type & LK_IPV4_ONLY
+      ? HOST_FIND_BY_A
+      : lookup_type & LK_IPV4_PREFER
+      ? HOST_FIND_BY_A | HOST_FIND_BY_AAAA | HOST_FIND_IPV4_FIRST
+      : HOST_FIND_BY_A | HOST_FIND_BY_AAAA;
+
     DEBUG(D_route|D_host_lookup) debug_printf("doing DNS lookup\n");
-    rc = host_find_bydns(h, ignore_target_hosts, HOST_FIND_BY_A, NULL, NULL,
-      NULL, &canonical_name, &removed);
-    if (rc == HOST_FOUND)
+    switch (rc = host_find_bydns(h, ignore_target_hosts, whichrrs, NULL,
+	NULL, NULL,
+	&rblock->dnssec,			/* domains for request/require */
+	&canonical_name, &removed))
       {
-      if (removed) setflag(addr, af_local_host_removed);
-      }
-    else if (rc == HOST_FIND_FAILED)
-      {
-      if (lookup_type == lk_default)
-        {
-        DEBUG(D_route|D_host_lookup)
-          debug_printf("DNS lookup failed: trying getipnodebyname\n");
-        rc = host_find_byname(h, ignore_target_hosts, HOST_FIND_QUALIFY_SINGLE,
-          &canonical_name, TRUE);
-        }
+      case HOST_FOUND:
+        if (removed) setflag(addr, af_local_host_removed);
+	break;
+      case HOST_FIND_FAILED:
+	if (lookup_type & LK_DEFAULT)
+	  {
+	  DEBUG(D_route|D_host_lookup)
+	    debug_printf("DNS lookup failed: trying getipnodebyname\n");
+	  rc = host_find_byname(h, ignore_target_hosts, HOST_FIND_QUALIFY_SINGLE,
+	    &canonical_name, TRUE);
+	  }
+	break;
       }
     }
 
   /* Temporary failure defers, unless pass_on_timeout is set */
 
+  if (rc == HOST_FIND_SECURITY)
+    {
+    addr->message = string_sprintf("host lookup for %s done insecurely" , h->name);
+    addr->basic_errno = ERRNO_DNSDEFER;
+    return DEFER;
+    }
   if (rc == HOST_FIND_AGAIN)
     {
     if (rblock->pass_on_timeout)
@@ -164,10 +193,11 @@ for (h = addr->host_list; h != NULL; h = next_h)
     if (hff_code == hff_pass) return PASS;
     if (hff_code == hff_decline) return DECLINE;
 
+    addr->basic_errno = ERRNO_UNKNOWNHOST;
     addr->message =
       string_sprintf("lookup of host \"%s\" failed in %s router%s",
         h->name, rblock->name,
-        host_find_failed_syntax? ": syntax error in name" : "");
+        f.host_find_failed_syntax? ": syntax error in name" : "");
 
     if (hff_code == hff_defer) return DEFER;
     if (hff_code == hff_fail) return FAIL;
@@ -176,12 +206,23 @@ for (h = addr->host_list; h != NULL; h = next_h)
     return DEFER;
     }
 
-  /* Deal with a port setting */
+  /* Deal with the settings that were previously cleared:
+  port, mx and sort_key. */
 
   if (port != PORT_NONE)
     {
     host_item *hh;
     for (hh = h; hh != next_h; hh = hh->next) hh->port = port;
+    }
+
+  if (mx != MX_NONE)
+    {
+    host_item *hh;
+    for (hh = h; hh != next_h; hh = hh->next)
+      {
+      hh->mx = mx;
+      hh->sort_key = sort_key;
+      }
     }
 
   /* A local host gets chopped, with its successors, if there are previous
@@ -190,7 +231,7 @@ for (h = addr->host_list; h != NULL; h = next_h)
 
   if (rc == HOST_FOUND_LOCAL && !self_send)
     {
-    if (prev != NULL)
+    if (prev)
       {
       DEBUG(D_route)
         {

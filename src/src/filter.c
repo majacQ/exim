@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -91,7 +91,7 @@ static const char *mailargs[] = {  /* "to" must be first, and */
 
 /* The count of string arguments */
 
-#define MAILARGS_STRING_COUNT (sizeof(mailargs)/sizeof(uschar *))
+#define MAILARGS_STRING_COUNT (nelem(mailargs))
 
 /* The count of string arguments that are actually passed over as strings
 (once_repeat is converted to an int). */
@@ -185,7 +185,7 @@ static const char *cond_words[] = {
    "match",
    "matches"};
 
-static int cond_word_count = (sizeof(cond_words)/sizeof(uschar *));
+static int cond_word_count = nelem(cond_words);
 
 static int cond_types[] = { cond_BEGINS, cond_BEGINS, cond_CONTAINS,
   cond_CONTAINS, cond_ENDS, cond_ENDS, cond_IS, cond_MATCHES, cond_MATCHES,
@@ -207,7 +207,7 @@ static const char *command_list[] = {
   "noerror", "pipe",    "save",    "seen", "testprint", "unseen",   "vacation"
 };
 
-static int command_list_count = sizeof(command_list)/sizeof(uschar *);
+static int command_list_count = nelem(command_list);
 
 /* This table contains the number of expanded arguments in the bottom 4 bits.
 If the top bit is set, it means that the default for the command is "seen". */
@@ -355,7 +355,7 @@ while (*(++ptr) != 0 && *ptr != '\"' && *ptr != '\n')
         }
       }
 
-    *bp++ = string_interpret_escape(&ptr);
+    *bp++ = string_interpret_escape(CUSS &ptr);
     }
   }
 
@@ -519,14 +519,14 @@ for (;;)
         string_item *aa;
         uschar *saveptr = ptr;
         ptr = nextword(ptr, buffer, sizeof(buffer), TRUE);
-        if (*error_pointer != NULL) break;
+        if (*error_pointer) break;
         if (Ustrcmp(buffer, "alias") != 0)
           {
           ptr = saveptr;
           break;
           }
         ptr = nextitem(ptr, buffer, sizeof(buffer), TRUE);
-        if (*error_pointer != NULL) break;
+        if (*error_pointer) break;
         aa = store_get(sizeof(string_item));
         aa->text = string_copy(buffer);
         aa->next = c->left.a;
@@ -540,7 +540,7 @@ for (;;)
     else if (Ustrcmp(buffer, "foranyaddress") == 0)
       {
       ptr = nextitem(ptr, buffer, sizeof(buffer), TRUE);
-      if (*error_pointer != NULL) break;
+      if (*error_pointer) break;
       if (*ptr != '(')
         {
         *error_pointer = string_sprintf("\"(\" expected after \"foranyaddress\" "
@@ -552,17 +552,12 @@ for (;;)
       c->left.u = string_copy(buffer);
 
       ptr = read_condition(nextsigchar(ptr+1, TRUE), &(c->right.c), FALSE);
-      if (*error_pointer != NULL) break;
+      if (*error_pointer) break;
       if (*ptr != ')')
         {
         *error_pointer = string_sprintf("expected \")\" in line %d of "
           "filter file", line_number);
         break;
-        }
-      if (!testfor)
-        {
-        c->testfor = !c->testfor;
-        testfor = TRUE;
         }
       ptr = nextsigchar(ptr+1, TRUE);
       }
@@ -577,7 +572,7 @@ for (;;)
 
       c->left.u = string_copy(buffer);
       ptr = nextword(ptr, buffer, sizeof(buffer), TRUE);
-      if (*error_pointer != NULL) break;
+      if (*error_pointer) break;
 
       /* Handle "does|is [not]", preserving the pointer after "is" in
       case it isn't that, but the form "is <string>". */
@@ -588,13 +583,13 @@ for (;;)
         if (buffer[0] == 'I') { c->type = cond_IS; isptr = ptr; }
 
         ptr = nextword(ptr, buffer, sizeof(buffer), TRUE);
-        if (*error_pointer != NULL) break;
+        if (*error_pointer) break;
         if (strcmpic(buffer, US"not") == 0)
           {
           c->testfor = !c->testfor;
-          if (isptr != NULL) isptr = ptr;
+          if (isptr) isptr = ptr;
           ptr = nextword(ptr, buffer, sizeof(buffer), TRUE);
-          if (*error_pointer != NULL) break;
+          if (*error_pointer) break;
           }
         }
 
@@ -612,22 +607,19 @@ for (;;)
 
       if (i >= cond_word_count)
         {
-        if (isptr != NULL)
-          {
-          ptr = isptr;
-          }
-        else
+        if (!isptr)
           {
           *error_pointer = string_sprintf("unrecognized condition word \"%s\" "
             "near line %d of filter file", buffer, line_number);
           break;
           }
+        ptr = isptr;
         }
 
       /* Get the RH argument. */
 
       ptr = nextitem(ptr, buffer, sizeof(buffer), TRUE);
-      if (*error_pointer != NULL) break;
+      if (*error_pointer) break;
       c->right.u = string_copy(buffer);
       }
     }
@@ -664,7 +656,7 @@ for (;;)
     {
     uschar *saveptr = ptr;
     ptr = nextword(ptr, buffer, sizeof(buffer), FALSE);
-    if (*error_pointer != NULL) break;
+    if (*error_pointer) break;
 
     /* "Then" terminates a toplevel condition; otherwise a closing bracket
     has been omitted. Put a string terminator at the start of "then" so
@@ -673,7 +665,7 @@ for (;;)
     if (Ustrcmp(buffer, "then") == 0)
       {
       if (toplevel) *saveptr = 0;
-        else *error_pointer = string_sprintf("missing \")\" at end of "
+      else *error_pointer = string_sprintf("missing \")\" at end of "
           "condition near line %d of filter file", line_number);
       break;
       }
@@ -707,21 +699,21 @@ for (;;)
       condition_block *orc = store_get(sizeof(condition_block));
       condition_block *or_parent = NULL;
 
-      if (current_parent != NULL)
+      if (current_parent)
         {
-        while (current_parent->parent != NULL &&
+        while (current_parent->parent &&
                current_parent->parent->type == cond_and)
           current_parent = current_parent->parent;
 
         /* If the parent has a parent, it must be an "or" parent. */
 
-        if (current_parent->parent != NULL)
+        if (current_parent->parent)
           or_parent = current_parent->parent;
         }
 
       orc->parent = or_parent;
-      if (or_parent == NULL) *cond = orc; else
-        or_parent->right.c = orc;
+      if (!or_parent) *cond = orc;
+      else or_parent->right.c = orc;
       orc->type = cond_or;
       orc->testfor = TRUE;
       orc->left.c = (current_parent == NULL)? c : current_parent;
@@ -748,7 +740,7 @@ return nextsigchar(ptr, TRUE);
 
 
 /*************************************************
-*             Ouput the current indent           *
+*             Output the current indent          *
 *************************************************/
 
 static void
@@ -958,7 +950,7 @@ switch (command)
         yield = FALSE;
         }
 
-      if (!system_filtering && second_argument.b != TRUE_UNSET)
+      if (!f.system_filtering && second_argument.b != TRUE_UNSET)
         {
         *error_pointer = string_sprintf("header addition and removal is "
           "available only in system filters: near line %d of filter file",
@@ -1378,7 +1370,7 @@ return yield;
 *              Read a list of commands           *
 *************************************************/
 
-/* If condional is TRUE, the list must be terminated
+/* If conditional is TRUE, the list must be terminated
 by the words "else" or "endif".
 
 Arguments:
@@ -1460,7 +1452,7 @@ switch (c->type)
   scan Cc: (hence the FALSE argument). */
 
   case cond_personal:
-  yield = system_filtering? FALSE : filter_personal(c->left.a, FALSE);
+  yield = f.system_filtering? FALSE : filter_personal(c->left.a, FALSE);
   break;
 
   case cond_delivered:
@@ -1479,14 +1471,14 @@ switch (c->type)
   and filter testing and verification. */
 
   case cond_firsttime:
-  yield = filter_test != FTEST_NONE || message_id[0] == 0 || deliver_firsttime;
+  yield = filter_test != FTEST_NONE || message_id[0] == 0 || f.deliver_firsttime;
   break;
 
   /* Only TRUE if a message is actually being processed; FALSE for address
   testing and verification. */
 
   case cond_manualthaw:
-  yield = message_id[0] != 0 && deliver_manual_thaw;
+  yield = message_id[0] != 0 && f.deliver_manual_thaw;
   break;
 
   /* The foranyaddress condition loops through a list of addresses */
@@ -1502,7 +1494,7 @@ switch (c->type)
     }
 
   yield = FALSE;
-  parse_allow_group = TRUE;     /* Allow group syntax */
+  f.parse_allow_group = TRUE;     /* Allow group syntax */
 
   while (*pp != 0)
     {
@@ -1534,8 +1526,8 @@ switch (c->type)
     pp = p + 1;
     }
 
-  parse_allow_group = FALSE;      /* Reset group syntax flags */
-  parse_found_group = FALSE;
+  f.parse_allow_group = FALSE;      /* Reset group syntax flags */
+  f.parse_found_group = FALSE;
   break;
 
   /* All other conditions have left and right values that need expanding;
@@ -1782,7 +1774,7 @@ while (commands != NULL)
 
     s = expargs[1];
 
-    if (s != NULL && !system_filtering)
+    if (s != NULL && !f.system_filtering)
       {
       uschar *ownaddress = expand_string(US"$local_part@$domain");
       if (strcmpic(ownaddress, s) != 0)
@@ -1821,9 +1813,9 @@ while (commands != NULL)
       set in a system filter and to the local address in user filters. */
 
       addr = deliver_make_addr(expargs[0], TRUE);  /* TRUE => copy s */
-      addr->p.errors_address = (s == NULL)?
+      addr->prop.errors_address = (s == NULL)?
         s : string_copy(s);                        /* Default is NULL */
-      if (commands->noerror) setflag(addr, af_ignore_error);
+      if (commands->noerror) addr->prop.ignore_error = TRUE;
       addr->next = *generated;
       *generated = addr;
       }
@@ -1863,8 +1855,9 @@ while (commands != NULL)
       mode value. */
 
       addr = deliver_make_addr(s, TRUE);  /* TRUE => copy s */
-      setflag(addr, af_pfr|af_file);
-      if (commands->noerror) setflag(addr, af_ignore_error);
+      setflag(addr, af_pfr);
+      setflag(addr, af_file);
+      if (commands->noerror) addr->prop.ignore_error = TRUE;
       addr->mode = mode;
       addr->next = *generated;
       *generated = addr;
@@ -1892,8 +1885,9 @@ while (commands != NULL)
       has been split up into separate arguments. */
 
       addr = deliver_make_addr(s, TRUE);  /* TRUE => copy s */
-      setflag(addr, af_pfr|af_expand_pipe);
-      if (commands->noerror) setflag(addr, af_ignore_error);
+      setflag(addr, af_pfr);
+      setflag(addr, af_expand_pipe);
+      if (commands->noerror) addr->prop.ignore_error = TRUE;
       addr->next = *generated;
       *generated = addr;
 
@@ -2021,7 +2015,7 @@ while (commands != NULL)
         {
         int sep = 0;
         uschar *ss;
-        uschar *list = s;
+        const uschar *list = s;
         uschar buffer[128];
         while ((ss = string_nextinlist(&list, &sep, buffer, sizeof(buffer)))
                != NULL)
@@ -2057,7 +2051,7 @@ while (commands != NULL)
     DEFERFREEZEFAIL:
     fmsg = expargs[0];
     if (Ustrlen(fmsg) > 1024) Ustrcpy(fmsg + 1000, " ... (truncated)");
-    fmsg = string_printing(fmsg);
+    fmsg = US string_printing(fmsg);
     *error_pointer = fmsg;
 
     if (filter_test != FTEST_NONE)
@@ -2107,256 +2101,252 @@ while (commands != NULL)
 
     case mail_command:
     case vacation_command:
-    if (return_path == NULL || return_path[0] == 0)
-      {
+      if (return_path == NULL || return_path[0] == 0)
+	{
+	if (filter_test != FTEST_NONE)
+	  printf("%s command ignored because return_path is empty\n",
+	    command_list[commands->command]);
+	else DEBUG(D_filter) debug_printf("%s command ignored because return_path "
+	  "is empty\n", command_list[commands->command]);
+	break;
+	}
+
+      /* Check the contents of the strings. The type of string can be deduced
+      from the value of i.
+
+      . If i is equal to mailarg_index_text it's a text string for the body,
+	where anything goes.
+
+      . If i is > mailarg_index_text, we are dealing with a file name, which
+	cannot contain non-printing characters.
+
+      . If i is less than mailarg_index_headers we are dealing with something
+	that will go in a single message header line, where newlines must be
+	followed by white space.
+
+      . If i is equal to mailarg_index_headers, we have a string that contains
+	one or more headers. Newlines that are not followed by white space must
+	be followed by a header name.
+      */
+
+      for (i = 0; i < MAILARGS_STRING_COUNT; i++)
+	{
+	uschar *p;
+	uschar *s = expargs[i];
+
+	if (s == NULL) continue;
+
+	if (i != mailarg_index_text) for (p = s; *p != 0; p++)
+	  {
+	  int c = *p;
+	  if (i > mailarg_index_text)
+	    {
+	    if (!mac_isprint(c))
+	      {
+	      *error_pointer = string_sprintf("non-printing character in \"%s\" "
+		"in %s command", string_printing(s),
+		command_list[commands->command]);
+	      return FF_ERROR;
+	      }
+	    }
+
+	  /* i < mailarg_index_text */
+
+	  else if (c == '\n' && !isspace(p[1]))
+	    {
+	    if (i < mailarg_index_headers)
+	      {
+	      *error_pointer = string_sprintf("\\n not followed by space in "
+		"\"%.1024s\" in %s command", string_printing(s),
+		command_list[commands->command]);
+	      return FF_ERROR;
+	      }
+
+	    /* Check for the start of a new header line within the string */
+
+	    else
+	      {
+	      uschar *pp;
+	      for (pp = p + 1;; pp++)
+		{
+		c = *pp;
+		if (c == ':' && pp != p + 1) break;
+		if (c == 0 || c == ':' || isspace(*pp))
+		  {
+		  *error_pointer = string_sprintf("\\n not followed by space or "
+		    "valid header name in \"%.1024s\" in %s command",
+		    string_printing(s), command_list[commands->command]);
+		  return FF_ERROR;
+		  }
+		}
+	      p = pp;
+	      }
+	    }
+	  }       /* Loop to scan the string */
+
+	/* The string is OK */
+
+	commands->args[i].u = s;
+	}
+
+      /* Proceed with mail or vacation command */
+
       if (filter_test != FTEST_NONE)
-        printf("%s command ignored because return_path is empty\n",
-          command_list[commands->command]);
-      else DEBUG(D_filter) debug_printf("%s command ignored because return_path "
-        "is empty\n", command_list[commands->command]);
+	{
+	uschar *to = commands->args[mailarg_index_to].u;
+	indent();
+	printf("%sail to: %s%s%s\n", (commands->seen)? "Seen m" : "M",
+	  to ? to : US"<default>",
+	  commands->command == vacation_command ? " (vacation)" : "",
+	  commands->noerror ? " (noerror)" : "");
+	for (i = 1; i < MAILARGS_STRING_COUNT; i++)
+	  {
+	  uschar *arg = commands->args[i].u;
+	  if (arg)
+	    {
+	    int len = Ustrlen(mailargs[i]);
+	    int indent = (debug_selector != 0)? output_indent : 0;
+	    while (len++ < 7 + indent) printf(" ");
+	    printf("%s: %s%s\n", mailargs[i], string_printing(arg),
+	      (commands->args[mailarg_index_expand].u != NULL &&
+		Ustrcmp(mailargs[i], "file") == 0)? " (expanded)" : "");
+	    }
+	  }
+	if (commands->args[mailarg_index_return].u)
+	  printf("Return original message\n");
+	}
+      else
+	{
+	uschar *tt;
+	uschar *to = commands->args[mailarg_index_to].u;
+	gstring * log_addr = NULL;
+
+	if (!to) to = expand_string(US"$reply_address");
+	while (isspace(*to)) to++;
+
+	for (tt = to; *tt != 0; tt++)     /* Get rid of newlines */
+	  if (*tt == '\n') *tt = ' ';
+
+	DEBUG(D_filter)
+	  {
+	  debug_printf("Filter: %smail to: %s%s%s\n",
+	    commands->seen ? "seen " : "",
+	    to,
+	    commands->command == vacation_command ? " (vacation)" : "",
+	    commands->noerror ? " (noerror)" : "");
+	  for (i = 1; i < MAILARGS_STRING_COUNT; i++)
+	    {
+	    uschar *arg = commands->args[i].u;
+	    if (arg != NULL)
+	      {
+	      int len = Ustrlen(mailargs[i]);
+	      while (len++ < 15) debug_printf(" ");
+	      debug_printf("%s: %s%s\n", mailargs[i], string_printing(arg),
+		(commands->args[mailarg_index_expand].u != NULL &&
+		  Ustrcmp(mailargs[i], "file") == 0)? " (expanded)" : "");
+	      }
+	    }
+	  }
+
+	/* Create the "address" for the autoreply. This is used only for logging,
+	as the actual recipients are extracted from the To: line by -t. We use the
+	same logic here to extract the working addresses (there may be more than
+	one). Just in case there are a vast number of addresses, stop when the
+	string gets too long. */
+
+	tt = to;
+	while (*tt != 0)
+	  {
+	  uschar *ss = parse_find_address_end(tt, FALSE);
+	  uschar *recipient, *errmess;
+	  int start, end, domain;
+	  int temp = *ss;
+
+	  *ss = 0;
+	  recipient = parse_extract_address(tt, &errmess, &start, &end, &domain,
+	    FALSE);
+	  *ss = temp;
+
+	  /* Ignore empty addresses and errors; an error will occur later if
+	  there's something really bad. */
+
+	  if (recipient)
+	    {
+	    log_addr = string_catn(log_addr, log_addr ? US"," : US">", 1);
+	    log_addr = string_cat (log_addr, recipient);
+	    }
+
+	  /* Check size */
+
+	  if (log_addr && log_addr->ptr > 256)
+	    {
+	    log_addr = string_catn(log_addr, US", ...", 5);
+	    break;
+	    }
+
+	  /* Move on past this address */
+
+	  tt = ss + (*ss ? 1 : 0);
+	  while (isspace(*tt)) tt++;
+	  }
+
+	if (log_addr)
+	  addr = deliver_make_addr(string_from_gstring(log_addr), FALSE);
+	else
+	  {
+	  addr = deliver_make_addr(US ">**bad-reply**", FALSE);
+	  setflag(addr, af_bad_reply);
+	  }
+
+	setflag(addr, af_pfr);
+	if (commands->noerror) addr->prop.ignore_error = TRUE;
+	addr->next = *generated;
+	*generated = addr;
+
+	addr->reply = store_get(sizeof(reply_item));
+	addr->reply->from = NULL;
+	addr->reply->to = string_copy(to);
+	addr->reply->file_expand =
+	  commands->args[mailarg_index_expand].u != NULL;
+	addr->reply->expand_forbid = expand_forbid;
+	addr->reply->return_message =
+	  commands->args[mailarg_index_return].u != NULL;
+	addr->reply->once_repeat = 0;
+
+	if (commands->args[mailarg_index_once_repeat].u != NULL)
+	  {
+	  addr->reply->once_repeat =
+	    readconf_readtime(commands->args[mailarg_index_once_repeat].u, 0,
+	      FALSE);
+	  if (addr->reply->once_repeat < 0)
+	    {
+	    *error_pointer = string_sprintf("Bad time value for \"once_repeat\" "
+	      "in mail or vacation command: %s",
+	      commands->args[mailarg_index_once_repeat].u);
+	    return FF_ERROR;
+	    }
+	  }
+
+	/* Set up all the remaining string arguments (those other than "to") */
+
+	for (i = 1; i < mailargs_string_passed; i++)
+	  {
+	  uschar *ss = commands->args[i].u;
+	  *(USS((US addr->reply) + reply_offsets[i])) =
+	    ss ? string_copy(ss) : NULL;
+	  }
+	}
       break;
-      }
-
-    /* Check the contents of the strings. The type of string can be deduced
-    from the value of i.
-
-    . If i is equal to mailarg_index_text it's a text string for the body,
-      where anything goes.
-
-    . If i is > mailarg_index_text, we are dealing with a file name, which
-      cannot contain non-printing characters.
-
-    . If i is less than mailarg_index_headers we are dealing with something
-      that will go in a single message header line, where newlines must be
-      followed by white space.
-
-    . If i is equal to mailarg_index_headers, we have a string that contains
-      one or more headers. Newlines that are not followed by white space must
-      be followed by a header name.
-    */
-
-    for (i = 0; i < MAILARGS_STRING_COUNT; i++)
-      {
-      uschar *p;
-      uschar *s = expargs[i];
-
-      if (s == NULL) continue;
-
-      if (i != mailarg_index_text) for (p = s; *p != 0; p++)
-        {
-        int c = *p;
-        if (i > mailarg_index_text)
-          {
-          if (!mac_isprint(c))
-            {
-            *error_pointer = string_sprintf("non-printing character in \"%s\" "
-              "in %s command", string_printing(s),
-              command_list[commands->command]);
-            return FF_ERROR;
-            }
-          }
-
-        /* i < mailarg_index_text */
-
-        else if (c == '\n' && !isspace(p[1]))
-          {
-          if (i < mailarg_index_headers)
-            {
-            *error_pointer = string_sprintf("\\n not followed by space in "
-              "\"%.1024s\" in %s command", string_printing(s),
-              command_list[commands->command]);
-            return FF_ERROR;
-            }
-
-          /* Check for the start of a new header line within the string */
-
-          else
-            {
-            uschar *pp;
-            for (pp = p + 1;; pp++)
-              {
-              c = *pp;
-              if (c == ':' && pp != p + 1) break;
-              if (c == 0 || c == ':' || isspace(*pp))
-                {
-                *error_pointer = string_sprintf("\\n not followed by space or "
-                  "valid header name in \"%.1024s\" in %s command",
-                  string_printing(s), command_list[commands->command]);
-                return FF_ERROR;
-                }
-              }
-            p = pp;
-            }
-          }
-        }       /* Loop to scan the string */
-
-      /* The string is OK */
-
-      commands->args[i].u = s;
-      }
-
-    /* Proceed with mail or vacation command */
-
-    if (filter_test != FTEST_NONE)
-      {
-      uschar *to = commands->args[mailarg_index_to].u;
-      indent();
-      printf("%sail to: %s%s%s\n", (commands->seen)? "Seen m" : "M",
-        (to == NULL)? US"<default>" : to,
-        (commands->command == vacation_command)? " (vacation)" : "",
-        (commands->noerror)? " (noerror)" : "");
-      for (i = 1; i < MAILARGS_STRING_COUNT; i++)
-        {
-        uschar *arg = commands->args[i].u;
-        if (arg != NULL)
-          {
-          int len = Ustrlen(mailargs[i]);
-          int indent = (debug_selector != 0)? output_indent : 0;
-          while (len++ < 7 + indent) printf(" ");
-          printf("%s: %s%s\n", mailargs[i], string_printing(arg),
-            (commands->args[mailarg_index_expand].u != NULL &&
-              Ustrcmp(mailargs[i], "file") == 0)? " (expanded)" : "");
-          }
-        }
-      if (commands->args[mailarg_index_return].u != NULL)
-        printf("Return original message\n");
-      }
-    else
-      {
-      uschar *tt;
-      uschar *log_addr = NULL;
-      uschar *to = commands->args[mailarg_index_to].u;
-      int size = 0;
-      int ptr = 0;
-      int badflag = 0;
-
-      if (to == NULL) to = expand_string(US"$reply_address");
-      while (isspace(*to)) to++;
-
-      for (tt = to; *tt != 0; tt++)     /* Get rid of newlines */
-        if (*tt == '\n') *tt = ' ';
-
-      DEBUG(D_filter)
-        {
-        debug_printf("Filter: %smail to: %s%s%s\n",
-          (commands->seen)? "seen " : "",
-          to,
-          (commands->command == vacation_command)? " (vacation)" : "",
-          (commands->noerror)? " (noerror)" : "");
-        for (i = 1; i < MAILARGS_STRING_COUNT; i++)
-          {
-          uschar *arg = commands->args[i].u;
-          if (arg != NULL)
-            {
-            int len = Ustrlen(mailargs[i]);
-            while (len++ < 15) debug_printf(" ");
-            debug_printf("%s: %s%s\n", mailargs[i], string_printing(arg),
-              (commands->args[mailarg_index_expand].u != NULL &&
-                Ustrcmp(mailargs[i], "file") == 0)? " (expanded)" : "");
-            }
-          }
-        }
-
-      /* Create the "address" for the autoreply. This is used only for logging,
-      as the actual recipients are extracted from the To: line by -t. We use the
-      same logic here to extract the working addresses (there may be more than
-      one). Just in case there are a vast number of addresses, stop when the
-      string gets too long. */
-
-      tt = to;
-      while (*tt != 0)
-        {
-        uschar *ss = parse_find_address_end(tt, FALSE);
-        uschar *recipient, *errmess;
-        int start, end, domain;
-        int temp = *ss;
-
-        *ss = 0;
-        recipient = parse_extract_address(tt, &errmess, &start, &end, &domain,
-          FALSE);
-        *ss = temp;
-
-        /* Ignore empty addresses and errors; an error will occur later if
-        there's something really bad. */
-
-        if (recipient != NULL)
-          {
-          log_addr = string_cat(log_addr, &size, &ptr,
-            (log_addr == NULL)? US">" : US",", 1);
-          log_addr = string_cat(log_addr, &size, &ptr, recipient,
-            Ustrlen(recipient));
-          }
-
-        /* Check size */
-
-        if (ptr > 256)
-          {
-          log_addr = string_cat(log_addr, &size, &ptr, US", ...", 5);
-          break;
-          }
-
-        /* Move on past this address */
-
-        tt = ss + (*ss? 1:0);
-        while (isspace(*tt)) tt++;
-        }
-
-      if (log_addr == NULL)
-        {
-        log_addr = string_sprintf(">**bad-reply**");
-        badflag = af_bad_reply;
-        }
-      else log_addr[ptr] = 0;
-
-      addr = deliver_make_addr(log_addr, FALSE);
-      setflag(addr, (af_pfr|badflag));
-      if (commands->noerror) setflag(addr, af_ignore_error);
-      addr->next = *generated;
-      *generated = addr;
-      addr->reply = store_get(sizeof(reply_item));
-      addr->reply->from = NULL;
-      addr->reply->to = string_copy(to);
-      addr->reply->file_expand =
-        commands->args[mailarg_index_expand].u != NULL;
-      addr->reply->expand_forbid = expand_forbid;
-      addr->reply->return_message =
-        commands->args[mailarg_index_return].u != NULL;
-      addr->reply->once_repeat = 0;
-
-      if (commands->args[mailarg_index_once_repeat].u != NULL)
-        {
-        addr->reply->once_repeat =
-          readconf_readtime(commands->args[mailarg_index_once_repeat].u, 0,
-            FALSE);
-        if (addr->reply->once_repeat < 0)
-          {
-          *error_pointer = string_sprintf("Bad time value for \"once_repeat\" "
-            "in mail or vacation command: %s",
-            commands->args[mailarg_index_once_repeat]);
-          return FF_ERROR;
-          }
-        }
-
-      /* Set up all the remaining string arguments (those other than "to") */
-
-      for (i = 1; i < mailargs_string_passed; i++)
-        {
-        uschar *ss = commands->args[i].u;
-        *((uschar **)(((uschar *)(addr->reply)) + reply_offsets[i])) =
-          (ss == NULL)? NULL : string_copy(ss);
-        }
-      }
-    break;
 
     case testprint_command:
-    if (filter_test != FTEST_NONE || (debug_selector & D_filter) != 0)
-      {
-      uschar *s = string_printing(expargs[0]);
-      if (filter_test == FTEST_NONE)
-        debug_printf("Filter: testprint: %s\n", s);
-      else
-        printf("Testprint: %s\n", s);
-      }
+      if (filter_test != FTEST_NONE || (debug_selector & D_filter) != 0)
+	{
+	const uschar *s = string_printing(expargs[0]);
+	if (filter_test == FTEST_NONE)
+	  debug_printf("Filter: testprint: %s\n", s);
+	else
+	  printf("Testprint: %s\n", s);
+	}
     }
 
   commands = commands->next;
@@ -2531,7 +2521,7 @@ while filtering, and zero the variables. */
 
 expect_endif = 0;
 output_indent = 0;
-filter_running = TRUE;
+f.filter_running = TRUE;
 for (i = 0; i < FILTER_VARIABLE_COUNT; i++) filter_n[i] = 0;
 
 /* To save having to pass certain values about all the time, make them static.
@@ -2600,7 +2590,7 @@ before returning. Reset the header decoding charset. */
 
 if (log_fd >= 0) (void)close(log_fd);
 expand_nmax = -1;
-filter_running = FALSE;
+f.filter_running = FALSE;
 headers_charset = save_headers_charset;
 
 DEBUG(D_route) debug_printf("Filter: end of processing\n");

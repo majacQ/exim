@@ -9,7 +9,7 @@
 # configuration file. There are many more than are mentioned here. The
 # manual is in the file doc/spec.txt in the Exim distribution as a plain
 # ASCII file. Other formats (PostScript, Texinfo, HTML, PDF) are available
-# from the Exim ftp sites. The manual is also online at the Exim web sites.
+# from the Exim ftp sites. The manual is also online at the Exim website.
 
 
 # This file is divided into several parts, all but the first of which are
@@ -38,8 +38,21 @@
 
 
 ######################################################################
+#                               MACROS                               #
+######################################################################
+#
+
+# If you want to use a smarthost instead of sending directly to recipient
+# domains, uncomment this macro definition and set a real hostname.
+# An appropriately privileged user can then redirect email on the command-line
+# in emergencies, via -D.
+#
+# ROUTER_SMARTHOST=MAIL.HOSTNAME.FOR.CENTRAL.SERVER.EXAMPLE
+
+######################################################################
 #                    MAIN CONFIGURATION SETTINGS                     #
 ######################################################################
+#
 
 # Specify your host's canonical name here. This should normally be the fully
 # qualified "official" name of your host. If this option is not set, the
@@ -106,8 +119,11 @@ hostlist   relay_from_hosts = localhost
 # manual for details. The lists above are used in the access control lists for
 # checking incoming messages. The names of these ACLs are defined here:
 
-acl_smtp_rcpt = acl_check_rcpt
-acl_smtp_data = acl_check_data
+acl_smtp_rcpt =         acl_check_rcpt
+.ifdef _HAVE_PRDR
+acl_smtp_data_prdr =    acl_check_prdr
+.endif
+acl_smtp_data =         acl_check_data
 
 # You should not change those settings until you understand how ACLs work.
 
@@ -151,6 +167,9 @@ acl_smtp_data = acl_check_data
 
 # tls_certificate = /etc/ssl/exim.crt
 # tls_privatekey = /etc/ssl/exim.pem
+
+# For OpenSSL, prefer EC- over RSA-authenticated ciphers
+# tls_require_ciphers = ECDSA:RSA:!COMPLEMENTOFDEFAULT
 
 # In order to support roaming users who wish to send email from anywhere,
 # you may want to make Exim listen on other ports as well as port 25, in
@@ -221,18 +240,35 @@ never_users = root
 host_lookup = *
 
 
-# The settings below, which are actually the same as the defaults in the
-# code, cause Exim to make RFC 1413 (ident) callbacks for all incoming SMTP
-# calls. You can limit the hosts to which these calls are made, and/or change
-# the timeout that is used. If you set the timeout to zero, all RFC 1413 calls
-# are disabled. RFC 1413 calls are cheap and can provide useful information
-# for tracing problem messages, but some hosts and firewalls have problems
-# with them. This can result in a timeout instead of an immediate refused
-# connection, leading to delays on starting up SMTP sessions. (The default was
-# reduced from 30s to 5s for release 4.61.)
+# The setting below causes Exim to try to initialize the system resolver
+# library with DNSSEC support.  It has no effect if your library lacks
+# DNSSEC support.
 
-rfc1413_hosts = *
-rfc1413_query_timeout = 5s
+dns_dnssec_ok = 1
+
+
+# The settings below cause Exim to make RFC 1413 (ident) callbacks
+# for all incoming SMTP calls. You can limit the hosts to which these
+# calls are made, and/or change the timeout that is used. If you set
+# the timeout to zero, all RFC 1413 calls are disabled. RFC 1413 calls
+# are cheap and can provide useful information for tracing problem
+# messages, but some hosts and firewalls have problems with them.
+# This can result in a timeout instead of an immediate refused
+# connection, leading to delays on starting up SMTP sessions.
+# (The default was reduced from 30s to 5s for release 4.61. and to
+# disabled for release 4.86)
+#
+#rfc1413_hosts = *
+#rfc1413_query_timeout = 5s
+
+
+# Enable an efficiency feature.  We advertise the feature; clients
+# may request to use it.  For multi-recipient mails we then can
+# reject or accept per-user after the message is received.
+#
+.ifdef _HAVE_PRDR
+prdr_enable = true
+.endif
 
 
 # By default, Exim expects all envelope addresses to be fully qualified, that
@@ -246,6 +282,13 @@ rfc1413_query_timeout = 5s
 # to control sender and recipient addresses, respectively. When this is done,
 # unqualified addresses are qualified using the settings of qualify_domain
 # and/or qualify_recipient (see above).
+
+
+# Unless you run a high-volume site you probably want more logging
+# detail than the default.  Adjust to suit.
+
+log_selector = +smtp_protocol_error +smtp_syntax_error \
+        +tls_certificate_verified
 
 
 # If you want Exim to support the "percent hack" for certain domains,
@@ -312,6 +355,18 @@ timeout_frozen_after = 7d
 # wish to disable advertising 8BITMIME.  Uncomment this option to do so.
 
 # accept_8bitmime = false
+
+
+# Exim does not make use of environment variables itself. However,
+# libraries that Exim uses (e.g. LDAP) depend on specific environment settings.
+# There are two lists: keep_environment for the variables we trust, and
+# add_environment for variables we want to set to a specific value.
+# Note that TZ is handled separately by the timezone runtime option
+# and TIMEZONE_DEFAULT buildtime option.
+
+# keep_environment = ^LDAP
+# add_environment = PATH=/usr/bin::/bin
+
 
 
 ######################################################################
@@ -421,6 +476,11 @@ acl_check_rcpt:
           control       = submission
           control       = dkim_disable_verify
 
+  # Insist that a HELO/EHLO was accepted.
+
+  require message       = nice hosts say HELO first
+          condition     = ${if def:sender_helo_name}
+
   # Insist that any other recipient address that we accept is either in one of
   # our local domains, or is in a domain for which we explicitly allow
   # relaying. Any other domain is rejected as being unacceptable for relaying.
@@ -461,11 +521,44 @@ acl_check_rcpt:
   # require verify = csa
   #############################################################################
 
+  #############################################################################
+  # If doing per-user content filtering then recipients with filters different
+  # to the first recipient must be deferred unless the sender talks PRDR.
+  #
+  # defer  !condition     = $prdr_requested
+  #        condition      = ${if > {0}{$receipients_count}}
+  #        condition      = ${if !eq {$acl_m_content_filter} \
+  #                                  {${lookup PER_RCPT_CONTENT_FILTER}}}
+  # warn   !condition     = $prdr_requested
+  #        condition      = ${if > {0}{$receipients_count}}
+  #        set acl_m_content_filter = ${lookup PER_RCPT_CONTENT_FILTER}
+  #############################################################################
+
   # At this point, the address has passed all the checks that have been
   # configured, so we accept it unconditionally.
 
   accept
 
+
+# This ACL is used once per recipient, for multi-recipient messages, if
+# we advertised PRDR.  It can be used to perform receipient-dependent
+# header- and body- based filtering and rejections.
+# We set a variable to record that PRDR was active used, so that checking
+# in the data ACL can be skipped.
+
+.ifdef _HAVE_PRDR
+acl_check_prdr:
+  warn  set acl_m_did_prdr = y
+.endif
+
+  #############################################################################
+  # do lookup on filtering, with $local_part@$domain, deny on filter match
+  #
+  # deny      set acl_m_content_filter = ${lookup PER_RCPT_CONTENT_FILTER}
+  #           condition    = ...
+  #############################################################################
+
+  accept
 
 # This ACL is used after the contents of a message have been received. This
 # is the ACL in which you can test a message's headers or body, and in
@@ -476,6 +569,19 @@ acl_check_rcpt:
 # extension (WITH_CONTENT_SCAN=yes in Local/Makefile).
 
 acl_check_data:
+
+  # Deny if the message contains an overlong line.  Per the standards
+  # we should never receive one such via SMTP.
+  #
+  deny    message    = maximum allowed line length is 998 octets, \
+                       got $max_received_linelength
+          condition  = ${if > {$max_received_linelength}{998}}
+
+  # Deny if the headers contain badly-formed addresses.
+  #
+  deny    !verify =     header_syntax
+          message =     header syntax
+          log_message = header syntax ($acl_verify_message)
 
   # Deny if the message contains a virus. Before enabling this check, you
   # must install a virus scanner and set the av_scanner option above.
@@ -492,6 +598,19 @@ acl_check_data:
   #                      X-Spam_score_int: $spam_score_int\n\
   #                      X-Spam_bar: $spam_bar\n\
   #                      X-Spam_report: $spam_report
+
+  #############################################################################
+  # No more tests if PRDR was actively used.
+  # accept   condition  = ${if def:acl_m_did_prdr}
+  #
+  # To get here, all message recipients must have identical per-user
+  # content filtering (enforced by RCPT ACL).  Do lookup for filter
+  # and deny on match.
+  #
+  # deny      set acl_m_content_filter = ${lookup PER_RCPT_CONTENT_FILTER}
+  #           condition    = ...
+  #############################################################################
+
 
   # Accept the message.
 
@@ -524,6 +643,25 @@ begin routers
 #   transport = remote_smtp
 
 
+# This router can be used when you want to send all mail to a
+# server which handles DNS lookups for you; an ISP will typically run such
+# a server for their customers.  The hostname in route_data comes from the
+# macro defined at the top of the file.  If not defined, then we'll use the
+# dnslookup router below instead.
+# Beware that the hostname is specified again in the Transport.
+
+.ifdef ROUTER_SMARTHOST
+
+smarthost:
+  driver = manualroute
+  domains = ! +local_domains
+  transport = smarthost_smtp
+  route_data = ROUTER_SMARTHOST
+  ignore_target_hosts = <; 0.0.0.0 ; 127.0.0.0/8 ; ::1
+  no_more
+
+.else
+
 # This router routes addresses that are not in local domains by doing a DNS
 # lookup on the domain name. The exclamation mark that appears in "domains = !
 # +local_domains" is a negating operator, that is, it can be read as "not". The
@@ -544,22 +682,12 @@ dnslookup:
   ignore_target_hosts = 0.0.0.0 : 127.0.0.0/8
 # if ipv6-enabled then instead use:
 # ignore_target_hosts = <; 0.0.0.0 ; 127.0.0.0/8 ; ::1
+  dnssec_request_domains = *
   no_more
 
-
-# This alternative router can be used when you want to send all mail to a
-# server which handles DNS lookups for you; an ISP will typically run such
-# a server for their customers.  If you uncomment "smarthost" then you
-# should comment out "dnslookup" above.  Setting a real hostname in route_data
-# wouldn't hurt either.
-
-# smarthost:
-#   driver = manualroute
-#   domains = ! +local_domains
-#   transport = remote_smtp
-#   route_data = MAIL.HOSTNAME.FOR.CENTRAL.SERVER.EXAMPLE
-#   ignore_target_hosts = <; 0.0.0.0 ; 127.0.0.0/8 ; ::1
-#   no_more
+# This closes the ROUTER_SMARTHOST ifdef around the choice of routing for
+# off-site mail.
+.endif
 
 
 # The remaining routers handle addresses in the local domain(s), that is those
@@ -669,9 +797,61 @@ begin transports
 
 
 # This transport is used for delivering messages over SMTP connections.
+# Refuse to send any message with over-long lines, which could have
+# been received other than via SMTP. The use of message_size_limit to
+# enforce this is a red herring.
 
 remote_smtp:
   driver = smtp
+  message_size_limit = ${if > {$max_received_linelength}{998} {1}{0}}
+.ifdef _HAVE_DANE
+  dnssec_request_domains = *
+  hosts_try_dane = *
+.endif
+.ifdef _HAVE_PRDR
+  hosts_try_prdr = *
+.endif
+
+
+# This transport is used for delivering messages to a smarthost, if the
+# smarthost router is enabled.  This starts from the same basis as
+# "remote_smtp" but then turns on various security options, because
+# we assume that if you're told "use smarthost.example.org as the smarthost"
+# then there will be TLS available, with a verifiable certificate for that
+# hostname, using decent TLS.
+
+smarthost_smtp:
+  driver = smtp
+  message_size_limit = ${if > {$max_received_linelength}{998} {1}{0}}
+  multi_domain
+  #
+.ifdef _HAVE_TLS
+  # Comment out any of these which you have to, then file a Support
+  # request with your smarthost provider to get things fixed:
+  hosts_require_tls = *
+  tls_verify_hosts = *
+  # As long as tls_verify_hosts is enabled, this won't matter, but if you
+  # have to comment it out then this will at least log whether you succeed
+  # or not:
+  tls_try_verify_hosts = *
+  #
+  # The SNI name should match the name which we'll expect to verify;
+  # many mail systems don't use SNI and this doesn't matter, but if it does,
+  # we need to send a name which the remote site will recognize.
+  # This _should_ be the name which the smarthost operators specified as
+  # the hostname for sending your mail to.
+  tls_sni = ROUTER_SMARTHOST
+  #
+.ifdef _HAVE_OPENSSL
+  tls_require_ciphers = HIGH:!aNULL:@STRENGTH
+.endif
+.ifdef _HAVE_GNUTLS
+  tls_require_ciphers = SECURE192:-VERS-SSL3.0:-VERS-TLS1.0:-VERS-TLS1.1
+.endif
+.endif
+.ifdef _HAVE_PRDR
+  hosts_try_prdr = *
+.endif
 
 
 # This transport is used for local delivery to user mailboxes in traditional

@@ -1,4 +1,4 @@
-#! PERL_COMMAND -w
+#! PERL_COMMAND
 
 # Mail Queue Summary
 # Christoph Lameter, 21 May 1997
@@ -27,7 +27,7 @@
 #   typo. Fix provided by Chris Liddiard.
 # November 2006 by Jori Hamalainen
 #   Added feature to separate frozen and bounced messages from queue
-#   Adedd feature to list queue per source - destination pair
+#   Added feature to list queue per source - destination pair
 #   Changed regexps to compile once to very minor speed optimization
 #   Short circuit for empty lines
 #
@@ -40,6 +40,17 @@
 #   -s enables source destination separation
 
 # Slightly modified sub from eximstats
+
+use warnings;
+BEGIN { pop @INC if $INC[-1] eq '.' };
+use File::Basename;
+
+if (@ARGV && $ARGV[0] eq '--version') {
+    print basename($0) . ": $0\n",
+        "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+        "perl(runtime): $]\n";
+        exit 0;
+}
 
 sub print_volume_rounded {
 my($x) = pop @_;

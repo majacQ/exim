@@ -3,16 +3,13 @@
 SERVER =
 HOSTS = 127.0.0.1 : HOSTIPV4
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
+
+log_selector = +outgoing_port
 
 acl_smtp_rcpt = accept
 

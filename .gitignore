@@ -1,8 +1,8 @@
-exim-packaging-*
+exim-*
 *~
 *.bak
 .*.swp
-0*.patch
+*.patch
 *.orig
 *.rej
 .gdb_history

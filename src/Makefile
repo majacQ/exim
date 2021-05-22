@@ -2,7 +2,7 @@
 # appropriate links, and then creating and running the main makefile in that
 # directory.
 
-# Copyright (c) University of Cambridge, 1995 - 2007
+# Copyright (c) University of Cambridge, 1995 - 2018
 # See the file NOTICE for conditions of use and distribution.
 
 # IRIX make uses the shell that is in the SHELL variable, which often defaults
@@ -19,14 +19,28 @@ RM_COMMAND=/bin/rm
 # provide an override for the OS type and architecture type; they still have
 # to be used for the OS-specific files. To override them, you can set the
 # shell variables OSTYPE and ARCHTYPE when running make.
+#
+# EXIM_BUILD_SUFFIX should be used to enable parallel builds on a file
+# system shared among different Linux distros (same os-type, same
+# arch-type). The ../test/runtest script is expected to honour the
+# EXIM_BUILD_SUFFIX when searching the Exim binary.
+# NOTE: EXIM_BUILD_SUFFIX is considered *experimental*.
 
-buildname=$${build:-`$(SHELL) scripts/os-type`-`$(SHELL) scripts/arch-type`}
+buildname=$${build:-`$(SHELL) scripts/os-type`-`$(SHELL) scripts/arch-type`}$${EXIM_BUILD_SUFFIX:+.$$EXIM_BUILD_SUFFIX}
 
 # The default target checks for the existence of Local/Makefile, that the main
 # makefile is built and up-to-date, and then it runs it.
 
 all: Local/Makefile configure
 	@cd build-$(buildname); $(MAKE) SHELL=$(SHELL) $(MFLAGS)
+
+
+# This pair for the convenience of of the Debian maintainers
+exim: Local/Makefile configure
+	@cd build-$(buildname); $(MAKE) SHELL=$(SHELL) $(MFLAGS) exim
+utils: Local/Makefile configure
+	@cd build-$(buildname); $(MAKE) SHELL=$(SHELL) $(MFLAGS) utils
+
 
 Local/Makefile:
 	@echo ""
@@ -90,8 +104,10 @@ distclean:; $(RM_COMMAND) -rf build-* cscope*
 cscope.files: FRC
 	echo "-q" > $@
 	echo "-p3" >> $@
-	find src Local -name "*.[cshyl]" -print \
+	find src Local OS exim_monitor -name "*.[cshyl]" -print \
+		    -o -name "os.[ch]*" -print \
 		    -o -name "*akefile*" -print \
+		    -o -name config.h.defaults -print \
 		    -o -name EDITME -print >> $@
 
 FRC:

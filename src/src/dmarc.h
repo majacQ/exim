@@ -3,7 +3,7 @@
 *************************************************/
 
 /* Experimental DMARC support.
-   Copyright (c) Todd Lyons <tlyons@exim.org> 2012, 2013
+   Copyright (c) Todd Lyons <tlyons@exim.org> 2012 - 2014
    License: GPL */
 
 /* Portions Copyright (c) 2012, 2013, The Trusted Domain Project;
@@ -11,10 +11,10 @@
 
 #ifdef EXPERIMENTAL_DMARC
 
-#include "opendmarc/dmarc.h"
-#ifdef EXPERIMENTAL_SPF
-#include "spf2/spf.h"
-#endif /* EXPERIMENTAL_SPF */
+# include "opendmarc/dmarc.h"
+# ifdef SUPPORT_SPF
+#  include "spf2/spf.h"
+# endif /* SUPPORT_SPF */
 
 /* prototypes */
 int dmarc_init();
@@ -23,8 +23,7 @@ int dmarc_process();
 uschar *dmarc_exim_expand_query(int);
 uschar *dmarc_exim_expand_defaults(int);
 uschar *dmarc_auth_results_header(header_line *,uschar *);
-int dmarc_write_history_file();
-void dmarc_send_forensic_report(u_char **);
+static int dmarc_write_history_file();
 
 #define DMARC_AR_HEADER        US"Authentication-Results:"
 #define DMARC_VERIFY_STATUS    1
@@ -60,5 +59,3 @@ void dmarc_send_forensic_report(u_char **);
 #define ARES_RESULT_DISCARD 12
 
 #endif /* EXPERIMENTAL_DMARC */
-
-// vim:sw=2 expandtab

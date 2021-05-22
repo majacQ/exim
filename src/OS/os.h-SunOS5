@@ -28,4 +28,24 @@ it seems. */
 
 #define PAM_CONVERSE_ARG2_TYPE  struct pam_message
 
+
+/* default is non-const */
+#define ICONV_ARG2_TYPE const char **
+
+#if _POSIX_C_SOURCE < 200112L
+# define MISSING_UNSETENV_3
+#endif
+
+
+/* SunOS5 doesn't accept getcwd(NULL, 0) to auto-allocate
+a buffer */
+
+#define OS_GETCWD
+
+
+#ifndef MIN
+# define MIN(a,b) (((a)<(b))?(a):(b))
+# define MAX(a,b) (((a)>(b))?(a):(b))
+#endif
+
 /* End */

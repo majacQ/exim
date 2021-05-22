@@ -186,14 +186,6 @@ EXIWHAT_KILL_SIGNAL=-USR1
 
 # IPV6_USE_INET_PTON=yes
 
-# Setting the next option brings in support for A6 DNS records for IPV6. These
-# were at one time expected to supplant AAAA records, but were eventually
-# rejected. The code remains in Exim, but has not been compiled or tested for
-# quite some time. Do not set this unless you know what you are doing.
-
-# SUPPORT_A6=yes
-
-
 # HOSTNAME_COMMAND contains the path to the "hostname" command, which varies
 # from OS to OS. This is used when building the Exim monitor script only. (See
 # also BASENAME_COMMAND.) If HOSTNAME_COMMAND is set to "look_for_it" then the
@@ -240,6 +232,11 @@ RANLIB=ranlib
 EXIM_CHMOD=@true
 
 
+# If you want to use local_scan() at all, the support code must be included
+# by uncommenting this line.
+
+# HAVE_LOCAL_SCAN=yes
+
 # LOCAL_SCAN_SOURCE defines the file in which the function local_scan() is
 # defined. This provides the administrator with a hook for including C code
 # for scanning incoming mails. The path that is defined must be relative to
@@ -247,8 +244,9 @@ EXIM_CHMOD=@true
 
 # LOCAL_SCAN_SOURCE=Local/local_scan.c
 
-# The default setting points to a template function that doesn't actually do
-# any scanning, but just accepts the message.
+# A very simple example points to a template function that doesn't actually do
+# any scanning, but just accepts the message.  A compilable file must be
+# included in the build even if HAVE_LOCAL_SCAN is not defined.
 
 LOCAL_SCAN_SOURCE=src/local_scan.c
 
@@ -294,7 +292,7 @@ LOCAL_SCAN_SOURCE=src/local_scan.c
 
 #############################################################################
 # The following definitions are relevant only when compiling the Exim monitor
-# program, which requires an X11 display. See the varible EXIM_MONITOR in
+# program, which requires an X11 display. See the variable EXIM_MONITOR in
 # src/EDITME for how to suppress this compilation.
 
 # X11 contains the location of the X11 libraries and include files.

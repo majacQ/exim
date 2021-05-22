@@ -4,13 +4,14 @@
 SERVER =
 
 exim_path = EXIM_PATH
+keep_environment  = ^EXIM_TESTHARNESS_DISABLE_[O]CSPVALIDITYCHECK$
 host_lookup_order = bydns
-primary_hostname = server1.example.com
-rfc1413_query_timeout = 0s
 spool_directory = DIR/spool
 log_file_path = DIR/spool/log/SERVER%slog
 gecos_pattern = ""
 gecos_name = CALLER_NAME
+chunking_advertise_hosts =
+primary_hostname = server1.example.com
 
 
 # ----- Main settings -----
@@ -18,7 +19,9 @@ gecos_name = CALLER_NAME
 domainlist local_domains = test.ex : *.test.ex
 
 acl_smtp_rcpt = check_recipient
-log_selector = +tls_peerdn
+acl_smtp_data = check_data
+
+log_selector = +tls_peerdn +received_recipients
 remote_max_parallel = 1
 
 tls_advertise_hosts = *
@@ -36,7 +39,7 @@ tls_privatekey = ${if eq {SERVER}{server}\
 {DIR/aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.unlocked.key}\
 fail}
 
-tls_ocsp_file = OCSP
+tls_ocsp_file = RETURN
 
 
 # ------ ACL ------
@@ -47,6 +50,10 @@ check_recipient:
   accept  domains = +local_domains
   deny    message = relay not permitted
 
+check_data:
+  warn	  condition   = ${if def:h_X-TLS-out:}
+	  logwrite = client claims: $h_X-TLS-out:
+  accept
 
 # ----- Routers -----
 
@@ -57,8 +64,9 @@ client:
   condition = ${if eq {SERVER}{server}{no}{yes}}
   retry_use_local_part
   transport = send_to_server${if eq{$local_part}{nostaple}{1} \
-				{${if eq{$local_part}{smtps} {3}{2}}} \
-			     }
+				{${if eq{$local_part}{norequire} {2} \
+				{${if eq{$local_part}{smtps} {4}{3}}} \
+			     }}}
 
 server:
   driver = redirect
@@ -83,19 +91,25 @@ send_to_server1:
   hosts = HOSTIPV4
   port = PORT_D
   tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/CA/CA.pem
+  tls_verify_cert_hostnames =
   hosts_require_tls = *
-# note no ocsp here
+  hosts_request_ocsp = :
+  headers_add = X-TLS-out: ocsp status $tls_out_ocsp \
+    (${listextract {${eval:$tls_out_ocsp+1}} \
+		{notreq:notresp:vfynotdone:failed:verified}})
 
 send_to_server2:
   driver = smtp
   allow_localhost
-  hosts = 127.0.0.1
+  hosts = HOSTIPV4
   port = PORT_D
-  helo_data = helo.data.changed
-  #tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/server1.example.com/ca_chain.pem
   tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/CA/CA.pem
-  hosts_require_tls =  *
-  hosts_require_ocsp = *
+  tls_verify_cert_hostnames =
+  hosts_require_tls = *
+# note no ocsp mention here
+  headers_add = X-TLS-out: ocsp status $tls_out_ocsp \
+    (${listextract {${eval:$tls_out_ocsp+1}} \
+		{notreq:notresp:vfynotdone:failed:verified}})
 
 send_to_server3:
   driver = smtp
@@ -103,11 +117,28 @@ send_to_server3:
   hosts = 127.0.0.1
   port = PORT_D
   helo_data = helo.data.changed
-  #tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/server1.example.com/ca_chain.pem
   tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/CA/CA.pem
+  tls_verify_cert_hostnames =
+  hosts_require_tls =  *
+  hosts_require_ocsp = *
+  headers_add = X-TLS-out: ocsp status $tls_out_ocsp \
+    (${listextract {${eval:$tls_out_ocsp+1}} \
+		{notreq:notresp:vfynotdone:failed:verified}})
+
+send_to_server4:
+  driver = smtp
+  allow_localhost
+  hosts = 127.0.0.1
+  port = PORT_D
+  helo_data = helo.data.changed
+  tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/CA/CA.pem
+  tls_verify_cert_hostnames =
   protocol =           smtps
   hosts_require_tls =  *
   hosts_require_ocsp = *
+  headers_add = X-TLS-out: ocsp status $tls_out_ocsp \
+    (${listextract {${eval:$tls_out_ocsp+1}} \
+		{notreq:notresp:vfynotdone:failed:verified}})
 
 
 # ----- Retry -----

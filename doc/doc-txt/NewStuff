@@ -3,8 +3,367 @@ New Features in Exim
 
 This file contains descriptions of new features that have been added to Exim.
 Before a formal release, there may be quite a lot of detail so that people can
-test from the snapshots or the CVS before the documentation is updated. Once
+test from the snapshots or the Git before the documentation is updated. Once
 the documentation is updated, this file is reduced to a short list.
+
+Version 4.92
+--------------
+
+ 1. ${l_header:<name>} and ${l_h:<name>} expansion items, giving a colon-sep
+    list when there are multiple headers having a given name.  This matters
+    when individual headers are wrapped onto multiple lines; with previous
+    facilities hard to parse.
+
+ 2. The ${readsocket } expansion item now takes a "tls" option, doing the
+    obvious thing.
+
+ 3. EXPERIMENTAL_REQUIRETLS and EXPERIMENTAL_PIPE_CONNECT optional build
+    features.  See the experimental.spec file.
+
+ 4. If built with SUPPORT_I18N a "utf8_downconvert" option on the smtp transport.
+
+ 5. A "pipelining" log_selector.
+
+ 6. Builtin macros for supported log_selector and openssl_options values.
+
+ 7. JSON variants of the ${extract } expansion item.
+
+ 8. A "noutf8" debug option, for disabling the UTF-8 characters in debug output.
+
+ 9. TCP Fast Open support on MacOS.
+
+Version 4.91
+--------------
+
+ 1. Dual-certificate stacks on servers now support OCSP stapling, under GnuTLS
+    version 3.5.6 or later.
+
+ 2. DANE is now supported under GnuTLS version 3.0.0 or later.  Both GnuTLS and
+    OpenSSL versions are moved to mainline support from Experimental.
+    New SMTP transport option "dane_require_tls_ciphers".
+
+ 3. Feature macros for the compiled-in set of malware scanner interfaces.
+
+ 4. SPF support is promoted from Experimental to mainline status.  The template
+    src/EDITME makefile does not enable its inclusion.
+
+ 5. Logging control for DKIM verification.  The existing DKIM log line is
+    controlled by a "dkim_verbose" selector which is _not_ enabled by default.
+    A new tag "DKIM=<domain>" is added to <= lines by default, controlled by
+    a "dkim" log_selector.
+
+ 6. Receive duration on <= lines, under a new log_selector "receive_time".
+
+ 7. Options "ipv4_only" and "ipv4_prefer" on the dnslookup router and on
+    routing rules in the manualroute router.
+
+ 8. Expansion item ${sha3:<string>} / ${sha3_<N>:<string>} now also supported
+    under OpenSSL version 1.1.1 or later.
+
+ 9. DKIM operations can now use the Ed25519 algorithm in addition to RSA, under
+    GnuTLS 3.6.0 or OpenSSL 1.1.1 or later.
+
+10. Builtin feature-macros _CRYPTO_HASH_SHA3 and _CRYPTO_SIGN_ED25519, library
+    version dependent.
+
+11. "exim -bP macro <name>" returns caller-usable status.
+
+12. Expansion item ${authresults {<machine>}} for creating an
+    Authentication-Results: header.
+
+13. EXPERIMENTAL_ARC.  See the experimental.spec file.
+    See also new util/renew-opendmarc-tlds.sh script for use with DMARC/ARC.
+
+14: A dane:fail event, intended to facilitate reporting.
+
+15. "Lightweight" support for Redis Cluster. Requires redis_servers list to
+    contain all the servers in the cluster, all of which must be reachable from
+    the running exim instance. If the cluster has master/slave replication, the
+    list must contain all the master and slave servers.
+
+16. Add an option to the Avast scanner interface: "pass_unscanned". This
+    allows to treat unscanned files as clean. Files may be unscanned for
+    several reasons: decompression bombs, broken archives.
+
+
+Version 4.90
+------------
+
+ 1. PKG_CONFIG_PATH can now be set in Local/Makefile;
+    wildcards will be expanded, values are collapsed.
+
+ 2. The ${readsocket } expansion now takes an option to not shutdown the
+    connection after sending the query string.  The default remains to do so.
+
+ 3. An smtp transport option "hosts_noproxy_tls" to control whether multiple
+    deliveries on a single TCP connection can maintain a TLS connection
+    open.  By default disabled for all hosts, doing so saves the cost of
+    making new TLS sessions, at the cost of having to proxy the data via
+    another process.  Logging is also affected.
+
+ 4. A malware connection type for the FPSCAND protocol.
+
+ 5. An option for recipient verify callouts to hold the connection open for
+    further recipients and for delivery.
+
+ 6. The reproducible build $SOURCE_DATE_EPOCH environment variable is now
+    supported.
+
+ 7. Optionally, an alternate format for spool data-files which matches the
+    wire format - meaning more efficient reception and transmission (at the
+    cost of difficulty with standard Unix tools).  Only used for messages
+    received using the ESMTP CHUNKING option, and when a new main-section
+    option "spool_wireformat" (false by default) is set.
+
+ 8. New main configuration option "commandline_checks_require_admin" to
+    restrict who can use various introspection options.
+
+ 9. New option modifier "no_check" for quota and quota_filecount
+    appendfile transport.
+
+10. Variable $smtp_command_history returning a comma-sep list of recent
+    SMTP commands.
+
+11. Millisecond timetamps in logs, on log_selector "millisec".  Also affects
+    log elements QT, DT and D, and timstamps in debug output.
+
+12. TCP Fast Open logging.  As a server, logs when the SMTP banner was sent
+    while still in SYN_RECV state; as a client logs when the connection
+    is opened with a TFO cookie.
+
+13. DKIM support for multiple signing, by domain and/or key-selector.
+    DKIM support for multiple hashes, and for alternate-identity tags.
+    Builtin macro with default list of signed headers.
+    Better syntax for specifying oversigning.
+    The DKIM ACL can override verification status, and status is visible in
+    the data ACL.
+
+14. Exipick understands -C|--config for an alternative Exim
+    configuration file.
+
+15. TCP Fast Open used, with data-on-SYN, for client SMTP via SOCKS5 proxy,
+    for ${readsocket } expansions, and for ClamAV.
+
+16. The "-be" expansion test mode now supports macros.  Macros are expanded
+    in test lines, and new macros can be defined.
+
+17. Support for server-side dual-certificate-stacks (eg. RSA + ECDSA).
+
+
+Version 4.89
+------------
+
+ 1. Allow relative config file names for ".include"
+
+ 2. A main-section config option "debug_store" to control the checks on
+    variable locations during store-reset.  Normally false but can be enabled
+    when a memory corrution issue is suspected on a production system.
+
+
+Version 4.88
+------------
+
+ 1. The new perl_taintmode option allows to run the embedded perl
+    interpreter in taint mode.
+
+ 2. New log_selector: dnssec, adds a "DS" tag to acceptance and delivery lines.
+
+ 3. Speculative debugging, via a "kill" option to the "control=debug" ACL
+    modifier.
+
+ 4. New expansion item ${sha3:<string>} / ${sha3_<N>:<string>}.
+    N can be 224, 256 (default), 384, 512.
+    With GnuTLS 3.5.0 or later, only.
+
+ 5. Facility for named queues:  A command-line argument can specify
+    the queue name for a queue operation, and an ACL modifier can set
+    the queue to be used for a message.  A $queue_name variable gives
+    visibility.
+
+ 6. New expansion operators base32/base32d.
+
+ 7. The CHUNKING ESMTP extension from RFC 3030.  May give some slight
+    performance increase and network load decrease.  Main config option
+    chunking_advertise_hosts, and smtp transport option hosts_try_chunking
+    for control.
+
+ 8. LMDB lookup support, as Experimental. Patch supplied by Andrew Colin Kissa.
+
+ 9. Expansion operator escape8bit, like escape but not touching newline etc..
+
+10. Feature macros, generated from compile options.  All start with "_HAVE_"
+    and go on with some roughly recognisable name.  Driver macros, for
+    router, transport and authentication drivers; names starting with "_DRIVER_".
+    Option macros, for each configuration-file option; all start with "_OPT_".
+    Use the "-bP macros" command-line option to see what is present.
+
+11. Integer values for options can take a "G" multiplier.
+
+12. defer=pass option for the ACL control cutthrough_delivery, to reflect 4xx
+    returns from the target back to the initiator, rather than spooling the
+    message.
+
+13. New built-in constants available for tls_dhparam and default changed.
+
+14. If built with EXPERIMENTAL_QUEUEFILE, a queuefile transport, for writing
+    out copies of the message spool files for use by 3rd-party scanners.
+
+15. A new option on the smtp transport, hosts_try_fastopen.  If the system
+    supports it (on Linux it must be enabled in the kernel by the sysadmin)
+    try to use RFC 7413 "TCP Fast Open".  No data is sent on the SYN segment
+    but it permits a peer that also supports the facility to send its SMTP
+    banner immediately after the SYN,ACK segment rather then waiting for
+    another ACK - so saving up to one roundtrip time.  Because it requires
+    previous communication with the peer (we save a cookie from it) this
+    will only become active on frequently-contacted destinations.
+
+16. A new syslog_pid option to suppress PID duplication in syslog lines.
+
+
+Version 4.87
+------------
+
+ 1. The ACL conditions regex and mime_regex now capture substrings
+    into numeric variables $regex1 to 9, like the "match" expansion condition.
+
+ 2. New $callout_address variable records the address used for a spam=,
+    malware= or verify= callout.
+
+ 3. Transports now take a "max_parallel" option, to limit concurrency.
+
+ 4. Expansion operators ${ipv6norm:<string>} and ${ipv6denorm:<string>}.
+    The latter expands to a 8-element colon-sep set of hex digits including
+    leading zeroes. A trailing ipv4-style dotted-decimal set is converted
+    to hex.  Pure ipv4 addresses are converted to IPv4-mapped IPv6.
+    The former operator strips leading zeroes and collapses the longest
+    set of 0-groups to a double-colon.
+
+ 5. New "-bP config" support, to dump the effective configuration.
+
+ 6. New $dkim_key_length variable.
+
+ 7. New base64d and base64 expansion items (the existing str2b64 being a
+    synonym of the latter).  Add support in base64 for certificates.
+
+ 8. New main configuration option "bounce_return_linesize_limit" to
+    avoid oversize bodies in bounces. The default value matches RFC
+    limits.
+
+ 9. New $initial_cwd expansion variable.
+
+
+Version 4.86
+------------
+
+ 1. Support for using the system standard CA bundle.
+
+ 2. New expansion items $config_file, $config_dir, containing the file
+    and directory name of the main configuration file. Also $exim_version.
+
+ 3. New "malware=" support for Avast.
+
+ 4. New "spam=" variant option for Rspamd.
+
+ 5. Assorted options on malware= and spam= scanners.
+
+ 6. A command-line option to write a comment into the logfile.
+
+ 7. If built with EXPERIMENTAL_SOCKS feature enabled, the smtp transport can
+    be configured to make connections via socks5 proxies.
+
+ 8. If built with EXPERIMENTAL_INTERNATIONAL, support is included for
+    the transmission of UTF-8 envelope addresses.
+
+ 9. If built with EXPERIMENTAL_INTERNATIONAL, an expansion item for a commonly
+    used encoding of Maildir folder names.
+
+10. A logging option for slow DNS lookups.
+
+11. New ${env {<variable>}} expansion.
+
+12. A non-SMTP authenticator using information from TLS client certificates.
+
+13. Main option "tls_eccurve" for selecting an Elliptic Curve for TLS.
+    Patch originally by Wolfgang Breyha.
+
+14. Main option "dns_trust_aa" for trusting your local nameserver at the
+    same level as DNSSEC.
+
+
+Version 4.85
+------------
+
+ 1. If built with EXPERIMENTAL_DANE feature enabled, Exim will follow the
+    DANE SMTP draft to assess a secure chain of trust of the certificate
+    used to establish the TLS connection based on a TLSA record in the
+    domain of the sender.
+
+ 2. The EXPERIMENTAL_TPDA feature has been renamed to EXPERIMENTAL_EVENT
+    and several new events have been created. The reason is because it has
+    been expanded beyond just firing events during the transport phase. Any
+    existing TPDA transport options will have to be rewritten to use a new
+    $event_name expansion variable in a condition. Refer to the
+    experimental-spec.txt for details and examples.
+
+ 3. The EXPERIMENTAL_CERTNAMES features is an enhancement to verify that
+    server certs used for TLS match the result of the MX lookup. It does
+    not use the same mechanism as DANE.
+
+
+Version 4.84
+------------
+
+
+Version 4.83
+------------
+
+ 1. If built with the EXPERIMENTAL_PROXY feature enabled, Exim can be
+    configured to expect an initial header from a proxy that will make the
+    actual external source IP:host be used in exim instead of the IP of the
+    proxy that is connecting to it.
+
+ 2. New verify option header_names_ascii, which will check to make sure
+    there are no non-ASCII characters in header names.  Exim itself handles
+    those non-ASCII characters, but downstream apps may not, so Exim can
+    detect and reject if those characters are present.
+
+ 3. New expansion operator ${utf8clean:string} to replace malformed UTF8
+    codepoints with valid ones.
+
+ 4. New malware type "sock".  Talks over a Unix or TCP socket, sending one
+    command line and matching a regex against the return data for trigger
+    and a second regex to extract malware_name.  The mail spoolfile name can
+    be included in the command line.
+
+ 5. The smtp transport now supports options "tls_verify_hosts" and
+    "tls_try_verify_hosts".  If either is set the certificate verification
+    is split from the encryption operation. The default remains that a failed
+    verification cancels the encryption.
+
+ 6. New SERVERS override of default ldap server list.  In the ACLs, an ldap
+    lookup can now set a list of servers to use that is different from the
+    default list.
+
+ 7. New command-line option -C for exiqgrep to specify alternate exim.conf
+    file when searching the queue.
+
+ 8. OCSP now supports GnuTLS also, if you have version 3.1.3 or later of that.
+
+ 9. Support for DNSSEC on outbound connections.
+
+10. New variables "tls_(in,out)_(our,peer)cert" and expansion item
+    "certextract" to extract fields from them. Hash operators md5 and sha1
+    work over them for generating fingerprints, and a new sha256 operator
+    for them added.
+
+11. PRDR is now supported dy default.
+
+12. OCSP stapling is now supported by default.
+
+13. If built with the EXPERIMENTAL_DSN feature enabled, Exim will output
+    Delivery Status Notification messages in MIME format, and negotiate
+    DSN features per RFC 3461.
+
 
 Version 4.82
 ------------
@@ -57,20 +416,20 @@ Version 4.82
     ignored.
 
  7. New cutthrough routing feature.  Requested by a "control = cutthrough_delivery"
-    ACL modifier; works for single-recipient mails which are recieved on and
+    ACL modifier; works for single-recipient mails which are received on and
     deliverable via SMTP.  Using the connection made for a recipient verify,
     if requested before the verify, or a new one made for the purpose while
     the inbound connection is still active.  The bulk of the mail item is copied
     direct from the inbound socket to the outbound (as well as the spool file).
     When the source notifies the end of data, the data acceptance by the destination
-    is negociated before the acceptance is sent to the source.  If the destination
+    is negotiated before the acceptance is sent to the source.  If the destination
     does not accept the mail item, for example due to content-scanning, the item
     is not accepted from the source and therefore there is no need to generate
     a bounce mail.  This is of benefit when providing a secondary-MX service.
     The downside is that delays are under the control of the ultimate destination
     system not your own.
 
-    The Recieved-by: header on items delivered by cutthrough is generated
+    The Received-by: header on items delivered by cutthrough is generated
     early in reception rather than at the end; this will affect any timestamp
     included.  The log line showing delivery is recorded before that showing
     reception; it uses a new ">>" tag instead of "=>".
@@ -124,14 +483,14 @@ Version 4.82
     "aaaa" and "a" lookups is done and the full set of results returned.
 
 14. New expansion variable $headers_added with content from ACL add_header
-    modifier (but not yet added to messsage).
+    modifier (but not yet added to message).
 
 15. New 8bitmime status logging option for received messages.  Log field "M8S".
 
 16. New authenticated_sender logging option, adding to log field "A".
 
 17. New expansion variables $router_name and $transport_name.  Useful
-    particularly for debug_print as -bt commandline option does not
+    particularly for debug_print as -bt command-line option does not
     require privilege whereas -d does.
 
 18. If built with EXPERIMENTAL_PRDR, per-recipient data responses per a
@@ -149,13 +508,14 @@ Version 4.82
     It adds new expansion variables $dmarc_ar_header, $dmarc_status,
     $dmarc_status_text, and $dmarc_used_domain.  It adds a new acl modifier
     dmarc_status.  It adds new control flags dmarc_disable_verify and
-    dmarc_enable_forensic.
+    dmarc_enable_forensic. The default for the dmarc_tld_file option is
+    "/etc/exim/opendmarc.tlds" and can be changed via EDITME.
 
 22. Add expansion variable $authenticated_fail_id, which is the username
     provided to the authentication method which failed.  It is available
     for use in subsequent ACL processing (typically quit or notquit ACLs).
 
-23. New ACL modifer "udpsend" can construct a UDP packet to send to a given
+23. New ACL modifier "udpsend" can construct a UDP packet to send to a given
     UDP host and port.
 
 24. New ${hexquote:..string..} expansion operator converts non-printable
@@ -590,7 +950,7 @@ Version 4.68
     longest line that was received as part of the message, not counting the
     line termination character(s).
 
- 7. Host lists can now include +ignore_defer and +include_defer, analagous to
+ 7. Host lists can now include +ignore_defer and +include_defer, analogous to
     +ignore_unknown and +include_unknown. These options should be used with
     care, probably only in non-critical host lists such as whitelists.
 

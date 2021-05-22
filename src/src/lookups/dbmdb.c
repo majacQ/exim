@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -18,8 +18,12 @@
 static void *
 dbmdb_open(uschar *filename, uschar **errmsg)
 {
+uschar * dirname = string_copy(filename);
+uschar * s;
 EXIM_DB *yield = NULL;
-EXIM_DBOPEN(filename, O_RDONLY, 0, &yield);
+
+if ((s = Ustrrchr(dirname, '/'))) *s = '\0';
+EXIM_DBOPEN(filename, dirname, O_RDONLY, 0, &yield);
 if (yield == NULL)
   {
   int save_errno = errno;
@@ -86,8 +90,8 @@ return rc == 0;
 the keylength in order to include the terminating zero. */
 
 static int
-dbmdb_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+dbmdb_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 EXIM_DB *d = (EXIM_DB *)handle;
 EXIM_DATUM key, data;
@@ -119,8 +123,8 @@ return FAIL;
 /* See local README for interface description */
 
 int
-static dbmnz_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+static dbmnz_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 return dbmdb_find(handle, filename, keystring, length-1, result, errmsg,
   do_cache);
@@ -139,11 +143,11 @@ return dbmdb_find(handle, filename, keystring, length-1, result, errmsg,
  */
 
 static int
-dbmjz_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+dbmjz_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 uschar *key_item, *key_buffer, *key_p;
-uschar *key_elems = keystring;
+const uschar *key_elems = keystring;
 int buflen, bufleft, key_item_len, sep = 0;
 
 /* To a first approximation, the size of the lookup key needs to be about,

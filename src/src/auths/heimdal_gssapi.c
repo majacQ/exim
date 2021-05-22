@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Copyright (c) Twitter Inc 2012
@@ -75,6 +75,20 @@ auth_heimdal_gssapi_options_block auth_heimdal_gssapi_option_defaults = {
   NULL,                     /* server_keytab */
   US"smtp",                 /* server_service */
 };
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_heimdal_gssapi_init(auth_instance *ablock) {}
+int auth_heimdal_gssapi_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_heimdal_gssapi_client(auth_instance *ablock, void * sx,
+  int timeout, uschar *buffer, int buffsize) {return 0;}
+void auth_heimdal_gssapi_version_report(FILE *f) {}
+
+#else   /*!MACRO_PREDEF*/
+
+
 
 /* "Globals" for managing the heimdal_gssapi interface. */
 
@@ -320,7 +334,7 @@ auth_heimdal_gssapi_server(auth_instance *ablock, uschar *initial_data)
         break;
 
       case 1:
-        gbufdesc_in.length = auth_b64decode(from_client, USS &gbufdesc_in.value);
+        gbufdesc_in.length = b64decode(from_client, USS &gbufdesc_in.value);
         if (gclient) {
           maj_stat = gss_release_name(&min_stat, &gclient);
           gclient = GSS_C_NO_NAME;
@@ -343,7 +357,7 @@ auth_heimdal_gssapi_server(auth_instance *ablock, uschar *initial_data)
           error_out = FAIL;
           goto ERROR_OUT;
         }
-        if (&gbufdesc_out.length != 0) {
+        if (gbufdesc_out.length != 0) {
           error_out = auth_get_data(&from_client,
               gbufdesc_out.value, gbufdesc_out.length);
           if (error_out != OK)
@@ -400,7 +414,7 @@ auth_heimdal_gssapi_server(auth_instance *ablock, uschar *initial_data)
         break;
 
       case 3:
-        gbufdesc_in.length = auth_b64decode(from_client, USS &gbufdesc_in.value);
+        gbufdesc_in.length = b64decode(from_client, USS &gbufdesc_in.value);
         maj_stat = gss_unwrap(&min_stat,
             gcontext,
             &gbufdesc_in,       /* data from client */
@@ -520,31 +534,30 @@ exim_gssapi_error_defer(uschar *store_reset_point,
     const char *format, ...)
 {
   va_list ap;
-  uschar buffer[STRING_SPRINTF_BUFFER_SIZE];
   OM_uint32 maj_stat, min_stat;
   OM_uint32 msgcontext = 0;
   gss_buffer_desc status_string;
+  gstring * g;
 
-  va_start(ap, format);
-  if (!string_vformat(buffer, sizeof(buffer), format, ap))
-    log_write(0, LOG_MAIN|LOG_PANIC_DIE,
-        "exim_gssapi_error_defer expansion larger than %lu",
-        sizeof(buffer));
-  va_end(ap);
+  HDEBUG(D_auth)
+    {
+    va_start(ap, format);
+    g = string_vformat(NULL, TRUE, format, ap);
+    va_end(ap);
+    }
 
   auth_defer_msg = NULL;
 
   do {
     maj_stat = gss_display_status(&min_stat,
-        major, GSS_C_GSS_CODE, GSS_C_NO_OID,
-        &msgcontext, &status_string);
+        major, GSS_C_GSS_CODE, GSS_C_NO_OID, &msgcontext, &status_string);
 
-    if (auth_defer_msg == NULL) {
+    if (!auth_defer_msg)
       auth_defer_msg = string_copy(US status_string.value);
-    }
 
     HDEBUG(D_auth) debug_printf("heimdal %s: %.*s\n",
-        buffer, (int)status_string.length, CS status_string.value);
+        string_from_gstring(g), (int)status_string.length,
+	CS status_string.value);
     gss_release_buffer(&min_stat, &status_string);
 
   } while (msgcontext != 0);
@@ -564,8 +577,7 @@ exim_gssapi_error_defer(uschar *store_reset_point,
 int
 auth_heimdal_gssapi_client(
   auth_instance *ablock,                 /* authenticator block */
-  smtp_inblock *inblock,                 /* connection inblock */
-  smtp_outblock *outblock,               /* connection outblock */
+  void * sx,				 /* connection */
   int timeout,                           /* command timeout */
   uschar *buffer,                        /* buffer for reading response */
   int buffsize)                          /* size of buffer */
@@ -590,6 +602,7 @@ auth_heimdal_gssapi_version_report(FILE *f)
           heimdal_version, heimdal_long_version);
 }
 
+#endif   /*!MACRO_PREDEF*/
 #endif  /* AUTH_HEIMDAL_GSSAPI */
 
 /* End of heimdal_gssapi.c */
