@@ -34,6 +34,44 @@
 > +
 > +
 > 
+> eval:   0
+> eval:   1
+> eval:   -1
+> eval:   1
+> eval:   2
+> eval:   7
+> eval:   9
+> eval:   4
+> eval:   6
+> eval:   42
+> Failed: error in expression evaluation: expecting number or opening parenthesis (after processing "")
+> eval:   -2
+> eval:   1
+> eval:   1
+> Failed: error in expression evaluation: expecting closing parenthesis (after processing "-2 - (-3")
+> Failed: error in expression evaluation: expecting operator (after processing "-2 - -3")
+> eval:   1
+> eval:   -5
+> eval:   1
+> eval:   40962
+> eval:   63
+> Failed: error in expression evaluation: expecting operator (after processing "0")
+> eval10: 77
+> eval10: 8
+> Failed: error in expression evaluation: expecting operator (after processing "0")
+> eval:   4
+> eval:   4
+> eval:   4
+> eval:   13
+> eval:   9
+> eval:   6
+> eval:   3
+> eval:   0
+> eval:   24
+> eval:   4608
+> eval:   4608
+> eval:   -4608
+> 
 > # List operations
 > 
 > filter: "a:b:c"
@@ -115,8 +153,15 @@
 > 
 > addrss: local-part@dom.ain
 > addrss: local-part@dom.ain
+> addrss: local-part@dom.ain
+> addrss: local-part@dom.ain
+> addrss: local-part@dom.ain
+> addrss: local-part.dot-atom@dom.ain
+> addrss: local-part@dom.ain
 > domain: dom.ain
 > domain: dom.ain
+> domain: dom.ain
+> domain: 
 > 
 > addresses: ''abc@xyz' ''pqr@xyz
 > addresses: local-part@dom.ain
@@ -128,40 +173,6 @@
 > escape:     B7\267F2\362
 > excape8bit: undisturbed text	tab
 newline	tab\134backslash ~tilde\177DEL\200\201.
-> 
-> eval:   2
-> eval:   7
-> eval:   9
-> eval:   4
-> eval:   6
-> eval:   42
-> Failed: error in expression evaluation: expecting number or opening parenthesis (after processing "")
-> eval:   -2
-> eval:   1
-> eval:   1
-> Failed: error in expression evaluation: expecting closing parenthesis (after processing "-2 - (-3")
-> Failed: error in expression evaluation: expecting operator (after processing "-2 - -3")
-> eval:   1
-> eval:   -5
-> eval:   1
-> eval:   40962
-> eval:   63
-> Failed: error in expression evaluation: expecting operator (after processing "0")
-> eval10: 77
-> eval10: 8
-> Failed: error in expression evaluation: expecting operator (after processing "0")
-> eval:   4
-> eval:   4
-> eval:   4
-> eval:   13
-> eval:   9
-> eval:   6
-> eval:   3
-> eval:   0
-> eval:   24
-> eval:   4608
-> eval:   4608
-> eval:   -4608
 > 
 > expand: $primary_hostname myhost.test.ex
 > hash:   jmg monty fbWx
@@ -226,6 +237,8 @@ newline	tab\134backslash ~tilde\177DEL\200\201.
 > length: The quick  abc
 > lclpt:  local-part
 > lclpt:  local-part
+> lclpt:  local.part
+> lclpt:  a.b.c
 > quote:  aZ09_.-Q "ab*cd" "abcd\"ef"
 > quote:  "nl(\n)"
 > quote:  "cr(\r)"
@@ -844,6 +857,9 @@ xyz
 > 
 > {"1":116, "2":943, "3":234}
 > expect: {"1":116, "2":943, "3":234}
+> 
+> <>
+> expect: <>
 > 
 > 
 > escape: B7·F2ò

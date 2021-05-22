@@ -274,6 +274,7 @@ Server:
 typedef struct {
   SSL_CTX *	ctx;
   SSL *		ssl;
+  gstring *	corked;
 } exim_openssl_client_tls_ctx;
 
 static SSL_CTX *server_ctx = NULL;
@@ -2473,6 +2474,7 @@ BOOL require_ocsp = FALSE;
 rc = store_pool;
 store_pool = POOL_PERM;
 exim_client_ctx = store_get(sizeof(exim_openssl_client_tls_ctx));
+exim_client_ctx->corked = NULL;
 store_pool = rc;
 
 #ifdef SUPPORT_DANE
@@ -2725,32 +2727,10 @@ switch(error)
   case SSL_ERROR_ZERO_RETURN:
     DEBUG(D_tls) debug_printf("Got SSL_ERROR_ZERO_RETURN\n");
 
-    receive_getc = smtp_getc;
-    receive_getbuf = smtp_getbuf;
-    receive_get_cache = smtp_get_cache;
-    receive_ungetc = smtp_ungetc;
-    receive_feof = smtp_feof;
-    receive_ferror = smtp_ferror;
-    receive_smtp_buffered = smtp_buffered;
-
     if (SSL_get_shutdown(server_ssl) == SSL_RECEIVED_SHUTDOWN)
 	  SSL_shutdown(server_ssl);
 
-#ifndef DISABLE_OCSP
-    sk_X509_pop_free(server_static_cbinfo->verify_stack, X509_free);
-    server_static_cbinfo->verify_stack = NULL;
-#endif
-    SSL_free(server_ssl);
-    SSL_CTX_free(server_ctx);
-    server_ctx = NULL;
-    server_ssl = NULL;
-    tls_in.active.sock = -1;
-    tls_in.active.tls_ctx = NULL;
-    tls_in.bits = 0;
-    tls_in.cipher = NULL;
-    tls_in.peerdn = NULL;
-    tls_in.sni = NULL;
-
+    tls_close(NULL, TLS_NO_SHUTDOWN);
     return FALSE;
 
   /* Handle genuine errors */
@@ -2908,8 +2888,12 @@ int
 tls_write(void * ct_ctx, const uschar *buff, size_t len, BOOL more)
 {
 int outbytes, error, left;
-SSL * ssl = ct_ctx ? ((exim_openssl_client_tls_ctx *)ct_ctx)->ssl : server_ssl;
-static gstring * corked = NULL;
+SSL * ssl = ct_ctx
+  ? ((exim_openssl_client_tls_ctx *)ct_ctx)->ssl : server_ssl;
+static gstring * server_corked = NULL;
+gstring ** corkedp = ct_ctx
+  ? &((exim_openssl_client_tls_ctx *)ct_ctx)->corked : &server_corked;
+gstring * corked = *corkedp;
 
 DEBUG(D_tls) debug_printf("%s(%p, %lu%s)\n", __FUNCTION__,
   buff, (unsigned long)len, more ? ", more" : "");
@@ -2917,28 +2901,30 @@ DEBUG(D_tls) debug_printf("%s(%p, %lu%s)\n", __FUNCTION__,
 /* Lacking a CORK or MSG_MORE facility (such as GnuTLS has) we copy data when
 "more" is notified.  This hack is only ok if small amounts are involved AND only
 one stream does it, in one context (i.e. no store reset).  Currently it is used
-for the responses to the received SMTP MAIL , RCPT, DATA sequence, only. */
-/*XXX + if PIPE_COMMAND, banner & ehlo-resp for smmtp-on-connect. Suspect there's
-a store reset there. */
+for the responses to the received SMTP MAIL , RCPT, DATA sequence, only.
+We support callouts done by the server process by using a separate client
+context for the stashed information. */
+/* + if PIPE_COMMAND, banner & ehlo-resp for smmtp-on-connect. Suspect there's
+a store reset there, so use POOL_PERM. */
+/* + if CHUNKING, cmds EHLO,MAIL,RCPT(s),BDAT */
 
 if (!ct_ctx && (more || corked))
   {
-#ifdef EXPERIMENTAL_PIPE_CONNECT
   int save_pool = store_pool;
   store_pool = POOL_PERM;
-#endif
 
   corked = string_catn(corked, buff, len);
 
-#ifdef EXPERIMENTAL_PIPE_CONNECT
   store_pool = save_pool;
-#endif
 
   if (more)
+    {
+    *corkedp = corked;
     return len;
+    }
   buff = CUS corked->s;
   len = corked->ptr;
-  corked = NULL;
+  *corkedp = NULL;
   }
 
 for (left = len; left > 0;)
@@ -3028,13 +3014,24 @@ if (shutdown)
     }
   }
 
-#ifndef DISABLE_OCSP
 if (!o_ctx)		/* server side */
   {
+#ifndef DISABLE_OCSP
   sk_X509_pop_free(server_static_cbinfo->verify_stack, X509_free);
   server_static_cbinfo->verify_stack = NULL;
-  }
 #endif
+
+  receive_getc =	smtp_getc;
+  receive_getbuf =	smtp_getbuf;
+  receive_get_cache =	smtp_get_cache;
+  receive_ungetc =	smtp_ungetc;
+  receive_feof =	smtp_feof;
+  receive_ferror =	smtp_ferror;
+  receive_smtp_buffered = smtp_buffered;
+  tls_in.active.tls_ctx = NULL;
+  tls_in.sni = NULL;
+  /* Leave bits, peercert, cipher, peerdn, certificate_verified set, for logging */
+  }
 
 SSL_CTX_free(*ctxp);
 SSL_free(*sslp);

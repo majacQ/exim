@@ -494,6 +494,9 @@ RESET_AFTER_EXTRA_LINE_READ:
   # Date/time in header lines and SMTP responses
   s/[A-Z][a-z]{2},\s\d\d?\s[A-Z][a-z]{2}\s\d\d\d\d\s\d\d\:\d\d:\d\d\s[-+]\d{4}
     /Tue, 2 Mar 1999 09:44:33 +0000/gx;
+  # and in a French locale
+  s/\S{4},\s\d\d?\s[^,]+\s\d\d\d\d\s\d\d\:\d\d:\d\d\s[-+]\d{4}
+    /dim., 10 f\xE9vr 2019 20:05:49 +0000/gx;
 
   # Date/time in logs and in one instance of a filter test
   s/^\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d(\s[+-]\d\d\d\d)?\s/1999-03-02 09:44:33 /gx;
@@ -566,9 +569,9 @@ RESET_AFTER_EXTRA_LINE_READ:
   #
   # Retain the authentication algorith field as we want to test that.
 
-  s/( (?: (?:\b|\s) [\(=] ) | \s )TLSv1\.[123]:/$1TLSv1:/xg;
-  s/((EC)?DHE-)?(RSA|ECDSA)-AES(128|256)-(GCM-SHA(256|384)|SHA)(?!:)/ke-$3-AES256-SHA/g;
-  s/((EC)?DHE-)?(RSA|ECDSA)-AES(128|256)-(GCM-SHA(256|384)|SHA):(128|256)/ke-$3-AES256-SHA:xxx/g;
+  s/( (?: (?:\b|\s) [\(=] ) | \s )TLSv1(\.[123])?:/$1TLS1.x:/xg;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-AES(128|256)-(GCM-SHA(256|384)|SHA)(?!:)/ke-$3-AES256-SHAnnn/g;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-AES(128|256)-(GCM-SHA(256|384)|SHA):(128|256)/ke-$3-AES256-SHAnnn:xxx/g;
 
   # OpenSSL TLSv1.3 - unsure what to do about the authentication-variant testcases now,
   # as it seems the protocol no longer supports a user choice.  Replace the "TLS" field with "RSA".
@@ -576,8 +579,8 @@ RESET_AFTER_EXTRA_LINE_READ:
   #
   # TLSversion : "TLS" - C_iph_er - MAC : ???
   #
-  s/TLS_AES(_256)?_GCM_SHA384(?!:)/ke-RSA-AES256-SHA/g;
-  s/:TLS_AES(_256)?_GCM_SHA384:256/:ke-RSA-AES256-SHA:xxx/g;
+  s/TLS_AES(_256)?_GCM_SHA384(?!:)/ke-RSA-AES256-SHAnnn/g;
+  s/:TLS_AES(_256)?_GCM_SHA384:256/:ke-RSA-AES256-SHAnnn:xxx/g;
 
   # LibreSSL
   # TLSv1:AES256-GCM-SHA384:256
@@ -587,14 +590,24 @@ RESET_AFTER_EXTRA_LINE_READ:
   # AES256-GCM-SHA384
 
   s/(?<!-)(AES256-GCM-SHA384)/RSA-$1/;
-  s/((EC)?DHE-)?(RSA|ECDSA)-(AES256|CHACHA20)-(GCM-SHA384|POLY1305)(?!:)/ke-$3-AES256-SHA/g;
-  s/((EC)?DHE-)?(RSA|ECDSA)-(AES256|CHACHA20)-(GCM-SHA384|POLY1305):256/ke-$3-AES256-SHA:xxx/g;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-(AES256|CHACHA20)-(GCM-SHA384|POLY1305)(?!:)/ke-$3-AES256-SHAnnn/g;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-(AES256|CHACHA20)-(GCM-SHA384|POLY1305):256/ke-$3-AES256-SHAnnn:xxx/g;
 
   # GnuTLS have seen:
+  #   TLS1.3:ECDHE_RSA_AES_256_GCM_SHA384:256
+  #   TLS1.3:ECDHE_SECP256R1__RSA_PSS_RSAE_SHA256__AES_256_GCM__AEAD:256
+  #   TLS1.3:ECDHE_X25519__RSA_PSS_RSAE_SHA256__AES_256_GCM:256
+  #   TLS1.3:ECDHE_PSK_SECP256R1__AES_256_GCM__AEAD:256
+  #
   #   TLS1.2:ECDHE_RSA_AES_256_GCM_SHA384:256
   #   TLS1.2:ECDHE_RSA_AES_128_GCM_SHA256:128
   #   TLS1.2:RSA_AES_256_CBC_SHA1:256 (canonical)
   #   TLS1.2:DHE_RSA_AES_128_CBC_SHA1:128
+  #   TLS1.2:ECDHE_SECP256R1__RSA_SHA256__AES_256_GCM:256
+  #   TLS1.2:ECDHE_SECP256R1__RSA_SHA256__AES_128_CBC__SHA256:128
+  #   TLS1.2:ECDHE_SECP256R1__ECDSA_SHA512__AES_256_GCM:256
+  #   TLS1.2:ECDHE_RSA_SECP256R1__AES_256_GCM:256 (! 3.5.18 !)
+  #   TLS1.2:RSA__CAMELLIA_256_GCM:256	(leave the cipher name)
   #
   #   X=TLS1.2:DHE_RSA_AES_256_CBC_SHA256:256
   #   X=TLS1.2:RSA_AES_256_CBC_SHA1:256
@@ -605,12 +618,22 @@ RESET_AFTER_EXTRA_LINE_READ:
   #   DHE-RSA-AES256-SHA256
   #   DHE-RSA-AES256-SHA
   # picking latter as canonical simply because regex easier that way.
-  s/\bDHE_RSA_AES_128_CBC_SHA1:128/RSA_AES_256_CBC_SHA1:256/g;
-  s/TLS1.[012]:((EC)?DHE_)?(RSA|ECDSA)_AES_(256|128)_(CBC|GCM)_SHA(1|256|384):(256|128)/TLS1.x:ke_$3_AES_256_CBC_SHAnnn:256/g;
-  s/\b(ECDHE-(RSA|ECDSA)-AES256-SHA|DHE-RSA-AES256-SHA256)\b/ke-$2-AES256-SHAxx/g;
+  s/\bDHE_RSA_AES_128_CBC_SHA1:128/RSA-AES256-SHA1:256/g;
+  s/TLS1.[0123]:								# TLS version
+    ((EC)?DHE(_((?<psk>PSK)_)?((?<auth>RSA|ECDSA)_)?(SECP256R1|X25519))?__?)?	# key-exchange
+    ((?<auth>RSA|ECDSA)((_PSS_RSAE)?_SHA(512|256))?__?)?			# authentication
+    AES_(256|128)_(CBC|GCM)							# cipher
+    (__?SHA(1|256|384))?:							# PRF
+    (256|128)									# cipher strength
+    /"TLS1.x:ke-"
+	. (defined($+{psk}) ? $+{psk} : "")
+	. (defined($+{auth}) ? $+{auth} : "")
+	. "-AES256-SHAnnn:xxx"/gex;
+  s/TLS1.2:RSA__CAMELLIA_256_GCM(_SHA384)?:256/TLS1.2:RSA_CAMELLIA_256_GCM-SHAnnn:256/g;
+  s/\b(ECDHE-(RSA|ECDSA)-AES256-SHA|DHE-RSA-AES256-SHA256)\b/ke-$2-AES256-SHAnnn/g;
 
   # GnuTLS library error message changes
-  s/No certificate was found/The peer did not send any certificate/g;
+  s/(No certificate was found|Certificate is required)/The peer did not send any certificate/g;
 #(dodgy test?)  s/\(certificate verification failed\): invalid/\(gnutls_handshake\): The peer did not send any certificate./g;
   s/\(gnutls_priority_set\): No or insufficient priorities were set/\(gnutls_handshake\): Could not negotiate a supported cipher suite/g;
   s/\(gnutls_handshake\): \KNo supported cipher suites have been found.$/Could not negotiate a supported cipher suite./;
@@ -1247,6 +1270,20 @@ RESET_AFTER_EXTRA_LINE_READ:
     s/(TLS error on connection [^:]*: error:)[0-9A-F]{8}(:system library):(?:fopen|func\(4095\)):(No such file or directory)$/$1xxxxxxxx$2:fopen:$3/;
     s/(DANE attempt failed.*error:)[0-9A-F]{8}(:SSL routines:)(ssl3_get_server_certificate|tls_process_server_certificate|CONNECT_CR_CERT)(?=:certificate verify failed$)/$1xxxxxxxx$2ssl3_get_server_certificate/;
     s/(DKIM: validation error: )error:[0-9A-F]{8}:rsa routines:(?:(?i)int_rsa_verify|CRYPTO_internal):(?:bad signature|algorithm mismatch)$/$1Public key signature verification has failed./;
+
+    # gnutls version variances
+    if (/TLS error on connection \(recv\): .* (Decode error|peer did not send any certificate)/)
+      {
+      my $prev = $_;
+      $_ = <IN>;
+      if (/error on first read/)
+	{
+	s/TLS session: \Kerror on first read:/(gnutls_handshake): A TLS fatal alert has been received.:/;
+	goto RESET_AFTER_EXTRA_LINE_READ;
+	}
+      else
+	{ $_ = $prev; }
+      }
 
     # DKIM timestamps
     if ( /(DKIM: d=.*) t=([0-9]*) x=([0-9]*) / )
@@ -3281,6 +3318,7 @@ else
 
 # Find this host's IP addresses - there may be many, of course, but we keep
 # one of each type (IPv4 and IPv6).
+#XXX it would be good to avoid non-UP interfaces
 
 open(IFCONFIG, '-|', (grep { -x "$_/ip" } split /:/, $ENV{PATH}) ? 'ip address' : 'ifconfig -a')
   or die "** Cannot run 'ip address' or 'ifconfig -a'\n";
@@ -3288,7 +3326,8 @@ while (not ($parm_ipv4 and $parm_ipv6) and defined($_ = <IFCONFIG>))
   {
   if (not $parm_ipv4 and /^\s*inet(?:\saddr)?:?\s?(\d+\.\d+\.\d+\.\d+)(?:\/\d+)?\s/i)
     {
-    next if $1 =~ /^(?:127|10)\./;
+    next if $1 =~ /^(?:127|10\.250)\./;
+    next if $1 eq '0.0.0.0';
     $parm_ipv4 = $1;
     }
 

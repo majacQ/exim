@@ -389,7 +389,7 @@ if (ob->socks_proxy)
   {
   int sock = socks_sock_connect(sc->host, sc->host_af, port, sc->interface,
 				sc->tblock, ob->connect_timeout);
-  
+
   if (sock >= 0)
     {
     if (early_data && early_data->data && early_data->len)
@@ -590,7 +590,7 @@ Arguments:
   timeout   the timeout to use when reading a packet
 
 Returns:    length of a line that has been put in the buffer
-            -1 otherwise, with errno set
+            -1 otherwise, with errno set, and inblock->ptr adjusted
 */
 
 static int
@@ -631,6 +631,7 @@ for (;;)
       {
       *p = 0;                     /* Leave malformed line for error message */
       errno = ERRNO_SMTPFORMAT;
+      inblock->ptr = ptr;
       return -1;
       }
     }
@@ -656,6 +657,7 @@ for (;;)
 /* Get here if there has been some kind of recv() error; errno is set, but we
 ensure that the result buffer is empty before returning. */
 
+inblock->ptr = inblock->ptrend = inblock->buffer;
 *buffer = 0;
 return -1;
 }
@@ -688,20 +690,22 @@ Returns:    TRUE if a valid, non-error response was received; else FALSE
 /*XXX could move to smtp transport; no other users */
 
 BOOL
-smtp_read_response(void * sx0, uschar *buffer, int size, int okdigit,
+smtp_read_response(void * sx0, uschar * buffer, int size, int okdigit,
    int timeout)
 {
 smtp_context * sx = sx0;
-uschar *ptr = buffer;
-int count = 0;
+uschar * ptr = buffer;
+int count = 0, rc;
 
 errno = 0;  /* Ensure errno starts out zero */
 
 #ifdef EXPERIMENTAL_PIPE_CONNECT
 if (sx->pending_BANNER || sx->pending_EHLO)
-  if (smtp_reap_early_pipe(sx, &count) != OK)
+  if ((rc = smtp_reap_early_pipe(sx, &count)) != OK)
     {
     DEBUG(D_transport) debug_printf("failed reaping pipelined cmd responsess\n");
+    buffer[0] = '\0';
+    if (rc == DEFER) errno = ERRNO_TLSFAILURE;
     return FALSE;
     }
 #endif

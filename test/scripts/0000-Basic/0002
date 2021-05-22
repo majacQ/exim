@@ -45,6 +45,44 @@ x\
 +$11111111111111111111111111111111111
 +${11111111111111111111111111111111111}
 
+eval:   ${eval:0}
+eval:   ${eval:1}
+eval:   ${eval:-1}
+eval:   ${eval:+1}
+eval:   ${eval:1+1}
+eval:   ${eval:1+2*3}
+eval:   ${eval:(1+2)*3}
+eval:   ${eval:3/2*4}
+eval:   ${eval:3*4/2}
+eval:   ${eval:42}
+eval:   ${eval:}
+eval:   ${eval:-2}
+eval:   ${eval:-2 - -3}
+eval:   ${eval:-2 - (-3)}
+eval:   ${eval:-2 - (-3}
+eval:   ${eval:-2 - -3)}
+eval:   ${eval:-2 --3}
+eval:   ${eval:-2 -+3}
+eval:   ${eval:-2 -+-3}
+eval:   ${eval:(2*(1+1))/2 + 40K}
+eval:   ${eval:077}
+eval:   ${eval:08}
+eval10: ${eval10:077}
+eval10: ${eval10:08}
+eval10: ${eval10:0x1234}
+eval:   ${eval:2+42%5}
+eval:   ${eval:0xc&5}
+eval:   ${eval:0xc & 5 }
+eval:   ${eval:0x0c|5}
+eval:   ${eval:0xc^5}
+eval:   ${eval:0xc>>1}
+eval:   ${eval:0xc >> 2}
+eval:   ${eval:0xc >> 4 }
+eval:   ${eval:0xc<<1}
+eval:   ${eval:~255&0x1234}
+eval:   ${eval:~ 255&0x1234}
+eval:   ${eval: -(~255&0x1234)}
+
 # List operations
 
 filter: "${filter{a:b:c}{eq{1}{1}}}"
@@ -123,8 +161,15 @@ acl: ${reduce {1:2:3:4} {} {$value ${acl {a_ret}{$item}}}}
 
 addrss: ${address:local-part@dom.ain}
 addrss: ${address:Exim Person <local-part@dom.ain> (that's me)}
+addrss: ${address:Exim Person <local-part(comment)@dom.ain> (that's me)}
+addrss: ${address:Exim Person <local-part@dom.ain(comment)> (that's me)}
+addrss: ${address:Exim Person <local-part(comment)@dom.ain(comment2)> (that's me)}
+addrss: ${address:Exim Person <local-part.(comment)dot-atom@dom.ain(comment2)> (that's me)}
+addrss: ${address:Exim Person <(comment)local-part@dom.ain(comment2)> (that's me)}
 domain: ${domain:local-part@dom.ain}
 domain: ${domain:Exim Person <local-part@dom.ain> (that's me)}
+domain: ${domain:Exim Person <local-part(foo)@(bar)dom.ain> (that's me)}
+domain: ${domain:a.b.c}
 
 addresses: ${addresses:>' 'abc@xyz, 'pqr@xyz}
 addresses: ${addresses:Exim Person <local-part@dom.ain> (that's me)}
@@ -137,40 +182,6 @@ addresses: ${addresses:>}
 
 escape:     ${escape:B7·F2ò}
 excape8bit: ${escape8bit:undisturbed text\ttab\nnewline\ttab\\backslash \176tilde\177DEL\200\x81.}
-
-eval:   ${eval:1+1}
-eval:   ${eval:1+2*3}
-eval:   ${eval:(1+2)*3}
-eval:   ${eval:3/2*4}
-eval:   ${eval:3*4/2}
-eval:   ${eval:42}
-eval:   ${eval:}
-eval:   ${eval:-2}
-eval:   ${eval:-2 - -3}
-eval:   ${eval:-2 - (-3)}
-eval:   ${eval:-2 - (-3}
-eval:   ${eval:-2 - -3)}
-eval:   ${eval:-2 --3}
-eval:   ${eval:-2 -+3}
-eval:   ${eval:-2 -+-3}
-eval:   ${eval:(2*(1+1))/2 + 40K}
-eval:   ${eval:077}
-eval:   ${eval:08}
-eval10: ${eval10:077}
-eval10: ${eval10:08}
-eval10: ${eval10:0x1234}
-eval:   ${eval:2+42%5}
-eval:   ${eval:0xc&5}
-eval:   ${eval:0xc & 5 }
-eval:   ${eval:0x0c|5}
-eval:   ${eval:0xc^5}
-eval:   ${eval:0xc>>1}
-eval:   ${eval:0xc >> 2}
-eval:   ${eval:0xc >> 4 }
-eval:   ${eval:0xc<<1}
-eval:   ${eval:~255&0x1234}
-eval:   ${eval:~ 255&0x1234}
-eval:   ${eval: -(~255&0x1234)}
 
 expand: \$primary_hostname ${expand:\$primary_hostname}
 hash:   ${hash_3:monty} ${hash_5:monty} ${hash_4_62:monty python}
@@ -244,6 +255,8 @@ lc/uc:  ${lc:The Quick} ${uc: Brown Fox}
 length: ${length_10:The quick brown fox} ${l_10:abc}
 lclpt:  ${local_part:local-part@dom.ain}
 lclpt:  ${local_part:Exim Person <local-part@dom.ain> (that's me)}
+lclpt:  ${local_part:Exim Person <local(comment).part@dom.(comment2)ain> (that's me)}
+lclpt:  ${local_part:a.b.c}
 quote:  ${quote:aZ09_.-Q} ${quote:ab*cd} ${quote:ab\cd"ef}
 quote:  ${quote:nl(\n)}
 quote:  ${quote:cr(\r)}
@@ -901,6 +914,9 @@ expect: {"1":116, "2":943, "3":234}
 
 ${extract json{IDs}{ \{"id": \{"a":101, "b":102\}, "IDs": \{"1":116, "2":943, "3":234\}\} }}
 expect: {"1":116, "2":943, "3":234}
+
+<${extract json{nonexistent}{ \{"id": \{"a":101, "b":102\}, "IDs": \{"1":116, "2":943, "3":234\}\} }}>
+expect: <>
 
 ****
 # Test "escape" with print_topbitchars

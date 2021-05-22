@@ -331,6 +331,10 @@ open_msglog_file(uschar *filename, int mode, uschar **error)
 {
 int fd, i;
 
+if (Ustrstr(filename, US"/../"))
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "Attempt to open msglog file path with upward-traversal: '%s'", filename);
+
 for (i = 2; i > 0; i--)
   {
   fd = Uopen(filename,
@@ -5507,6 +5511,25 @@ while ((addr = *anchor))
 
 
 
+/************************************************/
+
+static void
+print_dsn_addr_action(FILE * f, address_item * addr,
+  uschar * action, uschar * status)
+{
+address_item * pa;
+
+if (addr->dsn_orcpt)
+  fprintf(f,"Original-Recipient: %s\n", addr->dsn_orcpt);
+
+for (pa = addr; pa->parent; ) pa = pa->parent;
+fprintf(f, "Action: %s\n"
+    "Final-Recipient: rfc822;%s\n"
+    "Status: %s\n",
+  action, pa->address, status);
+}
+
+
 /*************************************************
 *              Deliver one message               *
 *************************************************/
@@ -7365,8 +7388,8 @@ if (addr_senddsn)
     if (errors_reply_to)
       fprintf(f, "Reply-To: %s\n", errors_reply_to);
 
+    moan_write_from(f);
     fprintf(f, "Auto-Submitted: auto-generated\n"
-	"From: Mail Delivery System <Mailer-Daemon@%s>\n"
 	"To: %s\n"
 	"Subject: Delivery Status Notification\n"
 	"Content-Type: multipart/report; report-type=delivery-status; boundary=%s\n"
@@ -7377,7 +7400,7 @@ if (addr_senddsn)
 
 	"This message was created automatically by mail delivery software.\n"
 	" ----- The following addresses had successful delivery notifications -----\n",
-      qualify_domain_sender, sender_address, bound, bound);
+      sender_address, bound, bound);
 
     for (addr_dsntmp = addr_senddsn; addr_dsntmp;
 	 addr_dsntmp = addr_dsntmp->next)
@@ -7410,10 +7433,7 @@ if (addr_senddsn)
       if (addr_dsntmp->dsn_orcpt)
         fprintf(f,"Original-Recipient: %s\n", addr_dsntmp->dsn_orcpt);
 
-      fprintf(f, "Action: delivered\n"
-	  "Final-Recipient: rfc822;%s\n"
-	  "Status: 2.0.0\n",
-	addr_dsntmp->address);
+      print_dsn_addr_action(f, addr_dsntmp, US"delivered", US"2.0.0");
 
       if (addr_dsntmp->host_used && addr_dsntmp->host_used->name)
         fprintf(f, "Remote-MTA: dns; %s\nDiagnostic-Code: smtp; 250 Ok\n\n",
@@ -7433,7 +7453,7 @@ if (addr_senddsn)
 
     tctx.u.fd = fd;
     tctx.options = topt_add_return_path | topt_no_body;
-    /*XXX hmm, retval ignored.
+    /*XXX hmm, FALSE(fail) retval ignored.
     Could error for any number of reasons, and they are not handled. */
     transport_write_message(&tctx, 0);
     fflush(f);
@@ -7503,7 +7523,8 @@ while (addr_failed)
   mark the recipient done. */
 
   if (  addr_failed->prop.ignore_error
-     || addr_failed->dsn_flags & (rf_dsnflags & ~rf_notify_failure)
+     ||    addr_failed->dsn_flags & rf_dsnflags
+	&& !(addr_failed->dsn_flags & rf_notify_failure)
      )
     {
     addr = addr_failed;
@@ -7798,10 +7819,9 @@ wording. */
       for (addr = handled_addr; addr; addr = addr->next)
         {
 	host_item * hu;
-        fprintf(fp, "Action: failed\n"
-	    "Final-Recipient: rfc822;%s\n"
-	    "Status: 5.0.0\n",
-	    addr->address);
+
+	print_dsn_addr_action(fp, addr, US"failed", US"5.0.0");
+
         if ((hu = addr->host_used) && hu->name)
 	  {
 	  fprintf(fp, "Remote-MTA: dns; %s\n", hu->name);
@@ -8343,13 +8363,9 @@ else if (addr_defer != (address_item *)(+1))
 
         for ( ; addr_dsndefer; addr_dsndefer = addr_dsndefer->next)
           {
-          if (addr_dsndefer->dsn_orcpt)
-            fprintf(f, "Original-Recipient: %s\n", addr_dsndefer->dsn_orcpt);
 
-          fprintf(f, "Action: delayed\n"
-	      "Final-Recipient: rfc822;%s\n"
-	      "Status: 4.0.0\n",
-	    addr_dsndefer->address);
+	  print_dsn_addr_action(f, addr_dsndefer, US"delayed", US"4.0.0");
+
           if (addr_dsndefer->host_used && addr_dsndefer->host_used->name)
             {
             fprintf(f, "Remote-MTA: dns; %s\n",
