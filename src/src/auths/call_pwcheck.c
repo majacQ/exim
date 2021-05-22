@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This module contains interface functions to the two Cyrus authentication
@@ -49,7 +50,7 @@ if (pw == NULL)
 DEBUG(D_auth)
   debug_printf("Running pwcheck authentication for user \"%s\"\n", s);
 
-switch (pwcheck_verify_password(CS s, CS pw, (const char **)(&reply)))
+switch (pwcheck_verify_password(CS s, CS pw, CCSS &reply))
   {
   case PWCHECK_OK:
   DEBUG(D_auth) debug_printf("pwcheck: success (%s)\n", reply);
@@ -88,8 +89,8 @@ Returns:   OK if authentication succeeded
 */
 
 int
-auth_call_saslauthd(uschar *username, uschar *password, uschar *service,
-  uschar *realm, uschar **errptr)
+auth_call_saslauthd(const uschar *username, const uschar *password,
+  const uschar *service, const uschar *realm, uschar **errptr)
 {
 uschar *reply = NULL;
 

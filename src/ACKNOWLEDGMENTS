@@ -67,8 +67,8 @@ Paul Kelly                MySQL interface
 Ian Kirk                  Radius support
 Stuart Levy               Replacement for broken inet_ntoa() on IRIX
 Stuart Lynne              First code for LDAP
-Nigel Metheringham        Setting up the web site and mailing list
-                            Managing the web site and mailing list
+Nigel Metheringham        Setting up the website and mailing list
+                            Managing the website and mailing list
                             Interface to Berkeley DB
                             Support for cdb
                             Support for maildir
@@ -87,6 +87,7 @@ Justo Alonso              Suggested patch for maildir++ maildirsize file support
 Anton Altaparmakov        Patches to get cyrus_sasl fully working
 Simon Arlott              Patch for $dnslist_matched.
 Claus Assmann             Example code for OpenSSL CRL support
+Warren Baker              Experimental Redis lookup.
 Robert Bannocks           Patch for LDAP reference problem on Solaris
 Ian Bell                  Analysis of a bug and an infelicity in clock tick code
                           Patch for ${quote_local_part
@@ -177,6 +178,7 @@ Michael Haardt            Tidies to make the code stricter
                             ... and several more
 Thomas Hager              Patch for saslauthd crash bug
 Richard Hall              Fix for file descriptor leak in redirection
+                          Fix for exiqsumm output corner case
 Jori Hamalainen           Patch to add features to exiqsumm
                           Patch to speed up exigrep
 Steve Haslam              Lots of stuff, including
@@ -221,6 +223,7 @@ Chris Liddiard            Fix for bug in exiqsumm
 Chris Lightfoot           Patch for -restore-times in exim_lock
 Edgar Lovecraft           Patch for ${str2b64:
 Torsten Luettgert         Suggested patch for proper integer overflow detection
+Todd Lyons                Patch to add DMARC support using OpenDMARC libs/tools
 David Madole              Patch for SPA forced expansion failure bug
 Lars Mainka               Patch for OpenSSL crl collections
 Andrey Malyshev           Patch for $address_data after redirection bug
@@ -253,6 +256,7 @@ Eric Parusel              Patch for tls_remember_esmtp
 Gaige Paulsen             Amended Darwin config files
 Richard Premdas           Patch for PAM buglet
 Jason Pyeron              Suggested patch for ignoring Sendmail's -O option
+Axel Rau                  Patch for Transport Post Delivery sql logging
 Mark Rigby-Jones          Patch for race condition during MBX locking
 Robert Roselius           Patch for OpenSSL workaround for bad clients
 Larry Rosenman            OpenUNIX config files
@@ -346,7 +350,7 @@ John Jetmore
 Tom Kistner               DKIM. Content scanning. SPA.
 Todd Lyons
 Nigel Metheringham        Transitioning out of Default Victim status.
-Phil Pennock              Release Coordinator. Breaks lots of things.
+Phil Pennock              Mostly idle; some security bits still.
 David Woodhouse           Dynamic modules. Security.
 
 
@@ -359,6 +363,7 @@ Simon Arlott              Code for outbound SSL-on-connect
                           Patch fixing NUL term/init of DKIM strings
                           Patch fixing dnsdb TXT record handling for DKIM
                           Patch speeding up DomainKeys signing
+Warren Baker              Found crash with MIME ACLs in non-SMTP local injection
 Dmitry Banschikov         Path to check for LDAP TLS initialisation errors
 René Berber               Pointed out mistake in build instructions for QNX
 Johannes Berg             Maintained dynamically loadable module code out-of-tree
@@ -405,6 +410,7 @@ John Horne                Patch adding $av_failed
                           Pointed out ClamAV ExtendedDetectionInfo compat issue
 Regid Ichira              Documentation fixes
 Andreas M. Kirchwitz      Let /dev/null have normal permissions (4.73 fallout)
+J. Nick Koston            Patch adding force_command pipe transport option
 Roberto Lima              Patch letting exicyclog rotate paniclog
 Todd Lyons                Patch handling TAB in MAIL arguments
 Christof Meerwald         Provided insight & suggested patch for GnuTLS update
@@ -443,12 +449,14 @@ Jan Srzednicki            Patch improving Dovecot authenticator
 Samuel Thibault           Patch fixing IPv6 interface address detection on Hurd
 Martin Tscholak           Reported issue with TLS anonymous ciphersuites
 Stephen Usher             Patch fixing use of Oracle's LDAP libraries on Solaris
+Jasper Wallace            Patch for LibreSSL compatibility
 Holger Weiß               Patch leting ${run} return more data than OS pipe
                             buffer size
 Moritz Wilhelmy           Pointed out PCRE_PRERELEASE glitch
 Alain Williams            Patch supporting MySQL stored procedures
 Mark Zealey               Patch updating $message_linecount for maildir_tag
                           Patch improving spamd server selection
+                          Patch to allow multiple TCP clamd servers
 
 
 Packagers

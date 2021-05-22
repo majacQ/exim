@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -16,11 +17,15 @@
 /* See local README for interface description */
 
 static void *
-dbmdb_open(uschar *filename, uschar **errmsg)
+dbmdb_open(const uschar * filename, uschar ** errmsg)
 {
+uschar * dirname = string_copy(filename);
+uschar * s;
 EXIM_DB *yield = NULL;
-EXIM_DBOPEN(filename, O_RDONLY, 0, &yield);
-if (yield == NULL)
+
+if ((s = Ustrrchr(dirname, '/'))) *s = '\0';
+EXIM_DBOPEN(filename, dirname, O_RDONLY, 0, &yield);
+if (!yield)
   {
   int save_errno = errno;
   *errmsg = string_open_failed(errno, "%s as a %s file", filename, EXIM_DBTYPE);
@@ -43,7 +48,7 @@ the same. Otherwise, for safety, we have to check for x.db or x.dir and x.pag.
 */
 
 static BOOL
-dbmdb_check(void *handle, uschar *filename, int modemask, uid_t *owners,
+dbmdb_check(void *handle, const uschar *filename, int modemask, uid_t *owners,
   gid_t *owngroups, uschar **errmsg)
 {
 int rc;
@@ -86,8 +91,9 @@ return rc == 0;
 the keylength in order to include the terminating zero. */
 
 static int
-dbmdb_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+dbmdb_find(void * handle, const uschar * filename, const uschar * keystring,
+  int length, uschar ** result, uschar ** errmsg, uint * do_cache,
+  const uschar * opts)
 {
 EXIM_DB *d = (EXIM_DB *)handle;
 EXIM_DATUM key, data;
@@ -118,12 +124,13 @@ return FAIL;
 
 /* See local README for interface description */
 
-int
-static dbmnz_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+static int
+dbmnz_find(void * handle, const uschar * filename, const uschar * keystring,
+  int length, uschar ** result, uschar ** errmsg, uint * do_cache,
+  const uschar * opts)
 {
 return dbmdb_find(handle, filename, keystring, length-1, result, errmsg,
-  do_cache);
+  do_cache, opts);
 }
 
 
@@ -139,18 +146,19 @@ return dbmdb_find(handle, filename, keystring, length-1, result, errmsg,
  */
 
 static int
-dbmjz_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+dbmjz_find(void * handle, const uschar * filename, const uschar * keystring,
+  int length, uschar ** result, uschar ** errmsg, uint * do_cache,
+  const uschar * opts)
 {
 uschar *key_item, *key_buffer, *key_p;
-uschar *key_elems = keystring;
+const uschar *key_elems = keystring;
 int buflen, bufleft, key_item_len, sep = 0;
 
 /* To a first approximation, the size of the lookup key needs to be about,
 or less than, the length of the delimited list passed in + 1. */
 
 buflen = length + 3;
-key_buffer = store_get(buflen);
+key_buffer = store_get(buflen, is_tainted(keystring));
 
 key_buffer[0] = '\0';
 
@@ -195,13 +203,13 @@ if (key_p == key_buffer)
 empty element to put one in. Boundary: key length 1, is a NULL */
 key_item_len = key_p - key_buffer - 1;
 
-DEBUG(D_lookup) debug_printf("NUL-joined key length: %d\n", key_item_len);
+DEBUG(D_lookup) debug_printf_indent("NUL-joined key length: %d\n", key_item_len);
 
 /* beware that dbmdb_find() adds 1 to length to get back terminating NUL, so
 because we've calculated the real length, we need to subtract one more here */
-return dbmdb_find(handle, filename,
-    key_buffer, key_item_len - 1,
-    result, errmsg, do_cache);
+
+return dbmdb_find(handle, filename, key_buffer, key_item_len - 1,
+    result, errmsg, do_cache, opts);
 }
 
 
@@ -238,39 +246,39 @@ fprintf(f, "Library version: DBM: Exim version %s\n", EXIM_VERSION_STR);
 
 
 lookup_info dbm_lookup_info = {
-  US"dbm",                       /* lookup name */
-  lookup_absfile,                /* uses absolute file name */
-  dbmdb_open,                    /* open function */
-  dbmdb_check,                   /* check function */
-  dbmdb_find,                    /* find function */
-  dbmdb_close,                   /* close function */
-  NULL,                          /* no tidy function */
-  NULL,                          /* no quoting function */
-  dbm_version_report             /* version reporting */
+  .name = US"dbm",			/* lookup name */
+  .type = lookup_absfile,		/* uses absolute file name */
+  .open = dbmdb_open,			/* open function */
+  .check = dbmdb_check,			/* check function */
+  .find = dbmdb_find,			/* find function */
+  .close = dbmdb_close,			/* close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = NULL,			/* no quoting function */
+  .version_report = dbm_version_report             /* version reporting */
 };
 
 lookup_info dbmz_lookup_info = {
-  US"dbmnz",                     /* lookup name */
-  lookup_absfile,                /* uses absolute file name */
-  dbmdb_open,      /* sic */     /* open function */
-  dbmdb_check,     /* sic */     /* check function */
-  dbmnz_find,                    /* find function */
-  dbmdb_close,     /* sic */     /* close function */
-  NULL,                          /* no tidy function */
-  NULL,                          /* no quoting function */
-  NULL                           /* no version reporting (redundant) */
+  .name = US"dbmnz",			/* lookup name */
+  .type = lookup_absfile,		/* uses absolute file name */
+  .open = dbmdb_open,			/* sic */     /* open function */
+  .check = dbmdb_check,			/* sic */     /* check function */
+  .find = dbmnz_find,			/* find function */
+  .close = dbmdb_close,			/* sic */     /* close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = NULL,			/* no quoting function */
+  .version_report = NULL                           /* no version reporting (redundant) */
 };
 
 lookup_info dbmjz_lookup_info = {
-  US"dbmjz",                     /* lookup name */
-  lookup_absfile,                /* uses absolute file name */
-  dbmdb_open,      /* sic */     /* open function */
-  dbmdb_check,     /* sic */     /* check function */
-  dbmjz_find,                    /* find function */
-  dbmdb_close,     /* sic */     /* close function */
-  NULL,                          /* no tidy function */
-  NULL,                          /* no quoting function */
-  NULL                           /* no version reporting (redundant) */
+  .name = US"dbmjz",			/* lookup name */
+  .type = lookup_absfile,		/* uses absolute file name */
+  .open = dbmdb_open,			/* sic */     /* open function */
+  .check = dbmdb_check,			/* sic */     /* check function */
+  .find = dbmjz_find,			/* find function */
+  .close = dbmdb_close,			/* sic */     /* close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = NULL,			/* no quoting function */
+  .version_report = NULL                           /* no version reporting (redundant) */
 };
 
 #ifdef DYNLOOKUP

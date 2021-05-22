@@ -1,13 +1,8 @@
-# Exim test configuration 356
+# Exim test configuration 0307
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -27,9 +22,9 @@ r1:
   senders = ${if eq {$local_part_suffix}{-request}{*}\
             {\
             ${if exists {DIR/aux-fixed/TESTNUM/$local_part}\
-             {lsearch;DIR/aux-fixed/TESTNUM/$local_part}{*}}\
+             {lsearch;${bless:DIR/aux-fixed/TESTNUM/$local_part}}{*}}\
             }}
-  file = DIR/aux-fixed/TESTNUM/$local_part$local_part_suffix
+  file = DIR/aux-fixed/TESTNUM/${bless:$local_part$local_part_suffix}
   forbid_pipe
   forbid_file
   one_time
@@ -59,7 +54,7 @@ begin transports
 
 t1:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   user = CALLER
 
 t2:

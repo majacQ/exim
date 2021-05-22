@@ -3,6 +3,7 @@
 *************************************************/
 
 /* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -38,10 +39,9 @@ Side effect: sets errno to ERRNO_BADUGID, ERRNO_NOTREGULAR or ERRNO_BADMODE for
 */
 
 int
-lf_check_file(int fd, uschar *filename, int s_type, int modemask, uid_t *owners,
-  gid_t *owngroups, const char *type, uschar **errmsg)
+lf_check_file(int fd, const uschar * filename, int s_type, int modemask,
+  uid_t * owners, gid_t * owngroups, const char * type, uschar ** errmsg)
 {
-int i;
 struct stat statbuf;
 
 if ((fd >= 0 && fstat(fd, &statbuf) != 0) ||
@@ -82,7 +82,7 @@ if ((statbuf.st_mode & modemask) != 0)
 if (owners != NULL)
   {
   BOOL uid_ok = FALSE;
-  for (i = 1; i <= (int)owners[0]; i++)
+  for (int i = 1; i <= (int)owners[0]; i++)
     if (owners[i] == statbuf.st_uid) { uid_ok = TRUE; break; }
   if (!uid_ok)
     {
@@ -96,7 +96,7 @@ if (owners != NULL)
 if (owngroups != NULL)
   {
   BOOL gid_ok = FALSE;
-  for (i = 1; i <= (int)owngroups[0]; i++)
+  for (int i = 1; i <= (int)owngroups[0]; i++)
     if (owngroups[i] == statbuf.st_gid) { gid_ok = TRUE; break; }
   if (!gid_ok)
     {

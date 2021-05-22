@@ -1,13 +1,8 @@
 # Exim test configuration 0227
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -29,8 +24,12 @@ check_recipient:
          !verify   = sender/callout=no_cache
   deny    hosts    = V4NET.0.0.3
          !verify   = recipient/callout=no_cache
+  deny    hosts    = V4NET.0.0.7
+         !verify   = recipient/callout=no_cache,use_sender,random
   deny    hosts    = V4NET.0.0.5
          !verify   = sender/callout=no_cache/check_postmaster
+  deny    hosts    = V4NET.0.0.6
+         !verify   = sender/callout=no_cache
   require verify   = sender
   accept  domains  = +local_domains
   deny    message  = relay not permitted
@@ -82,6 +81,7 @@ begin transports
 smtp:
   driver = smtp
   port = PORT_S
+  hosts_try_fastopen =	:
 
 lmtp:
   driver = smtp

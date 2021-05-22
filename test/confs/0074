@@ -1,12 +1,7 @@
 # Exim test configuration 0074
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -46,7 +41,7 @@ local_delivery:
   driver = appendfile
   delivery_date_add
   envelope_to_add
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   return_path_add
   user = CALLER
 

@@ -6,95 +6,7 @@ about experimental  features, all  of which  are unstable and
 liable to incompatible change.
 
 
-PRDR support
---------------------------------------------------------------
-
-Per-Recipient Data Reponse is an SMTP extension proposed by Eric Hall
-in a (now-expired) IETF draft from 2007.  It's not hit mainstream
-use, but has apparently been implemented in the META1 MTA.
-
-There is mention at http://mail.aegee.org/intern/sendmail.html
-of a patch to sendmail "to make it PRDR capable".
-
- ref: http://www.eric-a-hall.com/specs/draft-hall-prdr-00.txt
-
-If Exim is built with EXPERIMENTAL_PRDR there is a new config
-boolean "prdr_enable" which controls whether PRDR is advertised
-as part of an EHLO response, a new "acl_data_smtp_prdr" ACL
-(called for each recipient, after data arrives but before the
-data ACL), and a new smtp transport option "hosts_try_prdr".
-
-PRDR may be used to support per-user content filtering.  Without it
-one must defer any recipient after the first that has a different
-content-filter configuration.  With PRDR, the RCPT-time check
-for this can be disabled when the MAIL-time $smtp_command included
-"PRDR".  Any required difference in behaviour of the main DATA-time
-ACL should however depend on the PRDR-time ACL having run, as Exim
-will avoid doing so in some situations (eg.  single-recipient mails).
-
-
-
-OCSP Stapling support
---------------------------------------------------------------
-
-X.509 PKI certificates expire and can be revoked; to handle this, the
-clients need some way to determine if a particular certificate, from a
-particular Certificate Authority (CA), is still valid.  There are three
-main ways to do so.
-
-The simplest way is to serve up a Certificate Revocation List (CRL) with
-an ordinary web-server, regenerating the CRL before it expires.  The
-downside is that clients have to periodically re-download a potentially
-huge file from every certificate authority it knows of.
-
-The way with most moving parts at query time is Online Certificate
-Status Protocol (OCSP), where the client verifies the certificate
-against an OCSP server run by the CA.  This lets the CA track all
-usage of the certs.  This requires running software with access to the
-private key of the CA, to sign the responses to the OCSP queries.  OCSP
-is based on HTTP and can be proxied accordingly.
-
-The only widespread OCSP server implementation (known to this writer)
-comes as part of OpenSSL and aborts on an invalid request, such as
-connecting to the port and then disconnecting.  This requires
-re-entering the passphrase each time some random client does this.
-
-The third way is OCSP Stapling; in this, the server using a certificate
-issued by the CA periodically requests an OCSP proof of validity from
-the OCSP server, then serves it up inline as part of the TLS
-negotiation.   This approach adds no extra round trips, does not let the
-CA track users, scales well with number of certs issued by the CA and is
-resilient to temporary OCSP server failures, as long as the server
-starts retrying to fetch an OCSP proof some time before its current
-proof expires.  The downside is that it requires server support.
-
-If Exim is built with EXPERIMENTAL_OCSP and it was built with OpenSSL,
-then it gains one new option: "tls_ocsp_file".
-
-The file specified therein is expected to be in DER format, and contain
-an OCSP proof.  Exim will serve it as part of the TLS handshake.  This
-option will be re-expanded for SNI, if the tls_certificate option
-contains $tls_sni, as per other TLS options.
-
-Exim does not at this time implement any support for fetching a new OCSP
-proof.  The burden is on the administrator to handle this, outside of
-Exim.  The file specified should be replaced atomically, so that the
-contents are always valid.  Exim will expand the "tls_ocsp_file" option
-on each connection, so a new file will be handled transparently on the
-next connection.
-
-Exim will check for a valid next update timestamp in the OCSP proof;
-if not present, or if the proof has expired, it will be ignored.
-
-At this point in time, we're gathering feedback on use, to determine if
-it's worth adding complexity to the Exim daemon to periodically re-fetch
-OCSP files and somehow handling multiple files.  There is no client support
-for OCSP in Exim, this is feature expected to be used by mail clients.
-
-
-
-
-Brightmail AntiSpam (BMI) suppport
+Brightmail AntiSpam (BMI) support
 --------------------------------------------------------------
 
 Brightmail  AntiSpam  is  a  commercial  package.  Please  see
@@ -130,7 +42,7 @@ These four steps are explained in more details below.
 1) Adding support for BMI at compile time
 
   To compile with BMI support,  you need to link Exim  against
-  the   Brighmail  client   SDK,  consisting   of  a   library
+  the  Brightmail  client   SDK,  consisting   of  a   library
   (libbmiclient_single.so)  and  a  header  file  (bmi_api.h).
   You'll also need to explicitly set a flag in the Makefile to
   include BMI support in the Exim binary. Both can be achieved
@@ -380,166 +292,19 @@ These four steps are explained in more details below.
 
 
 
-Sender Policy Framework (SPF) support
+SRS (Sender Rewriting Scheme) Support (using libsrs_alt)
 --------------------------------------------------------------
+See also below, for an alternative native support implementation.
 
-To learn  more  about  SPF, visit   http://www.openspf.org. This
-document does   not explain  the SPF  fundamentals, you should
-read and understand the implications of deploying SPF on  your
-system before doing so.
-
-SPF support is added via the libspf2 library. Visit
-
-  http://www.libspf2.org/
-
-to obtain  a copy,  then compile  and install  it. By default,
-this will  put headers  in /usr/local/include  and the  static
-library in /usr/local/lib.
-
-To compile Exim with SPF support, set these additional flags in
-Local/Makefile:
-
-EXPERIMENTAL_SPF=yes
-CFLAGS=-DSPF -I/usr/local/include
-EXTRALIBS_EXIM=-L/usr/local/lib -lspf2
-
-This assumes   that the   libspf2 files   are installed  in
-their default locations.
-
-You can now run SPF checks in incoming SMTP by using the "spf"
-ACL condition  in either  the MAIL,  RCPT or  DATA ACLs.  When
-using it in the RCPT ACL, you can make the checks dependent on
-the RCPT  address (or  domain), so  you can  check SPF records
-only  for   certain  target   domains.  This   gives  you  the
-possibility  to opt-out  certain customers  that do  not want
-their mail to be subject to SPF checking.
-
-The spf condition  takes a list  of strings on  its right-hand
-side. These strings describe the outcome of the SPF check  for
-which the spf condition should succeed. Valid strings are:
-
-  o pass      The SPF check passed, the sending host
-              is positively verified by SPF.
-  o fail      The SPF check failed, the sending host
-              is NOT allowed to send mail for the domain
-              in the envelope-from address.
-  o softfail  The SPF check failed, but the queried
-              domain can't absolutely confirm that this
-              is a forgery.
-  o none      The queried domain does not publish SPF
-              records.
-  o neutral   The SPF check returned a "neutral" state.
-              This means the queried domain has published
-              a SPF record, but wants to allow outside
-              servers to send mail under its domain as well.
-  o err_perm  This indicates a syntax error in the SPF
-              record of the queried domain. This should be
-              treated like "none".
-  o err_temp  This indicates a temporary error during all
-              processing, including Exim's SPF processing.
-              You may defer messages when this occurs.
-
-You can prefix each string with an exclamation mark to  invert
-is meaning,  for example  "!fail" will  match all  results but
-"fail".  The  string  list is  evaluated  left-to-right,  in a
-short-circuit fashion.  When a  string matches  the outcome of
-the SPF check, the condition  succeeds. If none of the  listed
-strings matches the  outcome of the  SPF check, the  condition
-fails.
-
-Here is an example to fail forgery attempts from domains that
-publish SPF records:
-
-/* -----------------
-deny message = $sender_host_address is not allowed to send mail from ${if def:sender_address_domain {$sender_address_domain}{$sender_helo_name}}.  \
-              Please see http://www.openspf.org/Why?scope=${if def:sender_address_domain {mfrom}{helo}};identity=${if def:sender_address_domain {$sender_address}{$sender_helo_name}};ip=$sender_host_address
-     spf = fail
---------------------- */
-
-You can also give special treatment to specific domains:
-
-/* -----------------
-deny message = AOL sender, but not from AOL-approved relay.
-     sender_domains = aol.com
-     spf = fail:neutral
---------------------- */
-
-Explanation: AOL  publishes SPF  records, but  is liberal  and
-still allows  non-approved relays  to send  mail from aol.com.
-This will result in a "neutral" state, while mail from genuine
-AOL servers  will result  in "pass".  The example  above takes
-this into account and  treats "neutral" like "fail",  but only
-for aol.com. Please note that this violates the SPF draft.
-
-When the spf condition has run, it sets up several expansion
-variables.
-
-  $spf_header_comment
-  This contains a human-readable string describing the outcome
-  of the SPF check. You can add it to a custom header or use
-  it for logging purposes.
-
-  $spf_received
-  This contains a complete Received-SPF: header that can be
-  added to the message. Please note that according to the SPF
-  draft, this header must be added at the top of the header
-  list. Please see section 10 on how you can do this.
-
-  Note: in case of "Best-guess" (see below), the convention is
-  to put this string in a header called X-SPF-Guess: instead.
-
-  $spf_result
-  This contains the outcome of the SPF check in string form,
-  one of pass, fail, softfail, none, neutral, err_perm or
-  err_temp.
-
-  $spf_smtp_comment
-  This contains a string that can be used in a SMTP response
-  to the calling party. Useful for "fail".
-
-In addition to SPF, you can also perform checks for so-called
-"Best-guess".  Strictly speaking, "Best-guess" is not standard
-SPF, but it is supported by the same framework that enables SPF
-capability.  Refer to http://www.openspf.org/FAQ/Best_guess_record
-for a description of what it means.
-
-To access this feature, simply use the spf_guess condition in place
-of the spf one.  For example:
-
-/* -----------------
-deny message = $sender_host_address doesn't look trustworthy to me
-     spf_guess = fail
---------------------- */
-
-In case you decide to reject messages based on this check, you
-should note that although it uses the same framework, "Best-guess"
-is NOT SPF, and therefore you should not mention SPF at all in your
-reject message.
-
-When the spf_guess condition has run, it sets up the same expansion
-variables as when spf condition is run, described above.
-
-Additionally, since Best-guess is not standardized, you may redefine
-what "Best-guess" means to you by redefining spf_guess variable in
-global config.  For example, the following:
-
-/* -----------------
-spf_guess = v=spf1 a/16 mx/16 ptr ?all
---------------------- */
-
-would relax host matching rules to a broader network range.
-
-
-SRS (Sender Rewriting Scheme) Support
---------------------------------------------------------------
-
-Exiscan  currently  includes SRS  support  via Miles  Wilton's
+Exim  currently  includes SRS  support  via Miles  Wilton's
 libsrs_alt library. The current version of the supported
-library is 0.5.
+library is 0.5, there are reports of 1.0 working.
 
 In order to  use SRS, you  must get a  copy of libsrs_alt from
 
-http://srs.mirtol.com/
+https://opsec.eu/src/srs/
+
+(not the original source, which has disappeared.)
 
 Unpack the tarball, then refer to MTAs/README.EXIM
 to proceed. You need to set
@@ -548,9 +313,110 @@ EXPERIMENTAL_SRS=yes
 
 in your Local/Makefile.
 
+The following main-section options become available:
+	srs_config		string
+	srs_hashlength		int
+	srs_hashmin		int
+	srs_maxage		int
+	srs_secrets		string
+	srs_usehash		bool
+	srs_usetimestamp	bool
+
+The redirect router gains these options (all of type string, unset by default):
+	srs
+	srs_alias
+	srs_condition
+	srs_dbinsert
+	srs_dbselect
+
+The following variables become available:
+	$srs_db_address
+	$srs_db_key
+	$srs_orig_recipient
+	$srs_orig_sender
+	$srs_recipient
+	$srs_status
+
+The predefined feature-macro _HAVE_SRS will be present.
+Additional delivery log line elements, tagged with "SRS=" will show the srs sender.	
+For configuration information see https://github.com/Exim/exim/wiki/SRS .
+
+
+
+
+SRS (Sender Rewriting Scheme) Support (native)
+--------------------------------------------------------------
+This is less full-featured than the libsrs_alt version above.
+
+The Exim build needs to be done with this in Local/Makefile:
+EXPERIMENTAL_SRS_NATIVE=yes
+
+The following are provided:
+- an expansion item "srs_encode"
+  This takes three arguments:
+  - a site SRS secret
+  - the return_path
+  - the pre-forwarding domain
+
+- an expansion condition "inbound_srs"
+  This takes two arguments: the local_part to check, and a site SRS secret.
+  If the secret is zero-length, only the pattern of the local_part is checked.
+  The $srs_recipient variable is set as a side-effect.
+
+- an expansion variable $srs_recipient
+  This gets the original return_path encoded in the SRS'd local_part
+
+- predefined macros _HAVE_SRS and _HAVE_NATIVE_SRS
+
+Sample usage:
+
+  #macro
+  SRS_SECRET = <pick something unique for your site for this>
+  
+  #routers
+
+  outbound:
+    driver =    dnslookup
+    # if outbound, and forwarding has been done, use an alternate transport
+    domains =   ! +my_domains
+    transport = ${if eq {$local_part@$domain} \
+                        {$original_local_part@$original_domain} \
+                     {remote_smtp} {remote_forwarded_smtp}}
+  
+  inbound_srs:
+    driver =    redirect
+    senders =   :
+    domains =   +my_domains
+    # detect inbound bounces which are SRS'd, and decode them
+    condition = ${if inbound_srs {$local_part} {SRS_SECRET}}
+    data =      $srs_recipient
+  
+  inbound_srs_failure:
+    driver =    redirect
+    senders =   :
+    domains =   +my_domains
+    # detect inbound bounces which look SRS'd but are invalid
+    condition = ${if inbound_srs {$local_part} {}}
+    allow_fail
+    data =      :fail: Invalid SRS recipient address
+
+  #... further routers here
+
+  
+  # transport; should look like the non-forward outbound
+  # one, plus the max_rcpt and return_path options
+  remote_forwarded_smtp:
+    driver =              smtp
+    # modify the envelope from, for mails that we forward
+    max_rcpt =            1
+    return_path =         ${srs_encode {SRS_SECRET} {$return_path} {$original_domain}}
+
+
+
 
 DCC Support
 --------------------------------------------------------------
+Distributed Checksum Clearinghouse; http://www.rhyolite.com/dcc/
 
 *) Building exim
 
@@ -620,7 +486,380 @@ Then set something like
 mout-xforward.gmx.net           82.165.159.12
 mout.gmx.net                    212.227.15.16
 
-Use a reasonable IP. eg. one the sending cluster acutally uses.
+Use a reasonable IP. eg. one the sending cluster actually uses.
+
+
+
+DSN extra information
+---------------------
+If compiled with EXPERIMENTAL_DSN_INFO extra information will be added
+to DSN fail messages ("bounces"), when available.  The intent is to aid
+tracing of specific failing messages, when presented with a "bounce"
+complaint and needing to search logs.
+
+
+The remote MTA IP address, with port number if nonstandard.
+Example:
+  Remote-MTA: X-ip; [127.0.0.1]:587
+Rationale:
+  Several addresses may correspond to the (already available)
+  dns name for the remote MTA.
+
+The remote MTA connect-time greeting.
+Example:
+  X-Remote-MTA-smtp-greeting: X-str; 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
+Rationale:
+  This string sometimes presents the remote MTA's idea of its
+  own name, and sometimes identifies the MTA software.
+
+The remote MTA response to HELO or EHLO.
+Example:
+  X-Remote-MTA-helo-response: X-str; 250-the.local.host.name Hello localhost [127.0.0.1]
+Limitations:
+  Only the first line of a multiline response is recorded.
+Rationale:
+  This string sometimes presents the remote MTA's view of
+  the peer IP connecting to it.
+
+The reporting MTA detailed diagnostic.
+Example:
+  X-Exim-Diagnostic: X-str; SMTP error from remote mail server after RCPT TO:<d3@myhost.test.ex>: 550 hard error
+Rationale:
+  This string sometimes give extra information over the
+  existing (already available) Diagnostic-Code field.
+
+
+Note that non-RFC-documented field names and data types are used.
+
+
+LMDB Lookup support
+-------------------
+LMDB is an ultra-fast, ultra-compact, crash-proof key-value embedded data store.
+It is modeled loosely on the BerkeleyDB API. You should read about the feature
+set as well as operation modes at https://symas.com/products/lightning-memory-mapped-database/
+
+LMDB single key lookup support is provided by linking to the LMDB C library.
+The current implementation does not support writing to the LMDB database.
+
+Visit https://github.com/LMDB/lmdb to download the library or find it in your
+operating systems package repository.
+
+If building from source, this description assumes that headers will be in
+/usr/local/include, and that the libraries are in /usr/local/lib.
+
+1. In order to build exim with LMDB lookup support add or uncomment
+
+EXPERIMENTAL_LMDB=yes
+
+to your Local/Makefile. (Re-)build/install exim. exim -d should show
+Experimental_LMDB in the line "Support for:".
+
+EXPERIMENTAL_LMDB=yes
+LDFLAGS += -llmdb
+# CFLAGS += -I/usr/local/include
+# LDFLAGS += -L/usr/local/lib
+
+The first line sets the feature to include the correct code, and
+the second line says to link the LMDB libraries into the
+exim binary.  The commented out lines should be uncommented if you
+built LMDB from source and installed in the default location.
+Adjust the paths if you installed them elsewhere, but you do not
+need to uncomment them if an rpm (or you) installed them in the
+package controlled locations (/usr/include and /usr/lib).
+
+2. Create your LMDB files, you can use the mdb_load utility which is
+part of the LMDB distribution our your favourite language bindings.
+
+3. Add the single key lookups to your exim.conf file, example lookups
+are below.
+
+${lookup{$sender_address_domain}lmdb{/var/lib/baruwa/data/db/relaydomains.mdb}{$value}}
+${lookup{$sender_address_domain}lmdb{/var/lib/baruwa/data/db/relaydomains.mdb}{$value}fail}
+${lookup{$sender_address_domain}lmdb{/var/lib/baruwa/data/db/relaydomains.mdb}}
+
+
+Queuefile transport
+-------------------
+Queuefile is a pseudo transport which does not perform final delivery.
+It simply copies the exim spool files out of the spool directory into
+an external directory retaining the exim spool format.
+
+The spool files can then be processed by external processes and then
+requeued into exim spool directories for final delivery.
+However, note carefully the warnings in the main documentation on
+qpool file formats.
+
+The motivation/inspiration for the transport is to allow external
+processes to access email queued by exim and have access to all the
+information which would not be available if the messages were delivered
+to the process in the standard email formats.
+
+The mailscanner package is one of the processes that can take advantage
+of this transport to filter email.
+
+The transport can be used in the same way as the other existing transports,
+i.e by configuring a router to route mail to a transport configured with
+the queuefile driver.
+
+The transport only takes one option:
+
+* directory - This is used to specify the directory messages should be
+copied to.  Expanded.
+
+The generic transport options (body_only, current_directory, disable_logging,
+debug_print, delivery_date_add, envelope_to_add, event_action, group,
+headers_add, headers_only, headers_remove, headers_rewrite, home_directory,
+initgroups, max_parallel, message_size_limit, rcpt_include_affixes,
+retry_use_local_part, return_path, return_path_add, shadow_condition,
+shadow_transport, transport_filter, transport_filter_timeout, user) are
+ignored.
+
+Sample configuration:
+
+(Router)
+
+scan:
+   driver = accept
+   transport = scan
+
+(Transport)
+
+scan:
+  driver = queuefile
+  directory = /var/spool/baruwa-scanner/input
+
+
+In order to build exim with Queuefile transport support add or uncomment
+
+EXPERIMENTAL_QUEUEFILE=yes
+
+to your Local/Makefile. (Re-)build/install exim. exim -d should show
+Experimental_QUEUEFILE in the line "Support for:".
+
+
+ARC support
+-----------
+Specification: https://tools.ietf.org/html/draft-ietf-dmarc-arc-protocol-11
+Note that this is not an RFC yet, so may change.
+
+[RFC 8617 was published 2019/06.  Draft 11 was 2018/01.  A review of the
+changes has not yet been done]
+
+ARC is intended to support the utility of SPF and DKIM in the presence of
+intermediaries in the transmission path - forwarders and mailinglists -
+by establishing a cryptographically-signed chain in headers.
+
+Normally one would only bother doing ARC-signing when functioning as
+an intermediary.  One might do verify for local destinations.
+
+ARC uses the notion of a "ADministrative Management Domain" (ADMD).
+Described in RFC 5598 (section 2.3), this is essentially a set of
+mail-handling systems that mail transits that are all under the control
+of one organisation.  A label should be chosen to identify the ADMD.
+Messages should be ARC-verified on entry to the ADMD, and ARC-signed on exit
+from it.
+
+
+Building with ARC Support
+--
+Enable using EXPERIMENTAL_ARC=yes in your Local/Makefile.
+You must also have DKIM present (not disabled), and you very likely
+want to have SPF enabled.
+
+
+Verification
+--
+An ACL condition is provided to perform the "verifier actions" detailed
+in section 6 of the above specification.  It may be called from the DATA ACL
+and succeeds if the result matches any of a given list.
+It also records the highest ARC instance number (the chain size)
+and verification result for later use in creating an Authentication-Results:
+standard header.
+
+  verify = arc/<acceptable_list>   none:fail:pass
+
+  add_header = :at_start:${authresults {<admd-identifier>}}
+
+	Note that it would be wise to strip incoming messages of A-R headers
+	that claim to be from our own <admd-identifier>.
+
+There are four new variables:
+
+  $arc_state		One of pass, fail, none
+  $arc_state_reason	(if fail, why)
+  $arc_domains		colon-sep list of ARC chain domains, in chain order.
+			problematic elements may have empty list elements
+  $arc_oldest_pass	lowest passing instance number of chain
+
+Example:
+  logwrite = oldest-p-ams: <${reduce {$lh_ARC-Authentication-Results:} \
+				{} \
+				{${if = {$arc_oldest_pass} \
+					{${extract {i}{${extract {1}{;}{$item}}}}} \
+					{$item} {$value}}} \
+			    }>
+
+Receive log lines for an ARC pass will be tagged "ARC".
+
+
+Signing
+--
+arc_sign = <admd-identifier> : <selector> : <privkey> [ : <options> ]
+An option on the smtp transport, which constructs and prepends to the message
+an ARC set of headers.  The textually-first Authentication-Results: header
+is used as a basis (you must have added one on entry to the ADMD).
+Expanded as a whole; if unset, empty or forced-failure then no signing is done.
+If it is set, all of the first three elements must be non-empty.
+
+The fourth element is optional, and if present consists of a comma-separated list
+of options.  The options implemented are
+
+  timestamps    	Add a t= tag to the generated AMS and AS headers, with the
+                	current time.
+  expire[=<val>]	Add an x= tag to the generated AMS header, with an expiry time.
+			If the value <val> is an plain number it is used unchanged.
+			If it starts with a '+' then the following number is added
+                	to the current time, as an offset in seconds.
+			If a value is not given it defaults to a one month offset.
+
+[As of writing, gmail insist that a t= tag on the AS is mandatory]
+
+Caveats:
+ * There must be an Authentication-Results header, presumably added by an ACL
+   while receiving the message, for the same ADMD, for arc_sign to succeed.
+   This requires careful coordination between inbound and outbound logic.
+
+   Only one A-R header is taken account of.  This is a limitation versus
+   the ARC spec (which says that all A-R headers from within the ADMD must
+   be used).
+
+ * If passing a message to another system, such as a mailing-list manager
+   (MLM), between receipt and sending, be wary of manipulations to headers made
+   by the MLM.
+   + For instance, Mailman with REMOVE_DKIM_HEADERS==3 might improve
+     deliverability in a pre-ARC world, but that option also renames the
+     Authentication-Results header, which breaks signing.
+
+ * Even if you use multiple DKIM keys for different domains, the ARC concept
+   should try to stick to one ADMD, so pick a primary domain and use that for
+   AR headers and outbound signing.
+
+Signing is not compatible with cutthrough delivery; any (before expansion)
+value set for the option will result in cutthrough delivery not being
+used via the transport in question.
+
+
+
+
+TLS Session Resumption
+----------------------
+TLS Session Resumption for TLS 1.2 and TLS 1.3 connections can be used (defined
+in RFC 5077 for 1.2).  The support for this can be included by building with
+EXPERIMENTAL_TLS_RESUME defined.  This requires GnuTLS 3.6.3 or OpenSSL 1.1.1
+(or later).
+
+Session resumption (this is the "stateless" variant) involves the server sending
+a "session ticket" to the client on one connection, which can be stored by the
+client and used for a later session.  The ticket contains sufficient state for
+the server to reconstruct the TLS session, avoiding some expensive crypto
+calculation and one full packet roundtrip time.
+
+Operational cost/benefit:
+ The extra data being transmitted costs a minor amount, and the client has
+ extra costs in storing and retrieving the data.
+
+ In the Exim/Gnutls implementation the extra cost on an initial connection
+ which is TLS1.2 over a loopback path is about 6ms on 2017-laptop class hardware.
+ The saved cost on a subsequent connection is about 4ms; three or more
+ connections become a net win.  On longer network paths, two or more
+ connections will have an average lower startup time thanks to the one
+ saved packet roundtrip.  TLS1.3 will save the crypto cpu costs but not any
+ packet roundtrips.
+
+ Since a new hints DB is used, the hints DB maintenance should be updated
+ to additionally handle "tls".
+
+Security aspects:
+ The session ticket is encrypted, but is obviously an additional security
+ vulnarability surface.  An attacker able to decrypt it would have access
+ all connections using the resumed session.
+ The session ticket encryption key is not committed to storage by the server
+ and is rotated regularly (OpenSSL: 1hr, and one previous key is used for
+ overlap; GnuTLS 6hr but does not specify any overlap).
+ Tickets have limited lifetime (2hr, and new ones issued after 1hr under
+ OpenSSL.  GnuTLS 2hr, appears to not do overlap).
+
+ There is a question-mark over the security of the Diffie-Helman parameters
+ used for session negotiation. TBD.  q-value; cf bug 1895
+
+Observability:
+ New log_selector "tls_resumption", appends an asterisk to the tls_cipher "X="
+ element.
+
+ Variables $tls_{in,out}_resumption have bits 0-4 indicating respectively
+ support built, client requested ticket, client offered session,
+ server issued ticket, resume used.  A suitable decode list is provided
+ in the builtin macro _RESUME_DECODE for ${listextract {}{}}.
+
+Issues:
+ In a resumed session:
+  $tls_{in,out}_cipher will have values different to the original (under GnuTLS)
+  $tls_{in,out}_ocsp will be "not requested" or "no response", and
+   hosts_require_ocsp will fail
+
+
+
+Dovecot authenticator via inet socket
+------------------------------------
+If Dovecot is configured similar to :-
+
+service auth {
+...
+#SASL
+  inet_listener {
+    name = exim
+    port = 12345
+  }
+...
+}
+
+then an Exim authenticator can be configured :-
+
+  dovecot-plain:
+    driver =		dovecot
+    public_name =	PLAIN
+    server_socket =	dovecot_server_name 12345
+    server_tls =	true
+    server_set_id =	$auth1
+
+If the server_socket does not start with a / it is taken as a hostname (or IP);
+and a whitespace-separated port number must be given.
+
+
+
+Twophase queue run fast ramp
+----------------------------
+To include this feature, add to Local/Makefile:
+  EXPERIMENTAL_QUEUE_RAMP=yes
+
+If the (added for this feature) main-section option "queue_fast_ramp" (boolean)
+is set, and a two-phase ("-qq") queue run finds, during the first phase, a
+suitably large number of message routed for a given host - then (subject to
+the usual queue-runner resource limits) delivery for that host is initiated
+immediately, overlapping with the remainder of the first phase.
+
+This is incompatible with queue_run_in_order.
+
+The result should be a faster startup of deliveries when a large queue is
+present and reasonable numbers of messages are routed to common hosts; this
+could be a smarthost case, or delivery onto the Internet where a large proportion
+of recipients hapen to be on a Gorilla-sized provider.
+
+As usual, the presence of a configuration option is associated with a
+predefined macro, making it possible to write portable configurations.
+For this one, the macro is _OPT_MAIN_QUEUE_FAST_RAMP.
+
+
 
 --------------------------------------------------------------
 End of file

@@ -2,14 +2,9 @@
 
 CRL=
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -27,7 +22,7 @@ tls_privatekey = DIR/aux-fixed/cert1
 
 tls_verify_hosts = HOSTIPV4
 tls_try_verify_hosts = *
-tls_verify_certificates = DIR/aux-fixed/cert2
+tls_verify_certificates = DIR/aux-fixed/exim-ca/example.com/server1.example.com/ca_chain.pem
 tls_crl = CRL
 
 
@@ -36,7 +31,7 @@ tls_crl = CRL
 begin acl
 
 check_recipient:
-  deny     message = certificate not verified: peerdn=$tls_peerdn
+  deny     message = certificate not verified: peerdn=$tls_in_peerdn
          ! verify = certificate
   accept
 
@@ -57,8 +52,8 @@ begin transports
 
 local_delivery:
   driver = appendfile
-  file = DIR/test-mail/$local_part
-  headers_add = TLS: cipher=$tls_cipher peerdn=$tls_peerdn
+  file = DIR/test-mail/${bless:$local_part}
+  headers_add = TLS: cipher=$tls_cipher peerdn=$tls_in_peerdn
   user = CALLER
 
 # End

@@ -47,7 +47,7 @@ header_size = message_size;
 
 if (!dot_ended && !feof(stdin))
   {
-  if (!dot_ends)
+  if (!f.dot_ends)
     {
     while ((ch = getc(stdin)) != EOF)
       {
@@ -112,7 +112,7 @@ if (body_len >= message_body_visible)
   int above = message_body_visible - below;
   if (above > 0)
     {
-    uschar *temp = store_get(below);
+    uschar *temp = store_get(below, TRUE);
     memcpy(temp, message_body_end, below);
     memmove(message_body_end, s+1, above);
     memcpy(message_body_end + above, temp, below);
@@ -178,7 +178,7 @@ if (fstat(fd, &statbuf) != 0)
   return FALSE;
   }
 
-filebuf = store_get(statbuf.st_size + 1);
+filebuf = store_get(statbuf.st_size + 1, is_tainted(filename));
 rc = read(fd, filebuf, statbuf.st_size);
 (void)close(fd);
 
@@ -259,13 +259,13 @@ testing a system filter that is going to be followed by a user filter test. */
 
 if (is_system)
   {
-  system_filtering = TRUE;
-  enable_dollar_recipients = TRUE; /* Permit $recipients in system filter */
+  f.system_filtering = TRUE;
+  f.enable_dollar_recipients = TRUE; /* Permit $recipients in system filter */
   yield = filter_interpret
     (filebuf,
     RDO_DEFER|RDO_FAIL|RDO_FILTER|RDO_FREEZE|RDO_REWRITE, &generated, &error);
-  enable_dollar_recipients = FALSE;
-  system_filtering = FALSE;
+  f.enable_dollar_recipients = FALSE;
+  f.system_filtering = FALSE;
   }
 else
   {

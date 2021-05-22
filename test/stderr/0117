@@ -11,14 +11,14 @@ lookuphost router called for xxx@mxt9.test.ex
 queued for <unset> transport: local_part = xxx
 domain = mxt9.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by lookuphost router
   envelope to: xxx@mxt9.test.ex
   transport: <none>
-  host ten-1.test.ex [V4NET.0.0.1] MX=5
-  host ten-2.test.ex [V4NET.0.0.2] MX=6
-  host ten-3.test.ex [V4NET.0.0.3] MX=7
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+  host ten-1.test.ex [V4NET.0.0.1] MX=5 dnssec=no
+  host ten-2.test.ex [V4NET.0.0.2] MX=6 dnssec=no
+  host ten-3.test.ex [V4NET.0.0.3] MX=7 dnssec=no
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
@@ -32,14 +32,14 @@ lookuphost router called for xxx@mxt9a.test.ex
 queued for <unset> transport: local_part = xxx
 domain = mxt9a.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by lookuphost router
   envelope to: xxx@mxt9a.test.ex
   transport: <none>
-  host ten-1.test.ex [V4NET.0.0.1] MX=5
-  host ten-2.test.ex [V4NET.0.0.2] MX=6
-  host ten-3.test.ex [V4NET.0.0.3] MX=7
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+  host ten-1.test.ex [V4NET.0.0.1] MX=5 dnssec=no
+  host ten-2.test.ex [V4NET.0.0.2] MX=6 dnssec=no
+  host ten-3.test.ex [V4NET.0.0.3] MX=7 dnssec=no
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
@@ -53,11 +53,11 @@ lookuphost router called for xxx@mxt9b.test.ex
 queued for <unset> transport: local_part = xxx
 domain = mxt9b.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by lookuphost router
   envelope to: xxx@mxt9b.test.ex
   transport: <none>
-  host ten-1.test.ex [V4NET.0.0.1] MX=5
-  host ten-2.test.ex [V4NET.0.0.2] MX=6
-  host ten-3.test.ex [V4NET.0.0.3] MX=7
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+  host ten-1.test.ex [V4NET.0.0.1] MX=5 dnssec=no
+  host ten-2.test.ex [V4NET.0.0.2] MX=6 dnssec=no
+  host ten-3.test.ex [V4NET.0.0.3] MX=7 dnssec=no
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This header file contains macro definitions so that a variety of DBM
@@ -39,7 +40,7 @@ tdb_traverse to be called) */
 /* Access functions */
 
 /* EXIM_DBOPEN - sets *dbpp to point to an EXIM_DB, NULL if failed */
-#define EXIM_DBOPEN(name, flags, mode, dbpp) \
+#define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp) \
        *(dbpp) = tdb_open(CS name, 0, TDB_DEFAULT, flags, mode)
 
 /* EXIM_DBGET - returns TRUE if successful, FALSE otherwise */
@@ -64,7 +65,7 @@ tdb_traverse to be called) */
 
 /* EXIM_DBCREATE_CURSOR - initialize for scanning operation */
 #define EXIM_DBCREATE_CURSOR(db, cursor) { \
-   *(cursor) = malloc(sizeof(TDB_DATA)); (*(cursor))->dptr = NULL; }
+   *(cursor) = store_malloc(sizeof(TDB_DATA)); (*(cursor))->dptr = NULL; }
 
 /* EXIM_DBSCAN - This is complicated because we have to free the last datum
 free() must not die when passed NULL */
@@ -77,7 +78,7 @@ free() must not die when passed NULL */
 #define EXIM_DBDELETE_CURSOR(cursor) free(cursor)
 
 /* EXIM_DBCLOSE */
-#define EXIM_DBCLOSE(db)        tdb_close(db)
+#define EXIM_DBCLOSE__(db)        tdb_close(db)
 
 /* Datum access types - these are intended to be assignable */
 
@@ -106,6 +107,10 @@ definition of DB_VERSION_STRING, which is present in versions 2.x onwards. */
 
 #ifdef DB_VERSION_STRING
 
+# if DB_VERSION_MAJOR >= 6
+#  error Version 6 and later BDB API is not supported
+# endif
+
 /* The API changed (again!) between the 2.x and 3.x versions */
 
 #if DB_VERSION_MAJOR >= 3
@@ -113,87 +118,176 @@ definition of DB_VERSION_STRING, which is present in versions 2.x onwards. */
 /***************** Berkeley db 3.x/4.x native definitions ******************/
 
 /* Basic DB type */
-#define EXIM_DB       DB
-
+# if DB_VERSION_MAJOR > 4 || (DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 1)
+#  define EXIM_DB       DB_ENV
 /* Cursor type, for scanning */
-#define EXIM_CURSOR   DBC
+#  define EXIM_CURSOR   DBC
 
 /* The datum type used for queries */
-#define EXIM_DATUM    DBT
+#  define EXIM_DATUM    DBT
 
 /* Some text for messages */
-#define EXIM_DBTYPE   "db (v3/4)"
+#  define EXIM_DBTYPE   "db (v4.1+)"
+
+/* Only more-recent versions.  5+ ? */
+#  ifndef DB_FORCESYNC
+#   define DB_FORCESYNC 0
+#  endif
+
 
 /* Access functions */
 
 /* EXIM_DBOPEN - sets *dbpp to point to an EXIM_DB, NULL if failed. The
-API changed for DB 4.1. */
+API changed for DB 4.1. - and we also starting using the "env" with a
+specified working dir, to avoid the DBCONFIG file trap. */
 
-#if DB_VERSION_MAJOR > 4 || (DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 1)
-#define EXIM_DBOPEN(name, flags, mode, dbpp) \
-       if (db_create(dbpp, NULL, 0) != 0 || \
-         ((*dbpp)->set_errcall(*dbpp, dbfn_bdb_error_callback), \
-         ((*dbpp)->open)(*dbpp, NULL, CS name, NULL, \
-         ((flags) == O_RDONLY)? DB_UNKNOWN : DB_HASH, \
-         ((flags) == O_RDONLY)? DB_RDONLY : DB_CREATE, \
-         mode)) != 0) *(dbpp) = NULL
-#else
-#define EXIM_DBOPEN(name, flags, mode, dbpp) \
+#  define ENV_TO_DB(env) ((DB *)((env)->app_private))
+
+#  define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp) \
+  if (  db_env_create(dbpp, 0) != 0						\
+     || ((*dbpp)->set_errcall(*dbpp, dbfn_bdb_error_callback), 0)		\
+     || (*dbpp)->open(*dbpp, CS dirname, DB_CREATE|DB_INIT_MPOOL|DB_PRIVATE, 0) != 0\
+     )										\
+    *dbpp = NULL;					\
+  else if (db_create((DB **) &((*dbpp)->app_private), *dbpp, 0) != 0)		\
+    {							\
+    ((DB_ENV *)(*dbpp))->close((DB_ENV *)(*dbpp), 0);	\
+    *dbpp = NULL;					\
+    }							\
+  else if (ENV_TO_DB(*dbpp)->open(ENV_TO_DB(*dbpp), NULL, CS name, NULL,	\
+	      (flags) == O_RDONLY ? DB_UNKNOWN : DB_HASH,			\
+	      (flags) == O_RDONLY ? DB_RDONLY : DB_CREATE,			\
+	      mode) != 0							\
+	  )									\
+    {							\
+    ENV_TO_DB(*dbpp)->close(ENV_TO_DB(*dbpp), 0);	\
+    ((DB_ENV *)(*dbpp))->close((DB_ENV *)(*dbpp), 0);	\
+    *dbpp = NULL;					\
+    }
+
+/* EXIM_DBGET - returns TRUE if successful, FALSE otherwise */
+#  define EXIM_DBGET(db, key, data)      \
+       (ENV_TO_DB(db)->get(ENV_TO_DB(db), NULL, &key, &data, 0) == 0)
+
+/* EXIM_DBPUT - returns nothing useful, assumes replace mode */
+#  define EXIM_DBPUT(db, key, data)      \
+       ENV_TO_DB(db)->put(ENV_TO_DB(db), NULL, &key, &data, 0)
+
+/* EXIM_DBPUTB - non-overwriting for use by dbmbuild */
+#  define EXIM_DBPUTB(db, key, data)      \
+       ENV_TO_DB(db)->put(ENV_TO_DB(db), NULL, &key, &data, DB_NOOVERWRITE)
+
+/* Return values from EXIM_DBPUTB */
+
+#  define EXIM_DBPUTB_OK  0
+#  define EXIM_DBPUTB_DUP DB_KEYEXIST
+
+/* EXIM_DBDEL */
+#  define EXIM_DBDEL(db, key)     ENV_TO_DB(db)->del(ENV_TO_DB(db), NULL, &key, 0)
+
+/* EXIM_DBCREATE_CURSOR - initialize for scanning operation */
+
+#  define EXIM_DBCREATE_CURSOR(db, cursor) \
+       ENV_TO_DB(db)->cursor(ENV_TO_DB(db), NULL, cursor, 0)
+
+/* EXIM_DBSCAN - returns TRUE if data is returned, FALSE at end */
+#  define EXIM_DBSCAN(db, key, data, first, cursor)      \
+       ((cursor)->c_get(cursor, &key, &data,         \
+         (first? DB_FIRST : DB_NEXT)) == 0)
+
+/* EXIM_DBDELETE_CURSOR - terminate scanning operation */
+#  define EXIM_DBDELETE_CURSOR(cursor) \
+       (cursor)->c_close(cursor)
+
+/* EXIM_DBCLOSE */
+#  define EXIM_DBCLOSE__(db) \
+	(ENV_TO_DB(db)->close(ENV_TO_DB(db), 0) , ((DB_ENV *)(db))->close((DB_ENV *)(db), DB_FORCESYNC))
+
+/* Datum access types - these are intended to be assignable. */
+
+#  define EXIM_DATUM_SIZE(datum)  (datum).size
+#  define EXIM_DATUM_DATA(datum)  (datum).data
+
+/* The whole datum structure contains other fields that must be cleared
+before use, but we don't have to free anything after reading data. */
+
+#  define EXIM_DATUM_INIT(datum)   memset(&datum, 0, sizeof(datum))
+#  define EXIM_DATUM_FREE(datum)
+
+# else	/* pre- 4.1 */
+
+#  define EXIM_DB       DB
+
+/* Cursor type, for scanning */
+#  define EXIM_CURSOR   DBC
+
+/* The datum type used for queries */
+#  define EXIM_DATUM    DBT
+
+/* Some text for messages */
+#  define EXIM_DBTYPE   "db (v3/4)"
+
+/* Access functions */
+
+/* EXIM_DBOPEN - sets *dbpp to point to an EXIM_DB, NULL if failed. */
+
+#  define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp) \
        if (db_create(dbpp, NULL, 0) != 0 || \
          ((*dbpp)->set_errcall(*dbpp, dbfn_bdb_error_callback), \
          ((*dbpp)->open)(*dbpp, CS name, NULL, \
          ((flags) == O_RDONLY)? DB_UNKNOWN : DB_HASH, \
          ((flags) == O_RDONLY)? DB_RDONLY : DB_CREATE, \
          mode)) != 0) *(dbpp) = NULL
-#endif
 
 /* EXIM_DBGET - returns TRUE if successful, FALSE otherwise */
-#define EXIM_DBGET(db, key, data)      \
+#  define EXIM_DBGET(db, key, data)      \
        ((db)->get(db, NULL, &key, &data, 0) == 0)
 
 /* EXIM_DBPUT - returns nothing useful, assumes replace mode */
-#define EXIM_DBPUT(db, key, data)      \
+#  define EXIM_DBPUT(db, key, data)      \
        (db)->put(db, NULL, &key, &data, 0)
 
 /* EXIM_DBPUTB - non-overwriting for use by dbmbuild */
-#define EXIM_DBPUTB(db, key, data)      \
+#  define EXIM_DBPUTB(db, key, data)      \
        (db)->put(db, NULL, &key, &data, DB_NOOVERWRITE)
 
 /* Return values from EXIM_DBPUTB */
 
-#define EXIM_DBPUTB_OK  0
-#define EXIM_DBPUTB_DUP DB_KEYEXIST
+#  define EXIM_DBPUTB_OK  0
+#  define EXIM_DBPUTB_DUP DB_KEYEXIST
 
 /* EXIM_DBDEL */
-#define EXIM_DBDEL(db, key)     (db)->del(db, NULL, &key, 0)
+#  define EXIM_DBDEL(db, key)     (db)->del(db, NULL, &key, 0)
 
 /* EXIM_DBCREATE_CURSOR - initialize for scanning operation */
 
-#define EXIM_DBCREATE_CURSOR(db, cursor) \
+#  define EXIM_DBCREATE_CURSOR(db, cursor) \
        (db)->cursor(db, NULL, cursor, 0)
 
 /* EXIM_DBSCAN - returns TRUE if data is returned, FALSE at end */
-#define EXIM_DBSCAN(db, key, data, first, cursor)      \
+#  define EXIM_DBSCAN(db, key, data, first, cursor)      \
        ((cursor)->c_get(cursor, &key, &data,         \
          (first? DB_FIRST : DB_NEXT)) == 0)
 
 /* EXIM_DBDELETE_CURSOR - terminate scanning operation */
-#define EXIM_DBDELETE_CURSOR(cursor) \
+#  define EXIM_DBDELETE_CURSOR(cursor) \
        (cursor)->c_close(cursor)
 
 /* EXIM_DBCLOSE */
-#define EXIM_DBCLOSE(db)        (db)->close(db, 0)
+#  define EXIM_DBCLOSE__(db)        (db)->close(db, 0)
 
 /* Datum access types - these are intended to be assignable. */
 
-#define EXIM_DATUM_SIZE(datum)  (datum).size
-#define EXIM_DATUM_DATA(datum)  (datum).data
+#  define EXIM_DATUM_SIZE(datum)  (datum).size
+#  define EXIM_DATUM_DATA(datum)  (datum).data
 
 /* The whole datum structure contains other fields that must be cleared
 before use, but we don't have to free anything after reading data. */
 
-#define EXIM_DATUM_INIT(datum)   memset(&datum, 0, sizeof(datum))
-#define EXIM_DATUM_FREE(datum)
+#  define EXIM_DATUM_INIT(datum)   memset(&datum, 0, sizeof(datum))
+#  define EXIM_DATUM_FREE(datum)
+
+# endif
 
 
 #else /* DB_VERSION_MAJOR >= 3 */
@@ -215,7 +309,7 @@ before use, but we don't have to free anything after reading data. */
 /* Access functions */
 
 /* EXIM_DBOPEN - sets *dbpp to point to an EXIM_DB, NULL if failed */
-#define EXIM_DBOPEN(name, flags, mode, dbpp)         \
+#define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp)         \
        if ((errno = db_open(CS name, DB_HASH,           \
          ((flags) == O_RDONLY)? DB_RDONLY : DB_CREATE, \
          mode, NULL, NULL, dbpp)) != 0) *(dbpp) = NULL
@@ -264,7 +358,7 @@ the new option that is available, so I guess that it happened at 2.5.x. */
        (cursor)->c_close(cursor)
 
 /* EXIM_DBCLOSE */
-#define EXIM_DBCLOSE(db)        (db)->close(db, 0)
+#define EXIM_DBCLOSE__(db)        (db)->close(db, 0)
 
 /* Datum access types - these are intended to be assignable. */
 
@@ -312,7 +406,7 @@ before been able to pass successfully. */
 /* Access functions */
 
 /* EXIM_DBOPEN - sets *dbpp to point to an EXIM_DB, NULL if failed */
-#define EXIM_DBOPEN(name, flags, mode, dbpp) \
+#define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp) \
        *(dbpp) = dbopen(CS name, flags, mode, DB_HASH, NULL)
 
 /* EXIM_DBGET - returns TRUE if successful, FALSE otherwise */
@@ -347,7 +441,7 @@ refer to cursor, to keep picky compilers happy. */
 #define EXIM_DBDELETE_CURSOR(cursor) { cursor = cursor; }
 
 /* EXIM_DBCLOSE */
-#define EXIM_DBCLOSE(db)        (db)->close(db)
+#define EXIM_DBCLOSE__(db)        (db)->close(db)
 
 /* Datum access types - these are intended to be assignable */
 
@@ -389,7 +483,7 @@ typedef struct {
 /* Access functions */
 
 /* EXIM_DBOPEN - returns a EXIM_DB *, NULL if failed */
-#define EXIM_DBOPEN(name, flags, mode, dbpp) \
+#define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp) \
      { (*(dbpp)) = (EXIM_DB *) malloc(sizeof(EXIM_DB));\
        if (*(dbpp) != NULL) { \
          (*(dbpp))->lkey.dptr = NULL;\
@@ -435,7 +529,7 @@ refer to cursor, to keep picky compilers happy. */
 #define EXIM_DBDELETE_CURSOR(cursor) { cursor = cursor; }
 
 /* EXIM_DBCLOSE */
-#define EXIM_DBCLOSE(db) \
+#define EXIM_DBCLOSE__(db) \
 { gdbm_close((db)->gdbm);\
   if ((db)->lkey.dptr != NULL) free((db)->lkey.dptr);\
   free(db); }
@@ -478,7 +572,7 @@ interface */
 /* Access functions */
 
 /* EXIM_DBOPEN - returns a EXIM_DB *, NULL if failed */
-#define EXIM_DBOPEN(name, flags, mode, dbpp) \
+#define EXIM_DBOPEN__(name, dirname, flags, mode, dbpp) \
        *(dbpp) = dbm_open(CS name, flags, mode)
 
 /* EXIM_DBGET - returns TRUE if successful, FALSE otherwise */
@@ -513,7 +607,7 @@ refer to cursor, to keep picky compilers happy. */
 #define EXIM_DBDELETE_CURSOR(cursor) { cursor = cursor; }
 
 /* EXIM_DBCLOSE */
-#define EXIM_DBCLOSE(db) dbm_close(db)
+#define EXIM_DBCLOSE__(db) dbm_close(db)
 
 /* Datum access types - these are intended to be assignable */
 
@@ -527,6 +621,42 @@ after reading data. */
 #define EXIM_DATUM_FREE(datum)
 
 #endif /* USE_GDBM */
+
+
+
+
+
+# ifdef COMPILE_UTILITY
+
+#  define EXIM_DBOPEN(name, dirname, flags, mode, dbpp) \
+  EXIM_DBOPEN__(name, dirname, flags, mode, dbpp)
+#  define EXIM_DBCLOSE(db) EXIM_DBCLOSE__(db)
+
+# else
+
+#  define EXIM_DBOPEN(name, dirname, flags, mode, dbpp) \
+  do { \
+  DEBUG(D_hints_lookup) \
+    debug_printf_indent("EXIM_DBOPEN: file <%s> dir <%s> flags=%s\n", \
+      (name), (dirname),		\
+      (flags) == O_RDONLY ? "O_RDONLY"	\
+      : (flags) == O_RDWR ? "O_RDWR"	\
+      : (flags) == (O_RDWR|O_CREAT) ? "O_RDWR|O_CREAT"	\
+      : "??");	\
+  if (is_tainted2(name, LOG_MAIN|LOG_PANIC, "Tainted name '%s' for DB file not permitted", name) \
+      || is_tainted2(dirname, LOG_MAIN|LOG_PANIC, "Tainted name '%s' for DB directory not permitted", dirname)) \
+    *dbpp = NULL; \
+  else \
+    { EXIM_DBOPEN__(name, dirname, flags, mode, dbpp); } \
+  DEBUG(D_hints_lookup) debug_printf_indent("returned from EXIM_DBOPEN: %p\n", *dbpp); \
+  } while(0)
+#  define EXIM_DBCLOSE(db) \
+  do { \
+  DEBUG(D_hints_lookup) debug_printf_indent("EXIM_DBCLOSE(%p)\n", db); \
+  EXIM_DBCLOSE__(db); \
+  } while(0)
+
+#  endif
 
 /********************* End of dbm library definitions **********************/
 
@@ -582,7 +712,7 @@ done.
 Originally, there was only one structure, used for both types. However, it got
 expanded for domain records, so it got split. To make it possible for Exim to
 handle the old type of record, we retain the old definition. The different
-kinds of record can be distinguised by their different lengths. */
+kinds of record can be distinguished by their different lengths. */
 
 typedef struct {
   time_t time_stamp;
@@ -660,6 +790,32 @@ typedef struct {
   unsigned bloom_size;    /* Number of bytes in the Bloom filter */
   uschar   bloom[40];     /* Bloom filter which may be larger than this */
 } dbdata_ratelimit_unique;
+
+#ifndef DISABLE_PIPE_CONNECT
+/* This structure records the EHLO responses, cleartext and crypted,
+for an IP, as bitmasks (cf. OPTION_TLS) */
+
+typedef struct {
+  unsigned short cleartext_features;
+  unsigned short crypted_features;
+  unsigned short cleartext_auths;
+  unsigned short crypted_auths;
+} ehlo_resp_precis;
+
+typedef struct {
+  time_t time_stamp;
+  /*************/
+  ehlo_resp_precis data;
+} dbdata_ehlo_resp;
+#endif
+
+typedef struct {
+  time_t time_stamp;
+  /*************/
+  uschar verify_override:1;
+  uschar ocsp:3;
+  uschar session[1];
+} dbdata_tls_session;
 
 
 /* End of dbstuff.h */

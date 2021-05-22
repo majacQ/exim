@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This code originally came from Robert Wal. */
@@ -20,7 +21,7 @@
 /* See local README for interface description. */
 
 static void *
-whoson_open(uschar *filename, uschar **errmsg)
+whoson_open(const uschar * filename, uschar ** errmsg)
 {
 filename = filename;   /* Keep picky compilers happy */
 errmsg = errmsg;
@@ -35,8 +36,8 @@ return (void *)(1);    /* Just return something non-null */
 /* See local README for interface description. */
 
 static int
-whoson_find(void *handle, uschar *filename, uschar *query, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+whoson_find(void * handle, const uschar * filename, uschar * query, int length,
+  uschar ** result, uschar ** errmsg, uint * do_cache, const uschar * opts)
 {
 uschar buffer[80];
 handle = handle;          /* Keep picky compilers happy */
@@ -80,15 +81,15 @@ fprintf(f, "                         Exim version %s\n", EXIM_VERSION_STR);
 }
 
 static lookup_info _lookup_info = {
-  US"whoson",                    /* lookup name */
-  lookup_querystyle,             /* query-style lookup */
-  whoson_open,                   /* open function */
-  NULL,                          /* check function */
-  whoson_find,                   /* find function */
-  NULL,                          /* no close function */
-  NULL,                          /* no tidy function */
-  NULL,                          /* no quoting function */
-  whoson_version_report          /* version reporting */
+  .name = US"whoson",			/* lookup name */
+  .type = lookup_querystyle,		/* query-style lookup */
+  .open = whoson_open,			/* open function */
+  .check = NULL,			/* check function */
+  .find = whoson_find,			/* find function */
+  .close = NULL,			/* no close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = NULL,			/* no quoting function */
+  .version_report = whoson_version_report          /* version reporting */
 };
 
 #ifdef DYNLOOKUP

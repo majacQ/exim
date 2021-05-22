@@ -1,12 +1,7 @@
 # Exim test configuration 0102
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -30,7 +25,9 @@ localuser:
   local_part_prefix = bsmtp_ : mmdf_
   local_part_prefix_optional
   retry_use_local_part
-  transport = ${local_part_prefix}local_delivery
+  transport = ${if !def:local_part_prefix {} \
+		{${if eq {bsmtp_}{$local_part_prefix} {bsmtp_}\
+			{${if eq {mmdf_}{$local_part_prefix} {mmdf_} {}}}}}}local_delivery
 
 
 # ----- Transports -----
@@ -41,7 +38,7 @@ local_delivery:
   driver = appendfile
   delivery_date_add
   envelope_to_add
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   file_format = "From       : local_delivery :\
                  MAIL       : bsmtp_local_delivery :\
                  \1\1\1\1\n : mmdf_local_delivery :\
@@ -55,7 +52,7 @@ bsmtp_local_delivery:
   use_bsmtp
   delivery_date_add
   envelope_to_add
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   return_path_add
   user = CALLER
 
@@ -63,7 +60,7 @@ mmdf_local_delivery:
   driver = appendfile
   check_string = "\1\1\1\1\n"
   escape_string = "\1\1\1\1 \n"
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   message_prefix = "\1\1\1\1\n"
   message_suffix = "\1\1\1\1\n"
   user = CALLER

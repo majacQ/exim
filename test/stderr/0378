@@ -8,6 +8,7 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -27,27 +28,23 @@ defer router skipped: local_parts mismatch
 --------> aaaa_2nd_time router <--------
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
-checking "condition"
+checking "condition" "${if first_delivery{no}{yes}}"...
 aaaa_2nd_time router skipped: condition failure
 --------> aaaa router <--------
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
 calling aaaa router
-rda_interpret (string): # Exim filter
-deliver defer_aaaa@$domain
-save TESTSUITE/test-mail/file
-pipe "/bin/sh -c exit"
-mail subject autoreply
-text "This is an autoreply"
-expanded: # Exim filter
+rda_interpret (string): '# Exim filter\ndeliver defer_aaaa@$domain\nsave TESTSUITE/test-mail/file\npipe "/bin/sh -c exit"\nmail subject autoreply\ntext "This is an autoreply"'
+expanded: '# Exim filter
 deliver defer_aaaa@myhost.test.ex
 save TESTSUITE/test-mail/file
 pipe "/bin/sh -c exit"
 mail subject autoreply
-text "This is an autoreply"
+text "This is an autoreply"' (tainted)
 data is an Exim filter program
 Filter: start of processing
 Filter: end of processing
+>>>>>>>>>>>>>>>> Exim pid=pppp (router-interpret) terminating with rc=0 >>>>>>>>>>>>>>>>
 rda_interpret: subprocess yield=0 error=NULL
 set transport t3
 aaaa router generated >CALLER@myhost.test.ex
@@ -98,8 +95,8 @@ bounce router skipped: senders mismatch
 local_part=defer_aaaa domain=myhost.test.ex
 checking local_parts
 calling defer router
-rda_interpret (string): :defer: forced defer
-expanded: :defer: forced defer
+rda_interpret (string): ':defer: forced defer'
+expanded: ':defer: forced defer'
 file is not a filter file
 parse_forward_list: :defer: forced defer
 extract item: :defer: forced defer
@@ -127,6 +124,7 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -139,8 +137,8 @@ routing CALLER@myhost.test.ex
 local_part=CALLER domain=myhost.test.ex
 checking senders
 calling bounce router
-rda_interpret (string): :blackhole:
-expanded: :blackhole:
+rda_interpret (string): ':blackhole:'
+expanded: ':blackhole:'
 file is not a filter file
 parse_forward_list: :blackhole:
 extract item: :blackhole:
@@ -155,8 +153,8 @@ After routing:
   Deferred addresses:
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (autoreply) terminating with rc=0 >>>>>>>>>>>>>>>>
 LOG: MAIN
   => >CALLER@myhost.test.ex <aaaa@myhost.test.ex> R=aaaa T=t3
 locking TESTSUITE/spool/db/retry.lockfile
@@ -167,11 +165,12 @@ locking TESTSUITE/spool/db/retry.lockfile
 LOG: MAIN
   => TESTSUITE/test-mail/file <aaaa@myhost.test.ex> R=aaaa T=t1
 locking TESTSUITE/spool/db/retry.lockfile
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
+dropping to exim gid; retaining priv uid
 LOG: queue_run MAIN
   Start queue run: pid=pppp -qf
 locking TESTSUITE/spool/db/retry.lockfile
@@ -192,10 +191,10 @@ defer router skipped: local_parts mismatch
 --------> aaaa_2nd_time router <--------
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
-checking "condition"
+checking "condition" "${if first_delivery{no}{yes}}"...
 calling aaaa_2nd_time router
-rda_interpret (string): aaaa@$domain
-expanded: aaaa@myhost.test.ex
+rda_interpret (string): 'aaaa@$domain'
+expanded: 'aaaa@myhost.test.ex' (tainted)
 file is not a filter file
 parse_forward_list: aaaa@myhost.test.ex
 extract item: aaaa@myhost.test.ex
@@ -226,21 +225,17 @@ aaaa_2nd_time router skipped: previously routed aaaa@myhost.test.ex
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
 calling aaaa router
-rda_interpret (string): # Exim filter
-deliver defer_aaaa@$domain
-save TESTSUITE/test-mail/file
-pipe "/bin/sh -c exit"
-mail subject autoreply
-text "This is an autoreply"
-expanded: # Exim filter
+rda_interpret (string): '# Exim filter\ndeliver defer_aaaa@$domain\nsave TESTSUITE/test-mail/file\npipe "/bin/sh -c exit"\nmail subject autoreply\ntext "This is an autoreply"'
+expanded: '# Exim filter
 deliver defer_aaaa@myhost.test.ex
 save TESTSUITE/test-mail/file
 pipe "/bin/sh -c exit"
 mail subject autoreply
-text "This is an autoreply"
+text "This is an autoreply"' (tainted)
 data is an Exim filter program
 Filter: start of processing
 Filter: end of processing
+>>>>>>>>>>>>>>>> Exim pid=pppp (router-interpret) terminating with rc=0 >>>>>>>>>>>>>>>>
 rda_interpret: subprocess yield=0 error=NULL
 set transport t3
 aaaa router generated >CALLER@myhost.test.ex
@@ -290,8 +285,8 @@ bounce router skipped: senders mismatch
 local_part=defer_aaaa domain=myhost.test.ex
 checking local_parts
 calling defer router
-rda_interpret (string): :defer: forced defer
-expanded: :defer: forced defer
+rda_interpret (string): ':defer: forced defer'
+expanded: ':defer: forced defer'
 file is not a filter file
 parse_forward_list: :defer: forced defer
 extract item: :defer: forced defer
@@ -307,6 +302,7 @@ After routing:
   Deferred addresses:
     defer_aaaa@myhost.test.ex
 locking TESTSUITE/spool/db/retry.lockfile
+>>>>>>>>>>>>>>>> Exim pid=pppp (qrun-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
 LOG: queue_run MAIN
   End queue run: pid=pppp -qf
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

@@ -25,6 +25,13 @@ config=
 eximmacdef=
 exim_path=
 
+if test "x$1" = x--version
+then
+    echo "`basename $0`: $0"
+    echo "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION"
+    exit 0
+fi
+
 if expr -- $1 : '\-' >/dev/null ; then
   while expr -- $1 : '\-' >/dev/null ; do
     if [ "$1" = "-C" ]; then
@@ -114,6 +121,9 @@ if [ "$argone" = "" ]; then
 fi
 
 perl - $exim_path "$eximmacdef" $argone $spool_directory $qualify_domain $config <<'End'
+
+  # We don't import anything, but guard against future changes which do
+  BEGIN { pop @INC if $INC[-1] eq '.' };
 
   # Name the arguments
 

@@ -17,6 +17,8 @@ getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@test.ex
 set_process_info: pppp accepting a local non-SMTP message from <CALLER@test.ex>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 Sender: CALLER@test.ex
 Recipients:
   kilos@recurse.test.ex
@@ -31,30 +33,33 @@ I Message-Id: <E10HmaY-0005vi-00@the.local.host.name>
 F From: CALLER_NAME <CALLER@test.ex>
   Date: Tue, 2 Mar 1999 09:44:33 +0000
 
+Data file name: TESTSUITE/spool//input//10HmaY-0005vi-00-D
 Data file written for message 10HmaY-0005vi-00
 >>Generated Received: header line
 P Received: from CALLER by the.local.host.name with local (Exim x.yz)
 	(envelope-from <CALLER@test.ex>)
 	id 10HmaY-0005vi-00
 	for kilos@recurse.test.ex; Tue, 2 Mar 1999 09:44:33 +0000
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
-Writing spool header file
+Writing spool header file: TESTSUITE/spool//input//hdr.10HmaY-0005vi-00
+DSN: **** SPOOL_OUT - address: <kilos@recurse.test.ex> errorsto: <NULL> orcpt: <NULL> dsn_flags: 0x0
+Renaming spool header file: TESTSUITE/spool//input//10HmaY-0005vi-00-H
 Size of headers = sss
 LOG: MAIN
   <= CALLER@test.ex U=CALLER P=local S=sss
 search_tidyup called
-exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xfbb95cfd -N -odi -Mc 10HmaY-0005vi-00
+exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xf7715cfd -MCd local-accept-delivery -N -odi -Mc 10HmaY-0005vi-00
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=EXIM_GID pid=pppp
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 set_process_info: pppp delivering specified messages
 set_process_info: pppp delivering 10HmaY-0005vi-00
+Trying spool file TESTSUITE/spool//input//10HmaY-0005vi-00-D
 reading spool file 10HmaY-0005vi-00-H
 user=CALLER uid=CALLER_UID gid=CALLER_GID sender=CALLER@test.ex
 sender_local=1 ident=CALLER
@@ -62,19 +67,22 @@ Non-recipients:
 Empty Tree
 ---- End of tree ----
 recipients_count=1
+**** SPOOL_IN - No additional fields
 body_linecount=0 message_linecount=7
+DSN: set orcpt:   flags: 0x0
 Delivery address list:
   kilos@recurse.test.ex 
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: kilos@recurse.test.ex
 unique = kilos@recurse.test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 kilos@recurse.test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing kilos@recurse.test.ex
@@ -85,13 +93,20 @@ recurse.test.ex in "!thishost.test.ex : !recurse.test.ex.test.ex"? yes (end of l
 calling r1 router
 r1 router called for kilos@recurse.test.ex
   domain = recurse.test.ex
+recurse.test.ex in "*"? yes (matched "*")
 DNS lookup of recurse.test.ex (MX) using fakens
 DNS lookup of recurse.test.ex (MX) gave HOST_NOT_FOUND
 returning DNS_NOMATCH
+faking res_search(MX) response length as 65535
+ writing neg-cache entry for recurse.test.ex-MX-xxxx, ttl 3000
 r1 router widened recurse.test.ex to recurse.test.ex.test.ex
+recurse.test.ex.test.ex in "*"? yes (matched "*")
 DNS lookup of recurse.test.ex.test.ex (MX) using fakens
 DNS lookup of recurse.test.ex.test.ex (MX) gave NO_DATA
 returning DNS_NODATA
+faking res_search(MX) response length as 65535
+ writing neg-cache entry for recurse.test.ex.test.ex-MX-xxxx, ttl 3000
+recurse.test.ex.test.ex (MX resp) DNSSEC
 DNS lookup of recurse.test.ex.test.ex (A) using fakens
 DNS lookup of recurse.test.ex.test.ex (A) succeeded
 fully qualified name = recurse.test.ex.test.ex
@@ -101,16 +116,17 @@ rewriting header lines
 rewrite_one_header: type=F:
   From: CALLER_NAME <CALLER@test.ex>
 re-routed to kilos@recurse.test.ex.test.ex
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: kilos@recurse.test.ex.test.ex
 unique = kilos@recurse.test.ex.test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 kilos@recurse.test.ex.test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing kilos@recurse.test.ex.test.ex
@@ -129,8 +145,8 @@ local_part=kilos domain=recurse.test.ex.test.ex
 checking local_parts
 kilos in "kilos"? yes (matched "kilos")
 calling r3 router
-rda_interpret (string): $local_part@$domain
-expanded: kilos@recurse.test.ex.test.ex
+rda_interpret (string): '$local_part@$domain'
+expanded: 'kilos@recurse.test.ex.test.ex' (tainted)
 file is not a filter file
 parse_forward_list: kilos@recurse.test.ex.test.ex
 extract item: kilos@recurse.test.ex.test.ex
@@ -140,16 +156,17 @@ r3 router generated kilos@recurse.test.ex.test.ex
 routed by r3 router
   envelope to: kilos@recurse.test.ex.test.ex
   transport: <none>
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: kilos@recurse.test.ex.test.ex
 unique = \0\kilos@recurse.test.ex.test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 kilos@recurse.test.ex.test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing kilos@recurse.test.ex.test.ex
@@ -174,7 +191,7 @@ set transport t2
 queued for t2 transport: local_part = kilos
 domain = recurse.test.ex.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by r4 router
   envelope to: kilos@recurse.test.ex.test.ex
   transport: t2
@@ -188,10 +205,11 @@ After routing:
 search_tidyup called
 >>>>>>>>>>>>>>>> Local deliveries >>>>>>>>>>>>>>>>
 --------> kilos@recurse.test.ex.test.ex <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 search_tidyup called
 changed uid/gid: local delivery to kilos <kilos@recurse.test.ex.test.ex> transport=t2
@@ -219,11 +237,27 @@ LOG: MAIN
 changed uid/gid: post-delivery tidying
   uid=EXIM_UID gid=EXIM_GID pid=pppp
 set_process_info: pppp tidying up after delivering 10HmaY-0005vi-00
+DSN: processing router : r4
+DSN: processing successful delivery address: kilos@recurse.test.ex.test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0x0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: kilos@recurse.test.ex.test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
+DSN: processing router : r3
+DSN: processing successful delivery address: kilos@recurse.test.ex.test.ex
+DSN: Sender_address: CALLER@test.ex
+DSN: orcpt: NULL  flags: 0x0
+DSN: envid: NULL  ret: 0
+DSN: Final recipient: kilos@recurse.test.ex.test.ex
+DSN: Remote SMTP server supports DSN: 0
+DSN: not sending DSN success message
 LOG: MAIN
   Completed
 end delivery of 10HmaY-0005vi-00
 search_tidyup called
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

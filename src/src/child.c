@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -72,9 +73,10 @@ child_exec_exim(int exec_type, BOOL kill_v, int *pcount, BOOL minimal,
 {
 int first_special = -1;
 int n = 0;
-int extra = (pcount != NULL)? *pcount : 0;
-uschar **argv =
-  store_get((extra + acount + MAX_CLMACROS + 16) * sizeof(char *));
+int extra = pcount ? *pcount : 0;
+uschar **argv;
+
+argv = store_get((extra + acount + MAX_CLMACROS + 21) * sizeof(char *), FALSE);
 
 /* In all case, the list starts out with the path, any macros, and a changed
 config file. */
@@ -85,7 +87,7 @@ if (clmacro_count > 0)
   memcpy(argv + n, clmacros, clmacro_count * sizeof(uschar *));
   n += clmacro_count;
   }
-if (config_changed)
+if (f.config_changed)
   {
   argv[n++] = US"-C";
   argv[n++] = config_main_filename;
@@ -108,11 +110,22 @@ if (!minimal)
     if (debug_selector != 0)
       argv[n++] = string_sprintf("-d=0x%x", debug_selector);
     }
-  if (dont_deliver) argv[n++] = US"-N";
-  if (queue_smtp) argv[n++] = US"-odqs";
-  if (synchronous_delivery) argv[n++] = US"-odi";
+  DEBUG(D_any)
+    {
+    argv[n++] = US"-MCd";
+    argv[n++] = US process_purpose;
+    }
+  if (!f.testsuite_delays) argv[n++] = US"-odd";
+  if (f.dont_deliver) argv[n++] = US"-N";
+  if (f.queue_smtp) argv[n++] = US"-odqs";
+  if (f.synchronous_delivery) argv[n++] = US"-odi";
   if (connection_max_messages >= 0)
     argv[n++] = string_sprintf("-oB%d", connection_max_messages);
+  if (*queue_name)
+    {
+    argv[n++] = US"-MCG";
+    argv[n++] = queue_name;
+    }
   }
 
 /* Now add in any others that are in the call. Remember which they were,
@@ -133,7 +146,7 @@ if (acount > 0)
 argv[n] = NULL;
 if (exec_type == CEE_RETURN_ARGV)
   {
-  if (pcount != NULL) *pcount = n;
+  if (pcount) *pcount = n;
   return argv;
   }
 
@@ -141,7 +154,7 @@ if (exec_type == CEE_RETURN_ARGV)
 failure. We know that there will always be at least one extra option in the
 call when exec() is done here, so it can be used to add to the panic data. */
 
-DEBUG(D_exec) debug_print_argv(argv);
+DEBUG(D_exec) debug_print_argv(CUSS argv);
 exim_nullstd();                            /* Make sure std{in,out,err} exist */
 execv(CS argv[0], (char *const *)argv);
 
@@ -178,13 +191,15 @@ to exist, even if all calls from within Exim are changed, because it is
 documented for use from local_scan().
 
 Argument: fdptr   pointer to int for the stdin fd
+	  purpose of the child process, for debug
 Returns:          pid of the created process or -1 if anything has gone wrong
 */
 
 pid_t
-child_open_exim(int *fdptr)
+child_open_exim_function(int * fdptr, const uschar * purpose)
 {
-return child_open_exim2(fdptr, US"<>", bounce_sender_authentication);
+return child_open_exim2_function(fdptr, US"<>", bounce_sender_authentication,
+  purpose);
 }
 
 
@@ -195,12 +210,14 @@ Arguments:
   fdptr                   pointer to int for the stdin fd
   sender                  for a sender address (data for -f)
   sender_authentication   authenticated sender address or NULL
+  purpose		  of the child process, for debug
 
 Returns:          pid of the created process or -1 if anything has gone wrong
 */
 
 pid_t
-child_open_exim2(int *fdptr, uschar *sender, uschar *sender_authentication)
+child_open_exim2_function(int * fdptr, uschar * sender,
+  uschar * sender_authentication, const uschar * purpose)
 {
 int pfd[2];
 int save_errno;
@@ -213,11 +230,11 @@ on the wait. */
 
 if (pipe(pfd) != 0) return (pid_t)(-1);
 oldsignal = signal(SIGCHLD, SIG_DFL);
-pid = fork();
+pid = exim_fork(purpose);
 
 /* Child process: make the reading end of the pipe into the standard input and
 close the writing end. If debugging, pass debug_fd as stderr. Then re-exec
-Exim with appropriat options. In the test harness, use -odi unless queue_only
+Exim with appropriate options. In the test harness, use -odi unless queue_only
 is set, so that the bounce is fully delivered before returning. Failure is
 signalled with EX_EXECFAILED (specified by CEE_EXEC_EXIT), but this shouldn't
 occur. */
@@ -227,9 +244,9 @@ if (pid == 0)
   force_fd(pfd[pipe_read], 0);
   (void)close(pfd[pipe_write]);
   if (debug_fd > 0) force_fd(debug_fd, 2);
-  if (running_in_test_harness && !queue_only)
+  if (f.running_in_test_harness && !queue_only)
     {
-    if (sender_authentication != NULL)
+    if (sender_authentication)
       child_exec_exim(CEE_EXEC_EXIT, FALSE, NULL, FALSE, 9,
         US "-odi", US"-t", US"-oem", US"-oi", US"-f", sender, US"-oMas",
         sender_authentication, message_id_option);
@@ -241,7 +258,7 @@ if (pid == 0)
     }
   else   /* Not test harness */
     {
-    if (sender_authentication != NULL)
+    if (sender_authentication)
       child_exec_exim(CEE_EXEC_EXIT, FALSE, NULL, FALSE, 8,
         US"-t", US"-oem", US"-oi", US"-f", sender, US"-oMas",
         sender_authentication, message_id_option);
@@ -302,13 +319,15 @@ Arguments:
                 process is placed
   wd          if not NULL, a path to be handed to chdir() in the new process
   make_leader if TRUE, make the new process a process group leader
+  purpose     for debug: reason for running the task
 
 Returns:      the pid of the created process or -1 if anything has gone wrong
 */
 
 pid_t
-child_open_uid(uschar **argv, uschar **envp, int newumask, uid_t *newuid,
-  gid_t *newgid, int *infdptr, int *outfdptr, uschar *wd, BOOL make_leader)
+child_open_uid(const uschar **argv, const uschar **envp, int newumask,
+  uid_t *newuid, gid_t *newgid, int *infdptr, int *outfdptr, uschar *wd,
+  BOOL make_leader, const uschar * purpose)
 {
 int save_errno;
 int inpfd[2], outpfd[2];
@@ -329,7 +348,7 @@ that the child process can be waited for. We sometimes get here with it set
 otherwise. Save the old state for resetting on the wait. */
 
 oldsignal = signal(SIGCHLD, SIG_DFL);
-pid = fork();
+pid = exim_fork(purpose);
 
 /* Handle the child process. First, set the required environment. We must do
 this before messing with the pipes, in order to be able to write debugging
@@ -340,14 +359,14 @@ if (pid == 0)
   signal(SIGUSR1, SIG_IGN);
   signal(SIGPIPE, SIG_DFL);
 
-  if (newgid != NULL && setgid(*newgid) < 0)
+  if (newgid && setgid(*newgid) < 0)
     {
     DEBUG(D_any) debug_printf("failed to set gid=%ld in subprocess: %s\n",
       (long int)(*newgid), strerror(errno));
     goto CHILD_FAILED;
     }
 
-  if (newuid != NULL && setuid(*newuid) < 0)
+  if (newuid && setuid(*newuid) < 0)
     {
     DEBUG(D_any) debug_printf("failed to set uid=%ld in subprocess: %s\n",
       (long int)(*newuid), strerror(errno));
@@ -356,7 +375,7 @@ if (pid == 0)
 
   (void)umask(newumask);
 
-  if (wd != NULL && Uchdir(wd) < 0)
+  if (wd && Uchdir(wd) < 0)
     {
     DEBUG(D_any) debug_printf("failed to chdir to %s: %s\n", wd,
       strerror(errno));
@@ -386,8 +405,8 @@ if (pid == 0)
 
   /* Now do the exec */
 
-  if (envp == NULL) execv(CS argv[0], (char *const *)argv);
-    else execve(CS argv[0], (char *const *)argv, (char *const *)envp);
+  if (envp) execve(CS argv[0], (char *const *)argv, (char *const *)envp);
+  else execv(CS argv[0], (char *const *)argv);
 
   /* Failed to execv. Signal this failure using EX_EXECFAILED. We are
   losing the actual errno we got back, because there is no way to return
@@ -442,16 +461,17 @@ Arguments:
   outfdptr    pointer to int into which the fd of the stdout/stderr of the new
                 process is placed
   make_leader if TRUE, make the new process a process group leader
+  purpose     for debug: reason for running the task
 
 Returns:      the pid of the created process or -1 if anything has gone wrong
 */
 
 pid_t
-child_open(uschar **argv, uschar **envp, int newumask, int *infdptr,
-  int *outfdptr, BOOL make_leader)
+child_open_function(uschar **argv, uschar **envp, int newumask, int *infdptr,
+  int *outfdptr, BOOL make_leader, const uschar * purpose)
 {
-return child_open_uid(argv, envp, newumask, NULL, NULL, infdptr, outfdptr,
-  NULL, make_leader);
+return child_open_uid(CUSS argv, CUSS envp, newumask, NULL, NULL,
+  infdptr, outfdptr, NULL, make_leader, purpose);
 }
 
 
@@ -484,7 +504,7 @@ int yield;
 if (timeout > 0)
   {
   sigalrm_seen = FALSE;
-  alarm(timeout);
+  ALARM(timeout);
   }
 
 for(;;)
@@ -494,18 +514,23 @@ for(;;)
   if (rc == pid)
     {
     int lowbyte = status & 255;
-    if (lowbyte == 0) yield = (status >> 8) & 255;
-      else yield = -lowbyte;
+    yield = lowbyte == 0 ? (status >> 8) & 255 : -lowbyte;
     break;
     }
   if (rc < 0)
     {
-    yield = (errno == EINTR && sigalrm_seen)? -256 : -257;
+    /* This "shouldn't happen" test does happen on MacOS: for some reason
+    I do not understand we seems to get an alarm signal despite not having
+    an active alarm set. There seems to be only one, so just go round again. */
+
+    if (errno == EINTR && sigalrm_seen && timeout <= 0) continue;
+
+    yield = (errno == EINTR && sigalrm_seen) ? -256 : -257;
     break;
     }
   }
 
-if (timeout > 0) alarm(0);
+if (timeout > 0) ALARM_CLR(0);
 
 signal(SIGCHLD, oldsignal);   /* restore */
 return yield;

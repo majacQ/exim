@@ -1,13 +1,17 @@
 # Exim test configuration 5400
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+# any options on the cutthrough_delivery control
+CONTROL=
+
+# optional verify-callout
+OPT=
+
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+
+log_selector = +received_recipients +all_parents
+queue_only
 
 # ----- Main settings -----
 
@@ -21,19 +25,35 @@ acl_smtp_rcpt = ar
 begin acl
 
 ar:
-	accept control = cutthrough_delivery
+  accept
+	control = cutthrough_deliveryCONTROL
+	OPT
 	logwrite = rcpt for $local_part@$domain
 
 # ----- Routers -----
 
 begin routers
 
+redir:
+  driver = redirect
+  local_parts = ^r
+  data =	${substr_1:$local_part}@$domain
+
+dns:
+  driver = dnslookup
+  domains = localhost.test.ex : localhost4.test.ex : thishost.test.ex
+  self = send
+  transport = smtp
+
 all:
   driver = manualroute
   domains = ! +local_domains
-  route_list = * 127.0.0.1
+  route_list = special.com HOSTIPV4 ; * 127.0.0.1
   self = send
-  transport = smtp
+  transport = ${if eq {special_tpt}{$local_part} {smtp2}{smtp}}
+  headers_remove = X-hdr-rtr
+  headers_add =    X-hdr-rtr-new: $h_X-hdr-rtr:+++
+  errors_to =	   ""
   no_more
 
 
@@ -45,6 +65,14 @@ smtp:
   driver = smtp
   interface = HOSTIPV4
   port = PORT_S
+  hosts_try_fastopen =	:
+  headers_add =  ${if def:h_X-hdr-rtr {X-hdr-tpt-new: new} {}}
+
+smtp2:
+  driver = smtp
+  interface = HOSTIPV4
+  port = PORT_S
+  hosts_try_fastopen =	:
 
 
 # End

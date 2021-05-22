@@ -1,13 +1,8 @@
 # Exim test configuration 2019
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -34,13 +29,7 @@ begin acl
 check_recipient:
   accept  hosts = :
   deny    hosts = HOSTIPV4
-         !encrypted = AES256-SHA:\
-                      AES256-GCM-SHA384:\
-                      IDEA-CBC-MD5:\
-                      DES-CBC3-SHA:\
-                      DHE_RSA_AES_256_CBC_SHA1:\
-                      DHE_RSA_3DES_EDE_CBC_SHA:\
-                      RSA_AES_256_CBC_SHA1
+         !encrypted = *
   accept
 
 
@@ -60,7 +49,7 @@ begin transports
 
 local_delivery:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   headers_add = TLS: cipher=$tls_cipher peerdn=$tls_peerdn
   user = CALLER
 

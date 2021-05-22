@@ -2,14 +2,9 @@
 
 SERVER =
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -37,14 +32,14 @@ exeter_listr:
   no_check_local_user
   domains = listr.test.ex
   errors_to = ${local_part}-request@test.ex
-  file = DIR/aux-fixed/TESTNUM.list.${local_part}
+  file = DIR/aux-fixed/TESTNUM.list.${bless:$local_part}
   forbid_file
   forbid_pipe
   one_time
   require_files = DIR/aux-fixed/TESTNUM.restrict.${local_part}
   retry_use_local_part
   senders = ${if exists{DIR/aux-fixed/TESTNUM.restrict.${local_part}} \
-    {DIR/aux-fixed/TESTNUM.restrict.${local_part}}{zzzz}}
+    {${bless:DIR/aux-fixed/TESTNUM.restrict.${local_part}}}{zzzz}}
   syntax_errors_to = ${local_part}-request@test.ex
 
 exeter_listf:

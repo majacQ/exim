@@ -1,0 +1,2 @@
+support PIPE_CONNECT
+authenticator plaintext

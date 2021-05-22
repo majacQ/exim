@@ -2,16 +2,22 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2018-2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* The default settings for Exim configuration variables. A #define without
 any data just defines the existence of the variable; it won't get included
 in config.h unless some value is defined in Local/Makefile. If there is data,
-it's a default value. */
+it's a default value.
+
+Do not put spaces between # and the 'define'.
+*/
 
 #define ALT_CONFIG_PREFIX
 #define TRUSTED_CONFIG_LIST
+
+#define ALLOW_INSECURE_TAINTED_DATA
 
 #define APPENDFILE_MODE            0600
 #define APPENDFILE_DIRECTORY_MODE  0700
@@ -20,10 +26,12 @@ it's a default value. */
 #define AUTH_CRAM_MD5
 #define AUTH_CYRUS_SASL
 #define AUTH_DOVECOT
+#define AUTH_EXTERNAL
 #define AUTH_GSASL
 #define AUTH_HEIMDAL_GSSAPI
 #define AUTH_PLAINTEXT
 #define AUTH_SPA
+#define AUTH_TLS
 
 #define AUTH_VARS                     3
 
@@ -40,8 +48,13 @@ it's a default value. */
 #define DEFAULT_CRYPT              crypt
 #define DELIVER_IN_BUFFER_SIZE     8192
 #define DELIVER_OUT_BUFFER_SIZE    8192
-#define DISABLE_DKIM
 #define DISABLE_DNSSEC
+#define DISABLE_DKIM
+#define DISABLE_EVENT
+#define DISABLE_OCSP
+#define DISABLE_PIPE_CONNECT
+#define DISABLE_PRDR
+#define DISABLE_TLS
 #define DISABLE_D_OPTION
 
 #define ENABLE_DISABLE_FSYNC
@@ -63,6 +76,7 @@ it's a default value. */
 #define FIXED_NEVER_USERS         "root"
 
 #define HAVE_CRYPT16
+#define HAVE_LOCAL_SCAN
 #define HAVE_SA_LEN
 #define HEADERS_CHARSET           "ISO-8859-1"
 #define HEADER_ADD_BUFFER_SIZE    (8192 * 4)
@@ -83,6 +97,7 @@ it's a default value. */
 #define LOOKUP_DNSDB
 #define LOOKUP_DSEARCH
 #define LOOKUP_IBASE
+#define LOOKUP_JSON
 #define LOOKUP_LDAP
 #define LOOKUP_LSEARCH
 #define LOOKUP_MYSQL
@@ -91,6 +106,7 @@ it's a default value. */
 #define LOOKUP_ORACLE
 #define LOOKUP_PASSWD
 #define LOOKUP_PGSQL
+#define LOOKUP_REDIS
 #define LOOKUP_SQLITE
 #define LOOKUP_TESTDB
 #define LOOKUP_WHOSON
@@ -113,6 +129,8 @@ it's a default value. */
 #define RADIUS_CONFIG_FILE
 #define RADIUS_LIB_TYPE
 
+#define REGEX_VARS                 9
+
 #define ROUTER_ACCEPT
 #define ROUTER_DNSLOOKUP
 #define ROUTER_IPLITERAL
@@ -126,14 +144,20 @@ it's a default value. */
 #define SPOOL_MODE                 0640
 #define STRING_SPRINTF_BUFFER_SIZE (8192 * 4)
 
-#define SUPPORT_A6
 #define SUPPORT_CRYPTEQ
+#define SUPPORT_DANE
+#define SUPPORT_DMARC
+#define DMARC_TLD_FILE "/etc/exim/opendmarc.tlds"
+#define SUPPORT_I18N
+#define SUPPORT_I18N_2008
 #define SUPPORT_MAILDIR
 #define SUPPORT_MAILSTORE
 #define SUPPORT_MBX
 #define SUPPORT_MOVE_FROZEN_MESSAGES
 #define SUPPORT_PAM
-#define SUPPORT_TLS
+#define SUPPORT_PROXY
+#define SUPPORT_SOCKS
+#define SUPPORT_SPF
 #define SUPPORT_TRANSLATE_IP_ADDRESS
 
 #define SYSLOG_LOG_PID
@@ -141,7 +165,7 @@ it's a default value. */
 
 #define TCP_WRAPPERS_DAEMON_NAME "exim"
 #define TIMEZONE_DEFAULT
-#define TMPDIR
+#define EXIM_TMPDIR
 
 #define TRANSPORT_APPENDFILE
 #define TRANSPORT_AUTOREPLY
@@ -152,6 +176,8 @@ it's a default value. */
 #define USE_DB
 #define USE_GDBM
 #define USE_GNUTLS
+#define AVOID_GNUTLS_PKCS11
+#define USE_OPENSSL
 #define USE_READLINE
 #define USE_TCP_WRAPPERS
 #define USE_TDB
@@ -159,16 +185,31 @@ it's a default value. */
 #define WHITELIST_D_MACROS
 
 #define WITH_CONTENT_SCAN
-#define WITH_OLD_DEMIME
-#define WITH_OLD_CLAMAV_STREAM
+#define DISABLE_MAL_FFROTD
+#define DISABLE_MAL_FFROT6D
+#define DISABLE_MAL_DRWEB
+#define DISABLE_MAL_AVE
+#define DISABLE_MAL_FSECURE
+#define DISABLE_MAL_KAV
+#define DISABLE_MAL_SOPHIE
+#define DISABLE_MAL_CLAM
+#define DISABLE_MAL_MKS
+#define DISABLE_MAL_AVAST
+#define DISABLE_MAL_SOCK
+#define DISABLE_MAL_CMDLINE
 
 /* EXPERIMENTAL features */
+#define EXPERIMENTAL_ARC
 #define EXPERIMENTAL_BRIGHTMAIL
 #define EXPERIMENTAL_DCC
-#define EXPERIMENTAL_OCSP
-#define EXPERIMENTAL_PRDR
-#define EXPERIMENTAL_SPF
+#define EXPERIMENTAL_DSN_INFO
+#define EXPERIMENTAL_LMDB
+#define EXPERIMENTAL_QUEUE_RAMP
+#define EXPERIMENTAL_QUEUEFILE
 #define EXPERIMENTAL_SRS
+#define EXPERIMENTAL_SRS_NATIVE
+#define EXPERIMENTAL_TLS_RESUME
+
 
 /* For developers */
 #define WANT_DEEPER_PRINTF_CHECKS
@@ -184,7 +225,7 @@ just in case. */
 /* Sizes for integer arithmetic.
 Go for 64bit; can be overridden in OS/Makefile-FOO
 If you make it a different number of bits, provide a definition
-for EXIM_64B_MAX and _MIN in OS/oh.h-FOO */
+for EXIM_ARITH_MAX and _MIN in OS/oh.h-FOO */
 #define int_eximarith_t int64_t
 #define PR_EXIM_ARITH "%" PRId64		/* C99 standard, printf %lld */
 #define SC_EXIM_ARITH "%" SCNi64		/* scanf incl. 0x prefix */

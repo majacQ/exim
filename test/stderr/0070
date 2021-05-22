@@ -27,11 +27,13 @@ MUNGED: ::1 will be omitted in what follows
 >>> host in helo_try_verify_hosts? no (end of list)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "rcpt"
->>> processing "require"
+>>> processing "require" (TESTSUITE/test-config 22)
+>>>   message: helo not verified
 >>> check verify = helo
 >>> verifying EHLO/HELO argument "NULL"
 >>> no EHLO/HELO command was issued
 >>> require: condition test failed in ACL "rcpt"
+>>> end of ACL "rcpt": not OK
 LOG: H=[V4NET.0.0.13] F=<userx@cus.cam.ac.uk> rejected RCPT <a@b>: helo not verified
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -54,9 +56,11 @@ MUNGED: ::1 will be omitted in what follows
 >>> verifying EHLO/HELO argument "[V4NET.0.0.1]"
 >>> HELO verification failed but host is in helo_try_verify_hosts
 >>> using ACL "rcpt"
->>> processing "require"
+>>> processing "require" (TESTSUITE/test-config 22)
+>>>   message: helo not verified
 >>> check verify = helo
 >>> require: condition test failed in ACL "rcpt"
+>>> end of ACL "rcpt": not OK
 LOG: H=([V4NET.0.0.1]) [V4NET.0.0.2] F=<a@b> rejected RCPT <c@d>: helo not verified
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -79,11 +83,14 @@ MUNGED: ::1 will be omitted in what follows
 >>> verifying EHLO/HELO argument "[V4NET.0.0.2]"
 >>> matched host address
 >>> using ACL "rcpt"
->>> processing "require"
+>>> processing "require" (TESTSUITE/test-config 22)
+>>>   message: helo not verified
 >>> check verify = helo
 >>> require: condition test succeeded in ACL "rcpt"
->>> processing "deny"
+>>> processing "deny" (TESTSUITE/test-config 25)
+>>>   message: helo did verify
 >>> deny: condition test succeeded in ACL "rcpt"
+>>> end of ACL "rcpt": DENY
 LOG: H=([V4NET.0.0.2]) [V4NET.0.0.2] F=<a@b> rejected RCPT <c@d>: helo did verify
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -98,10 +105,7 @@ MUNGED: ::1 will be omitted in what follows
 >>> ten-1.test.ex in helo_lookup_domains? no (end of list)
 >>> verifying EHLO/HELO argument "ten-1.test.ex"
 >>> looking up host name for V4NET.0.0.1
->>> IP address lookup yielded ten-1.test.ex
-MUNGED: ::1 will be omitted in what follows
->>> get[host|ipnode]byname[2] looked up these IP addresses:
->>>   name=ten-1.test.ex address=V4NET.0.0.1
+>>> IP address lookup yielded "ten-1.test.ex"
 >>> checking addresses for ten-1.test.ex
 >>>   V4NET.0.0.1 OK
 >>> matched host name
@@ -121,16 +125,10 @@ MUNGED: ::1 will be omitted in what follows
 >>> ten-3.test.ex in helo_lookup_domains? no (end of list)
 >>> verifying EHLO/HELO argument "ten-3.test.ex"
 >>> looking up host name for V4NET.0.0.3
->>> IP address lookup yielded ten-3.test.ex
->>>   alias ten-3-alias.test.ex
-MUNGED: ::1 will be omitted in what follows
->>> get[host|ipnode]byname[2] looked up these IP addresses:
->>>   name=ten-3.test.ex address=V4NET.0.0.3
+>>> IP address lookup yielded "ten-3.test.ex"
+>>>   alias "ten-3-alias.test.ex"
 >>> checking addresses for ten-3.test.ex
 >>>   V4NET.0.0.3 OK
-MUNGED: ::1 will be omitted in what follows
->>> get[host|ipnode]byname[2] looked up these IP addresses:
->>>   name=ten-3-alias.test.ex address=V4NET.0.0.3
 >>> checking addresses for ten-3-alias.test.ex
 >>>   V4NET.0.0.3 OK
 >>> matched host name
@@ -139,10 +137,10 @@ MUNGED: ::1 will be omitted in what follows
 >>> matched alias ten-3-alias.test.ex
 >>> verifying EHLO/HELO argument "ten-3xtra.test.ex"
 >>> getting IP address for ten-3xtra.test.ex
-MUNGED: ::1 will be omitted in what follows
->>> get[host|ipnode]byname[2] looked up these IP addresses:
->>>   name=ten-3xtra.test.ex address=V4NET.0.0.3
+>>> ten-3xtra.test.ex in ""? no (end of list)
+>>> ten-3xtra.test.ex in "*"? yes (matched "*")
 >>> IP address for ten-3xtra.test.ex matches calling address
+>>> Forward DNS security status: unverified
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
 >>> host in host_reject_connection? no (option unset)
@@ -156,14 +154,12 @@ MUNGED: ::1 will be omitted in what follows
 >>> rhubarb in helo_lookup_domains? no (end of list)
 >>> verifying EHLO/HELO argument "rhubarb"
 >>> looking up host name for V4NET.0.0.1
->>> IP address lookup yielded ten-1.test.ex
-MUNGED: ::1 will be omitted in what follows
->>> get[host|ipnode]byname[2] looked up these IP addresses:
->>>   name=ten-1.test.ex address=V4NET.0.0.1
+>>> IP address lookup yielded "ten-1.test.ex"
 >>> checking addresses for ten-1.test.ex
 >>>   V4NET.0.0.1 OK
 >>> getting IP address for rhubarb
->>> no IP address found for host rhubarb (during SMTP connection from (rhubarb) [V4NET.0.0.1])
+>>> rhubarb in ""? no (end of list)
+>>> rhubarb in "*"? yes (matched "*")
 LOG: rejected "EHLO rhubarb" from (rhubarb) [V4NET.0.0.1]
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -183,7 +179,8 @@ MUNGED: ::1 will be omitted in what follows
 >>> looking up host name for 99.99.99.99
 >>> Test harness: host name lookup returns DEFER
 >>> getting IP address for rhubarb
->>> no IP address found for host rhubarb (during SMTP connection from (rhubarb) [99.99.99.99])
+>>> rhubarb in ""? no (end of list)
+>>> rhubarb in "*"? yes (matched "*")
 LOG: temporarily rejected "EHLO rhubarb" from (rhubarb) [99.99.99.99]
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -204,10 +201,12 @@ MUNGED: ::1 will be omitted in what follows
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> [V4NET.0.0.99] in helo_lookup_domains? no (end of list)
 >>> using ACL "rcpt"
->>> processing "require"
+>>> processing "require" (TESTSUITE/test-config 22)
+>>>   message: helo not verified
 >>> check verify = helo
 >>> verifying EHLO/HELO argument "[V4NET.0.0.99]"
 >>> require: condition test failed in ACL "rcpt"
+>>> end of ACL "rcpt": not OK
 LOG: H=([V4NET.0.0.99]) [V4NET.0.0.13] F=<a@b> rejected RCPT <c@d>: helo not verified
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -228,13 +227,16 @@ MUNGED: ::1 will be omitted in what follows
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> [V4NET.0.0.13] in helo_lookup_domains? no (end of list)
 >>> using ACL "rcpt"
->>> processing "require"
+>>> processing "require" (TESTSUITE/test-config 22)
+>>>   message: helo not verified
 >>> check verify = helo
 >>> verifying EHLO/HELO argument "[V4NET.0.0.13]"
 >>> matched host address
 >>> require: condition test succeeded in ACL "rcpt"
->>> processing "deny"
+>>> processing "deny" (TESTSUITE/test-config 25)
+>>>   message: helo did verify
 >>> deny: condition test succeeded in ACL "rcpt"
+>>> end of ACL "rcpt": DENY
 LOG: H=([V4NET.0.0.13]) [V4NET.0.0.13] F=<a@b> rejected RCPT <c@d>: helo did verify
 >>> host in hosts_connection_nolog? no (option unset)
 >>> host in host_lookup? no (option unset)
@@ -254,14 +256,19 @@ MUNGED: ::1 will be omitted in what follows
 >>> host in helo_try_verify_hosts? no (end of list)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> rhubarb in helo_lookup_domains? no (end of list)
+>>> host in dsn_advertise_hosts? no (option unset)
 >>> host in pipelining_advertise_hosts? yes (matched "*")
+>>> host in chunking_advertise_hosts? no (end of list)
 >>> using ACL "rcpt"
->>> processing "require"
+>>> processing "require" (TESTSUITE/test-config 22)
+>>>   message: helo not verified
 >>> check verify = helo
 >>> verifying EHLO/HELO argument "rhubarb"
 >>> looking up host name for 99.99.99.99
 >>> Test harness: host name lookup returns DEFER
 >>> getting IP address for rhubarb
->>> no IP address found for host rhubarb (during SMTP connection from (rhubarb) [99.99.99.99])
+>>> rhubarb in ""? no (end of list)
+>>> rhubarb in "*"? yes (matched "*")
 >>> require: condition test failed in ACL "rcpt"
+>>> end of ACL "rcpt": not OK
 LOG: H=(rhubarb) [99.99.99.99] F=<a@b> rejected RCPT <c@d>: helo not verified

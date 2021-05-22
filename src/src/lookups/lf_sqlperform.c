@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -27,63 +28,44 @@ Arguments:
   query          the query
   result         where to pass back the result
   errmsg         where to pass back an error message
-  do_cache       to be set FALSE if data is changed
+  do_cache       to be set zero if data is changed
   func           the lookup function to call
 
 Returns:         the return from the lookup function, or DEFER
 */
 
 int
-lf_sqlperform(uschar *name, uschar *optionname, uschar *optserverlist,
-  uschar *query, uschar **result, uschar **errmsg, BOOL *do_cache,
-  int(*fn)(uschar *, uschar *, uschar **, uschar **, BOOL *, BOOL *))
+lf_sqlperform(const uschar *name, const uschar *optionname,
+  const uschar *optserverlist, const uschar *query,
+  uschar **result, uschar **errmsg, uint *do_cache, const uschar * opts,
+  int(*fn)(const uschar *, uschar *, uschar **, uschar **, BOOL *, uint *, const uschar *))
 {
-int sep, rc;
+int rc;
 uschar *server;
-uschar *serverlist;
-uschar buffer[512];
 BOOL defer_break = FALSE;
 
-DEBUG(D_lookup) debug_printf("%s query: %s\n", name, query);
-
-/* Handle queries that do not have server information at the start. */
-
-if (Ustrncmp(query, "servers", 7) != 0)
-  {
-  sep = 0;
-  serverlist = optserverlist;
-  while ((server = string_nextinlist(&serverlist, &sep, buffer,
-          sizeof(buffer))) != NULL)
-    {
-    rc = (*fn)(query, server, result, errmsg, &defer_break, do_cache);
-    if (rc != DEFER || defer_break) return rc;
-    }
-  if (optserverlist == NULL)
-    *errmsg = string_sprintf("no %s servers defined (%s option)", name,
-      optionname);
-  }
+DEBUG(D_lookup) debug_printf_indent("%s query: \"%s\" opts '%s'\n", name, query, opts);
 
 /* Handle queries that do have server information at the start. */
 
-else
+if (Ustrncmp(query, "servers", 7) == 0)
   {
-  int qsep;
-  uschar *s, *ss;
-  uschar *qserverlist;
+  int qsep = 0;
+  const uschar *s, *ss;
+  const uschar *qserverlist;
   uschar *qserver;
-  uschar qbuffer[512];
 
   s = query + 7;
-  while (isspace(*s)) s++;
+  skip_whitespace(&s);
   if (*s++ != '=')
     {
     *errmsg = string_sprintf("missing = after \"servers\" in %s lookup", name);
     return DEFER;
     }
-  while (isspace(*s)) s++;
+  skip_whitespace(&s);
 
   ss = Ustrchr(s, ';');
-  if (ss == NULL)
+  if (!ss)
     {
     *errmsg = string_sprintf("missing ; after \"servers=\" in %s lookup",
       name);
@@ -97,28 +79,22 @@ else
     return DEFER;
     }
 
-  qserverlist = string_sprintf("%.*s", ss - s, s);
-  qsep = 0;
+  qserverlist = string_sprintf("%.*s", (int)(ss - s), s);
 
-  while ((qserver = string_nextinlist(&qserverlist, &qsep, qbuffer,
-           sizeof(qbuffer))) != NULL)
+  while ((qserver = string_nextinlist(&qserverlist, &qsep, NULL, 0)))
     {
-    if (Ustrchr(qserver, '/') != NULL)
+    if (Ustrchr(qserver, '/'))
       server = qserver;
     else
       {
       int len = Ustrlen(qserver);
+      const uschar * serverlist = optserverlist;
 
-      sep = 0;
-      serverlist = optserverlist;
-      while ((server = string_nextinlist(&serverlist, &sep, buffer,
-              sizeof(buffer))) != NULL)
-        {
+      for (int sep = 0; server = string_nextinlist(&serverlist, &sep, NULL, 0);)
         if (Ustrncmp(server, qserver, len) == 0 && server[len] == '/')
           break;
-        }
 
-      if (server == NULL)
+      if (!server)
         {
         *errmsg = string_sprintf("%s server \"%s\" not found in %s", name,
           qserver, optionname);
@@ -126,9 +102,75 @@ else
         }
       }
 
-    rc = (*fn)(ss+1, server, result, errmsg, &defer_break, do_cache);
+    { uschar *m;
+    if ((m = is_tainted2(server, 0, "Tainted %s server '%s'", name, server)))
+     {
+      *errmsg = m;
+      return DEFER;
+      }
+    }
+
+    rc = (*fn)(ss+1, server, result, errmsg, &defer_break, do_cache, opts);
     if (rc != DEFER || defer_break) return rc;
     }
+  }
+
+/* Handle queries that do not have server information at the start. */
+
+else
+  {
+  const uschar * serverlist = NULL;
+
+  /* If options are present, scan for a server definition.  Default to
+  the "optserverlist" srgument. */
+
+  if (opts)
+    {
+    uschar * ele;
+    for (int sep = ','; ele = string_nextinlist(&opts, &sep, NULL, 0); )
+      if (Ustrncmp(ele, "servers=", 8) == 0)
+	{ serverlist = ele + 8; break; }
+    }
+
+  if (!serverlist)
+    serverlist = optserverlist;
+  if (!serverlist)
+    *errmsg = string_sprintf("no %s servers defined (%s option)", name,
+      optionname);
+  else
+    for (int d = 0; (server = string_nextinlist(&serverlist, &d, NULL, 0)); )
+      {
+      /* If not a full spec assume from options; scan main list for matching
+      hostname */
+
+      if (!Ustrchr(server, '/'))
+	{
+	int len = Ustrlen(server);
+	const uschar * slist = optserverlist;
+	uschar * ele;
+	for (int sep = 0; ele = string_nextinlist(&slist, &sep, NULL, 0); )
+	  if (Ustrncmp(ele, server, len) == 0 && ele[len] == '/')
+	    break;
+	if (!ele)
+	  {
+	  *errmsg = string_sprintf("%s server \"%s\" not found in %s", name,
+	    server, optionname);
+	  return DEFER;
+	  }
+	server = ele;
+	}
+
+      { uschar *m;
+      if ((m = is_tainted2(server, 0, "Tainted %s server '%s'", name, server)))
+        {
+        *errmsg = m;
+        return DEFER;
+        }
+      }
+
+      rc = (*fn)(query, server, result, errmsg, &defer_break, do_cache, opts);
+      if (rc != DEFER || defer_break) return rc;
+      }
   }
 
 return DEFER;

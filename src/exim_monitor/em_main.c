@@ -2,7 +2,7 @@
 *                  Exim Monitor                  *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -613,8 +613,7 @@ message_subdir[1] = 0;
 constructing file names and things. This call will initialize
 the store_get() function. */
 
-big_buffer_size = 1024;
-big_buffer = store_get(big_buffer_size);
+big_buffer = store_get(big_buffer_size, FALSE);
 
 /* Set up the version string and date and output them */
 
@@ -632,7 +631,7 @@ signal(SIGCHLD, sigchld_handler);
 
 /* Get the buffer for storing the string for the log display. */
 
-log_display_buffer = (uschar *)store_malloc(log_buffer_size);
+log_display_buffer = US store_malloc(log_buffer_size);
 log_display_buffer[0] = 0;
 
 /* Initialize the data structures for the stripcharts */
@@ -656,7 +655,7 @@ if (log_file[0] != 0)
   {
   /* Do *not* use "%s" here, we need the %D datestamp in the log_file to
   be expanded! */
-  (void)string_format(log_file_open, sizeof(log_file_open), CS log_file);
+  (void)string_format(log_file_open, sizeof(log_file_open), CS log_file, NULL);
   log_datestamping = string_datestamp_offset >= 0;
 
   LOG = fopen(CS log_file_open, "r");
@@ -670,8 +669,14 @@ if (log_file[0] != 0)
     {
     fseek(LOG, 0, SEEK_END);
     log_position = ftell(LOG);
-    fstat(fileno(LOG), &statdata);
-    log_inode = statdata.st_ino;
+    if (fstat(fileno(LOG), &statdata))
+      {
+      perror("log file fstat");
+      fclose(LOG);
+      LOG=NULL;
+      }
+    else
+      log_inode = statdata.st_ino;
     }
   }
 else

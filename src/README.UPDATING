@@ -26,16 +26,162 @@ The rest of this document contains information about changes in 4.xx releases
 that might affect a running system.
 
 
+Exim version 4.95
+-----------------
+
+Various length limits have been applied to Exim's parsing of its command-line.
+These are all set to be at least as long as any valid input, so we do not believe
+that any real use-cases have been affected by this.
+
+The names of various drivers (authenticators, routers, transports, ...) have
+always been limited to 64 characters, but before this release the names were
+silently truncated, inviting problems.  Now the length limit should be enforced.
+If this affects you, then please rename to use shorter names.
+
+The default maximum number of recipients of a single email has changed from
+"unlimited" (ie: as much as CPU and memory will allow, until something breaks
+badly) to 50,000.  You can raise or lower this as you see fit, but we strongly
+caution against using zero/unlimited.
+
+
+Exim version 4.94
+-----------------
+
+Some Transports now refuse to use tainted data in constructing their delivery
+location; this WILL BREAK configurations which are not updated accordingly.
+In particular: any Transport use of $local_part which has been relying upon
+check_local_user far away in the Router to make it safe, should be updated to
+replace $local_part with $local_part_data.
+
+Attempting to remove, in router or transport, a header name that ends with
+an asterisk (which is a standards-legal name) will now result in all headers
+named starting with the string before the asterisk being removed.  We recommend
+staying away from such names, if they are private ones (and in case of future
+enhancements, alao header names that look like REs).
+
+
+Exim version 4.93
+-----------------
+
+For a detailed list of changes that might affect Exim's operation with
+an unchanged configuration, please see the doc/ChangeLog file.
+
+Build:
+
+ * SUPPORT_DMARC replaces EXPERIMENTAL_DMARC
+
+ * DISABLE_TLS replaces SUPPORT_TLS
+
+ * Bump the version for the local_scan API.
+
+Runtime:
+
+ * smtp transport option hosts_try_fastopen defaults to "*".
+
+ * DNSSec is requested (not required) for all queries. (This seemes to
+   ask for trouble if your resolver is a systemd-resolved.)
+
+ * Generic router option retry_use_local_part defaults to "true" under specific
+   pre-conditions.
+
+ * Introduce a tainting mechanism for values read from untrusted sources.
+
+ * Use longer file names for temporary spool files (this avoids
+   name conflicts with spool on a shared file system).
+
+ * Use dsn_from main config option (was ignored previously).
+
+
+Exim version 4.92
+-----------------
+
+ * Exim used to manually follow CNAME chains, to a limited depth.  In this
+   day-and-age we expect the resolver to be doing this for us, so the loop
+   is limited to one retry unless the (new) config option dns_cname_loops
+   is changed.
+
+Exim version 4.91
+-----------------
+
+ * DANE and SPF have been promoted from Experimental to Supported status, thus
+   the options to enable them in Local/Makefile have been renamed.
+   See current src/EDITME for full details, including changes in dependencies,
+   but loosely: replace EXPERIMENTAL_SPF with SUPPORT_SPF and replace
+   EXPERIMENTAL_DANE with SUPPORT_DANE.
+
+ * Ancient ClamAV stream support, long deprecated by ClamAV, has been removed;
+   if you were building with WITH_OLD_CLAMAV_STREAM enabled then your problems
+   have marginally increased.
+
+ * A number of logging changes; if relying upon the previous DKIM additional
+   log-line, explicit log_selector configuration is needed to keep it.
+
+ * Other incompatible changes in EXPERIMENTAL_* features, read NewStuff and
+   ChangeLog carefully if relying upon an experimental feature such as DMARC.
+   Note that this includes changes to SPF as it was promoted into Supported.
+
+
+Exim version 4.89
+-----------------
+
+ * SMTP CHUNKING in Exim 4.88 did not ensure that received mails had a final
+   newline; attempts to deliver such messages onwards to non-chunking hosts
+   would probably hang, as Exim does not insert the newline before a ".".
+   In 4.89, the newline is added upon receipt.  For already-received messages
+   in your queue, try util/chunking_fixqueue_finalnewlines.pl
+   to walk the queue, fixing any affected messages.  Note that because a
+   delivery attempt will be hanging, attempts to lock the messages for fixing
+   them will stall; stopping all queue-runners temporarily is recommended.
+
+ * OpenSSL: oldest supported release series is now 1.0.2, which is the oldest
+   supported by the OpenSSL project.  If you can build Exim with an older
+   release series, congratulations.  If you can't, then upgrade.
+   The file doc/openssl.txt contains instructions for installing a current
+   OpenSSL outside the system library paths and building Exim to use it.
+
+ * FreeBSD: we now always use the system iconv in libc, as all versions of
+   FreeBSD supported by the FreeBSD project provide this functionality.
+
+
+Exim version 4.88
+-----------------
+
+ * The "demime" ACL condition, deprecated for the past 10 years, has
+   now been removed.
+
+ * Old GnuTLS configuration options "gnutls_require_kx", "gnutls_require_mac",
+   and "gnutls_require_protocols" have now been removed.  (Inoperative from
+   4.80, per below; logging warnings since 4.83, again per below).
+
+
+Exim version 4.83
+-----------------
+
+ * SPF condition results renamed "permerror" and "temperror".  The old
+   names are still accepted for back-compatibility, for this release.
+
+ * TLS details are now logged on rejects, subject to log selectors.
+
+ * Items in headers_remove lists must now have any embedded list-separators
+   doubled.
+
+ * Attempted use of the deprecated options "gnutls_require_kx" et. al.
+   now result in logged warning.
+
+
 Exim version 4.82
 -----------------
 
- * New option gnutls_enable_pkcs11 defaults false; if you have GnuTLS 2.12.0
+ * New option gnutls_allow_auto_pkcs11 defaults false; if you have GnuTLS 2.12.0
    or later and do want PKCS11 modules to be autoloaded, then set this option.
 
  * A per-transport wait-<name> database is no longer updated if the transport
    sets "connection_max_messages" to 1, as it can not be used and causes
    unnecessary serialisation and load.  External tools tracking the state of
    Exim by the hints databases may need modification to take this into account.
+
+ * The av_scanner option can now accept multiple clamd TCP targets, all other
+   setting limitations remain.
 
 
 Exim version 4.80
@@ -53,7 +199,7 @@ Exim version 4.80
    upgrading, then lock the message, replace the new-lines that should be part
    of the -tls_peerdn line with the two-character sequence \n and then unlock
    the message.  No tool has been provided as we believe this is a rare
-   occurence.
+   occurrence.
 
  * For OpenSSL, SSLv2 is now disabled by default.  (GnuTLS does not support
    SSLv2).  RFC 6176 prohibits SSLv2 and some informal surveys suggest no
@@ -124,7 +270,7 @@ Exim version 4.80
    is instead given to gnutls_priority_init(3), which expects a priority string;
    this behaviour is much closer to the OpenSSL behaviour.  See:
 
-     http://www.gnu.org/software/gnutls/manual/html_node/Priority-Strings.html
+     http://www.gnutls.org/manual/html_node/Priority-Strings.html
 
    for fuller documentation of the strings parsed.  The three gnutls_require_*
    options are still parsed by Exim and, for this release, silently ignored.
@@ -266,7 +412,7 @@ Exim version 4.70
 -----------------
 
 1. Experimental Yahoo! Domainkeys support has been dropped in this release.
-It has been superceded by a native implementation of its successor DKIM.
+It has been superseded by a native implementation of its successor DKIM.
 
 2. Up to version 4.69, Exim came with an embedded version of the PCRE library.
 As of 4.70, this is no longer the case. To compile Exim, you will need PCRE
@@ -512,7 +658,7 @@ Version 4.23
 3. Version 4.23 saves the contents of the ACL variables with the message, so
    that they can be used later. If one of these variables contains a newline,
    there will be a newline character in the spool that will not be interpreted
-   correctely by a previous version of Exim. (Exim ignores keyed spool file
+   correctly by a previous version of Exim. (Exim ignores keyed spool file
    items that it doesn't understand - precisely for this kind of problem - but
    it expects them all to be on one line.)
 

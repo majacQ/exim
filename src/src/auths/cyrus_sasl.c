@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This code was originally contributed by Matthew Byng-Maddick */
@@ -38,13 +39,13 @@ static void dummy(int x) { dummy2(x-1); }
 
 optionlist auth_cyrus_sasl_options[] = {
   { "server_hostname",      opt_stringptr,
-      (void *)(offsetof(auth_cyrus_sasl_options_block, server_hostname)) },
+      OPT_OFF(auth_cyrus_sasl_options_block, server_hostname) },
   { "server_mech",          opt_stringptr,
-      (void *)(offsetof(auth_cyrus_sasl_options_block, server_mech)) },
+      OPT_OFF(auth_cyrus_sasl_options_block, server_mech) },
   { "server_realm",         opt_stringptr,
-      (void *)(offsetof(auth_cyrus_sasl_options_block, server_realm)) },
+      OPT_OFF(auth_cyrus_sasl_options_block, server_realm) },
   { "server_service",       opt_stringptr,
-      (void *)(offsetof(auth_cyrus_sasl_options_block, server_service)) }
+      OPT_OFF(auth_cyrus_sasl_options_block, server_service) }
 };
 
 /* Size of the options list. An extern variable has to be used so that its
@@ -63,6 +64,20 @@ auth_cyrus_sasl_options_block auth_cyrus_sasl_option_defaults = {
 };
 
 
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_cyrus_sasl_init(auth_instance *ablock) {}
+int auth_cyrus_sasl_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_cyrus_sasl_client(auth_instance *ablock, void * sx,
+  int timeout, uschar *buffer, int buffsize) {return 0;}
+void auth_cyrus_sasl_version_report(FILE *f) {}
+
+#else   /*!MACRO_PREDEF*/
+
+
+
+
 /*************************************************
 *          Initialization entry point            *
 *************************************************/
@@ -75,16 +90,13 @@ to be set up. */
 /* Auxiliary function, passed in data to sasl_server_init(). */
 
 static int
-mysasl_config(void *context,
-              const char *plugin_name,
-              const char *option,
-              const char **result,
-              unsigned int *len)
+mysasl_config(void *context, const char *plugin_name, const char *option,
+      const char **result, unsigned int *len)
 {
 if (context && !strcmp(option, "mech_list"))
   {
   *result = context;
-  if (len != NULL) *len = strlen(*result);
+  if (len) *len = strlen(*result);
   return SASL_OK;
   }
 return SASL_FAIL;
@@ -97,82 +109,76 @@ auth_cyrus_sasl_init(auth_instance *ablock)
 {
 auth_cyrus_sasl_options_block *ob =
   (auth_cyrus_sasl_options_block *)(ablock->options_block);
-uschar *list, *listptr, *buffer;
+const uschar *list, *listptr, *buffer;
 int rc, i;
 unsigned int len;
-uschar *rs_point, *expanded_hostname;
+rmark rs_point;
+uschar *expanded_hostname;
 char *realm_expanded;
 
 sasl_conn_t *conn;
-sasl_callback_t cbs[]={
+sasl_callback_t cbs[] = {
   {SASL_CB_GETOPT, NULL, NULL },
   {SASL_CB_LIST_END, NULL, NULL}};
 
 /* default the mechanism to our "public name" */
-if(ob->server_mech == NULL)
-  ob->server_mech=string_copy(ablock->public_name);
 
-expanded_hostname = expand_string(ob->server_hostname);
-if (expanded_hostname == NULL)
+if (!ob->server_mech) ob->server_mech = string_copy(ablock->public_name);
+
+if (!(expanded_hostname = expand_string(ob->server_hostname)))
   log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
       "couldn't expand server_hostname [%s]: %s",
       ablock->name, ob->server_hostname, expand_string_message);
 
-realm_expanded=NULL;
-if (ob->server_realm != NULL) {
-  realm_expanded = CS expand_string(ob->server_realm);
-  if (realm_expanded == NULL)
-    log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
-        "couldn't expand server_realm [%s]: %s",
-        ablock->name, ob->server_realm, expand_string_message);
-}
+realm_expanded = NULL;
+if (  ob->server_realm
+   && !(realm_expanded = CS expand_string(ob->server_realm)))
+  log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
+      "couldn't expand server_realm [%s]: %s",
+      ablock->name, ob->server_realm, expand_string_message);
 
 /* we're going to initialise the library to check that there is an
- * authenticator of type whatever mechanism we're using
- */
+authenticator of type whatever mechanism we're using */
 
 cbs[0].proc = (int(*)(void)) &mysasl_config;
 cbs[0].context = ob->server_mech;
 
-rc=sasl_server_init(cbs, "exim");
-
-if( rc != SASL_OK )
+if ((rc = sasl_server_init(cbs, "exim")) != SASL_OK)
   log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
       "couldn't initialise Cyrus SASL library.", ablock->name);
 
-rc=sasl_server_new(CS ob->server_service, CS expanded_hostname,
-                   realm_expanded, NULL, NULL, NULL, 0, &conn);
-if( rc != SASL_OK )
+if ((rc = sasl_server_new(CS ob->server_service, CS expanded_hostname,
+                   realm_expanded, NULL, NULL, NULL, 0, &conn)) != SASL_OK)
   log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
       "couldn't initialise Cyrus SASL server connection.", ablock->name);
 
-rc=sasl_listmech(conn, NULL, "", ":", "", (const char **)(&list), &len, &i);
-if( rc != SASL_OK )
+if ((rc = sasl_listmech(conn, NULL, "", ":", "", CCSS &list, &len, &i)) != SASL_OK)
   log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
       "couldn't get Cyrus SASL mechanism list.", ablock->name);
 
-i=':';
-listptr=list;
+i = ':';
+listptr = list;
 
-HDEBUG(D_auth) {
+HDEBUG(D_auth)
+  {
   debug_printf("Initialised Cyrus SASL service=\"%s\" fqdn=\"%s\" realm=\"%s\"\n",
       ob->server_service, expanded_hostname, realm_expanded);
   debug_printf("Cyrus SASL knows mechanisms: %s\n", list);
-}
+  }
 
 /* the store_get / store_reset mechanism is hierarchical
- * the hierarchy is stored for us behind our back. This point
- * creates a hierarchy point for this function.
- */
-rs_point=store_get(0);
+ the hierarchy is stored for us behind our back. This point
+ creates a hierarchy point for this function.  */
+
+rs_point = store_mark();
 
 /* loop until either we get to the end of the list, or we match the
- * public name of this authenticator
- */
-while( ( buffer = string_nextinlist(&listptr, &i, NULL, 0) ) &&
-       strcmpic(buffer,ob->server_mech) );
+public name of this authenticator */
 
-if(!buffer)
+while (  (buffer = string_nextinlist(&listptr, &i, NULL, 0))
+      && strcmpic(buffer,ob->server_mech) );
+
+if (!buffer)
   log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s authenticator:  "
       "Cyrus SASL doesn't know about mechanism %s.", ablock->name, ob->server_mech);
 
@@ -194,8 +200,7 @@ sasl_done();
 /* For interface, see auths/README */
 
 /* note, we don't care too much about memory allocation in this, because this is entirely
- * within a shortlived child
- */
+within a shortlived child */
 
 int
 auth_cyrus_sasl_server(auth_instance *ablock, uschar *data)
@@ -204,54 +209,48 @@ auth_cyrus_sasl_options_block *ob =
   (auth_cyrus_sasl_options_block *)(ablock->options_block);
 uschar *output, *out2, *input, *clear, *hname;
 uschar *debug = NULL;   /* Stops compiler complaining */
-sasl_callback_t cbs[]={{SASL_CB_LIST_END, NULL, NULL}};
+sasl_callback_t cbs[] = {{SASL_CB_LIST_END, NULL, NULL}};
 sasl_conn_t *conn;
-char *realm_expanded;
-int rc, i, firsttime=1, clen, *negotiated_ssf_ptr=NULL, negotiated_ssf;
+char * realm_expanded = NULL;
+int rc, firsttime = 1, clen, *negotiated_ssf_ptr = NULL, negotiated_ssf;
 unsigned int inlen, outlen;
 
-input=data;
-inlen=Ustrlen(data);
+input = data;
+inlen = Ustrlen(data);
 
-HDEBUG(D_auth) debug=string_copy(data);
+HDEBUG(D_auth) debug = string_copy(data);
 
-hname=expand_string(ob->server_hostname);
-realm_expanded=NULL;
+hname = expand_string(ob->server_hostname);
 if (hname && ob->server_realm)
-  realm_expanded= CS expand_string(ob->server_realm);
-if((hname == NULL) ||
-   ((realm_expanded == NULL) && (ob->server_realm != NULL)))
+  realm_expanded = CS expand_string(ob->server_realm);
+if (!hname  ||  !realm_expanded  && ob->server_realm)
   {
   auth_defer_msg = expand_string_message;
   return DEFER;
   }
 
-if(inlen)
+if (inlen)
   {
-  clen=auth_b64decode(input, &clear);
-  if(clen < 0)
-    {
+  if ((clen = b64decode(input, &clear)) < 0)
     return BAD64;
-    }
-  input=clear;
-  inlen=clen;
+  input = clear;
+  inlen = clen;
   }
 
-rc=sasl_server_init(cbs, "exim");
-if (rc != SASL_OK)
+if ((rc = sasl_server_init(cbs, "exim")) != SASL_OK)
   {
   auth_defer_msg = US"couldn't initialise Cyrus SASL library";
   return DEFER;
   }
 
-rc=sasl_server_new(CS ob->server_service, CS hname, realm_expanded, NULL,
+rc = sasl_server_new(CS ob->server_service, CS hname, realm_expanded, NULL,
   NULL, NULL, 0, &conn);
 
 HDEBUG(D_auth)
   debug_printf("Initialised Cyrus SASL server connection; service=\"%s\" fqdn=\"%s\" realm=\"%s\"\n",
       ob->server_service, hname, realm_expanded);
 
-if( rc != SASL_OK )
+if (rc != SASL_OK )
   {
   auth_defer_msg = US"couldn't initialise Cyrus SASL connection";
   sasl_done();
@@ -260,8 +259,7 @@ if( rc != SASL_OK )
 
 if (tls_in.cipher)
   {
-  rc = sasl_setprop(conn, SASL_SSF_EXTERNAL, (sasl_ssf_t *) &tls_in.bits);
-  if (rc != SASL_OK)
+  if ((rc = sasl_setprop(conn, SASL_SSF_EXTERNAL, (sasl_ssf_t *) &tls_in.bits)) != SASL_OK)
     {
     HDEBUG(D_auth) debug_printf("Cyrus SASL EXTERNAL SSF set %d failed: %s\n",
         tls_in.bits, sasl_errstring(rc, NULL, NULL));
@@ -271,6 +269,9 @@ if (tls_in.cipher)
     }
   else
     HDEBUG(D_auth) debug_printf("Cyrus SASL set EXTERNAL SSF to %d\n", tls_in.bits);
+
+  /*XXX Set channel-binding here with sasl_channel_binding_t / SASL_CHANNEL_BINDING
+  Unclear what the "name" element does though, ditto the "critical" flag. */
   }
 else
   HDEBUG(D_auth) debug_printf("Cyrus SASL: no TLS, no EXTERNAL SSF set\n");
@@ -284,207 +285,187 @@ inet_ntop which we wrap in our host_ntoa() function.
 So the docs are too strict and we shouldn't worry about :: contractions. */
 
 /* Set properties for remote and local host-ip;port */
-for (i=0; i < 2; ++i)
+for (int i = 0; i < 2; ++i)
   {
-  struct sockaddr_storage ss;
-  int (*query)(int, struct sockaddr *, socklen_t *);
-  int propnum, port;
-  const uschar *label;
-  uschar *address, *address_port;
+  int propnum;
+  const uschar * label;
+  uschar * address_port;
   const char *s_err;
-  socklen_t sslen;
 
   if (i)
     {
-    query = &getpeername;
     propnum = SASL_IPREMOTEPORT;
     label = CUS"peer";
+    address_port = string_sprintf("%s;%d",
+				  sender_host_address, sender_host_port);
     }
   else
     {
-    query = &getsockname;
     propnum = SASL_IPLOCALPORT;
     label = CUS"local";
+    address_port = string_sprintf("%s;%d", interface_address, interface_port);
     }
 
-  sslen = sizeof(ss);
-  rc = query(fileno(smtp_in), (struct sockaddr *) &ss, &sslen);
-  if (rc < 0)
+  if ((rc = sasl_setprop(conn, propnum, address_port)) != SASL_OK)
     {
     HDEBUG(D_auth)
-      debug_printf("Failed to get %s address information: %s\n",
-          label, strerror(errno));
-    break;
-    }
-
-  address = host_ntoa(-1, &ss, NULL, &port);
-  address_port = string_sprintf("%s;%d", address, port);
-
-  rc = sasl_setprop(conn, propnum, address_port);
-  if (rc != SASL_OK)
-    {
-    s_err = sasl_errdetail(conn);
-    HDEBUG(D_auth)
+      {
+      s_err = sasl_errdetail(conn);
       debug_printf("Failed to set %s SASL property: [%d] %s\n",
           label, rc, s_err ? s_err : "<unknown reason>");
+      }
     break;
     }
   HDEBUG(D_auth) debug_printf("Cyrus SASL set %s hostport to: %s\n",
       label, address_port);
   }
 
-rc=SASL_CONTINUE;
-
-while(rc==SASL_CONTINUE)
+for (rc = SASL_CONTINUE; rc == SASL_CONTINUE; )
   {
-  if(firsttime)
+  if (firsttime)
     {
-    firsttime=0;
+    firsttime = 0;
     HDEBUG(D_auth) debug_printf("Calling sasl_server_start(%s,\"%s\")\n", ob->server_mech, debug);
-    rc=sasl_server_start(conn, CS ob->server_mech, inlen?CS input:NULL, inlen,
-           (const char **)(&output), &outlen);
+    rc = sasl_server_start(conn, CS ob->server_mech, inlen ? CS input : NULL, inlen,
+           CCSS &output, &outlen);
     }
   else
     {
-    /* make sure that we have a null-terminated string */
-    out2=store_get(outlen+1);
-    memcpy(out2,output,outlen);
-    out2[outlen]='\0';
-    if((rc=auth_get_data(&input, out2, outlen))!=OK)
+    /* auth_get_data() takes a length-specfied block of binary
+    which can include zeroes; no terminating NUL is needed */
+
+    if ((rc = auth_get_data(&input, output, outlen)) != OK)
       {
       /* we couldn't get the data, so free up the library before
-       * returning whatever error we get */
+      returning whatever error we get */
       sasl_dispose(&conn);
       sasl_done();
       return rc;
       }
-    inlen=Ustrlen(input);
+    inlen = Ustrlen(input);
 
-    HDEBUG(D_auth) debug=string_copy(input);
-    if(inlen)
+    HDEBUG(D_auth) debug = string_copy(input);
+    if (inlen)
       {
-      clen=auth_b64decode(input, &clear);
-      if(clen < 0)
+      if ((clen = b64decode(input, &clear)) < 0)
        {
-        sasl_dispose(&conn);
-        sasl_done();
+       sasl_dispose(&conn);
+       sasl_done();
        return BAD64;
        }
-      input=clear;
-      inlen=clen;
+      input = clear;
+      inlen = clen;
       }
 
     HDEBUG(D_auth) debug_printf("Calling sasl_server_step(\"%s\")\n", debug);
-    rc=sasl_server_step(conn, CS input, inlen, (const char **)(&output), &outlen);
+    rc = sasl_server_step(conn, CS input, inlen, CCSS &output, &outlen);
     }
-  if(rc==SASL_BADPROT)
+
+  if (rc == SASL_BADPROT)
     {
     sasl_dispose(&conn);
     sasl_done();
     return UNEXPECTED;
     }
-  else if( rc==SASL_FAIL     || rc==SASL_BUFOVER
-       || rc==SASL_BADMAC   || rc==SASL_BADAUTH
-       || rc==SASL_NOAUTHZ  || rc==SASL_ENCRYPT
-       || rc==SASL_EXPIRED  || rc==SASL_DISABLED
-       || rc==SASL_NOUSER   )
+  if (rc == SASL_CONTINUE)
+    continue;
+
+  /* Get the username and copy it into $auth1 and $1. The former is now the
+  preferred variable; the latter is the original variable. */
+
+  if ((sasl_getprop(conn, SASL_USERNAME, (const void **)&out2)) != SASL_OK)
     {
-    /* these are considered permanent failure codes */
     HDEBUG(D_auth)
-      debug_printf("Cyrus SASL permanent failure %d (%s)\n", rc, sasl_errstring(rc, NULL, NULL));
+      debug_printf("Cyrus SASL library will not tell us the username: %s\n",
+	  sasl_errstring(rc, NULL, NULL));
     log_write(0, LOG_REJECT, "%s authenticator (%s):\n  "
-       "Cyrus SASL permanent failure: %s", ablock->name, ob->server_mech,
+       "Cyrus SASL username fetch problem: %s", ablock->name, ob->server_mech,
        sasl_errstring(rc, NULL, NULL));
     sasl_dispose(&conn);
     sasl_done();
     return FAIL;
     }
-  else if(rc==SASL_NOMECH)
+  auth_vars[0] = expand_nstring[1] = string_copy(out2);
+  expand_nlength[1] = Ustrlen(out2);
+  expand_nmax = 1;
+
+  switch (rc)
     {
-    /* this is a temporary failure, because the mechanism is not
-     * available for this user. If it wasn't available at all, we
-     * shouldn't have got here in the first place...
-     */
-    HDEBUG(D_auth)
-      debug_printf("Cyrus SASL temporary failure %d (%s)\n", rc, sasl_errstring(rc, NULL, NULL));
-    auth_defer_msg =
-        string_sprintf("Cyrus SASL: mechanism %s not available", ob->server_mech);
-    sasl_dispose(&conn);
-    sasl_done();
-    return DEFER;
-    }
-  else if(!(rc==SASL_OK || rc==SASL_CONTINUE))
-    {
-    /* Anything else is a temporary failure, and we'll let SASL print out
-     * the error string for us
-     */
-    HDEBUG(D_auth)
-      debug_printf("Cyrus SASL temporary failure %d (%s)\n", rc, sasl_errstring(rc, NULL, NULL));
-    auth_defer_msg =
-        string_sprintf("Cyrus SASL: %s", sasl_errstring(rc, NULL, NULL));
-    sasl_dispose(&conn);
-    sasl_done();
-    return DEFER;
-    }
-  else if(rc==SASL_OK)
-    {
-    /* Get the username and copy it into $auth1 and $1. The former is now the
-    preferred variable; the latter is the original variable. */
-    rc = sasl_getprop(conn, SASL_USERNAME, (const void **)(&out2));
-    if (rc != SASL_OK)
-      {
+    case SASL_FAIL: case SASL_BUFOVER: case SASL_BADMAC: case SASL_BADAUTH:
+    case SASL_NOAUTHZ: case SASL_ENCRYPT: case SASL_EXPIRED:
+    case SASL_DISABLED: case SASL_NOUSER:
+      /* these are considered permanent failure codes */
       HDEBUG(D_auth)
-        debug_printf("Cyrus SASL library will not tell us the username: %s\n",
-            sasl_errstring(rc, NULL, NULL));
+	debug_printf("Cyrus SASL permanent failure %d (%s)\n", rc, sasl_errstring(rc, NULL, NULL));
       log_write(0, LOG_REJECT, "%s authenticator (%s):\n  "
-         "Cyrus SASL username fetch problem: %s", ablock->name, ob->server_mech,
-         sasl_errstring(rc, NULL, NULL));
+	 "Cyrus SASL permanent failure: %s", ablock->name, ob->server_mech,
+	 sasl_errstring(rc, NULL, NULL));
       sasl_dispose(&conn);
       sasl_done();
       return FAIL;
-      }
 
-    auth_vars[0] = expand_nstring[1] = string_copy(out2);
-    expand_nlength[1] = Ustrlen(expand_nstring[1]);
-    expand_nmax = 1;
+    case SASL_NOMECH:
+      /* this is a temporary failure, because the mechanism is not
+      available for this user. If it wasn't available at all, we
+      shouldn't have got here in the first place...  */
 
-    HDEBUG(D_auth)
-      debug_printf("Cyrus SASL %s authentication succeeded for %s\n",
-          ob->server_mech, auth_vars[0]);
-
-    rc = sasl_getprop(conn, SASL_SSF, (const void **)(&negotiated_ssf_ptr));
-    if (rc != SASL_OK)
-      {
       HDEBUG(D_auth)
-        debug_printf("Cyrus SASL library will not tell us the SSF: %s\n",
-            sasl_errstring(rc, NULL, NULL));
-      log_write(0, LOG_REJECT, "%s authenticator (%s):\n  "
-          "Cyrus SASL SSF value not available: %s", ablock->name, ob->server_mech,
-          sasl_errstring(rc, NULL, NULL));
+	debug_printf("Cyrus SASL temporary failure %d (%s)\n", rc, sasl_errstring(rc, NULL, NULL));
+      auth_defer_msg =
+	  string_sprintf("Cyrus SASL: mechanism %s not available", ob->server_mech);
       sasl_dispose(&conn);
       sasl_done();
-      return FAIL;
-      }
-    negotiated_ssf = *negotiated_ssf_ptr;
-    HDEBUG(D_auth)
-      debug_printf("Cyrus SASL %s negotiated SSF: %d\n", ob->server_mech, negotiated_ssf);
-    if (negotiated_ssf > 0)
-      {
+      return DEFER;
+
+    case SASL_OK:
       HDEBUG(D_auth)
-        debug_printf("Exim does not implement SASL wrapping (needed for SSF %d).\n", negotiated_ssf);
-      log_write(0, LOG_REJECT, "%s authenticator (%s):\n  "
-          "Cyrus SASL SSF %d not supported by Exim", ablock->name, ob->server_mech, negotiated_ssf);
+	debug_printf("Cyrus SASL %s authentication succeeded for %s\n",
+	    ob->server_mech, auth_vars[0]);
+
+      if ((rc = sasl_getprop(conn, SASL_SSF, (const void **)(&negotiated_ssf_ptr)))!= SASL_OK)
+	{
+	HDEBUG(D_auth)
+	  debug_printf("Cyrus SASL library will not tell us the SSF: %s\n",
+	      sasl_errstring(rc, NULL, NULL));
+	log_write(0, LOG_REJECT, "%s authenticator (%s):\n  "
+	    "Cyrus SASL SSF value not available: %s", ablock->name, ob->server_mech,
+	    sasl_errstring(rc, NULL, NULL));
+	sasl_dispose(&conn);
+	sasl_done();
+	return FAIL;
+	}
+      negotiated_ssf = *negotiated_ssf_ptr;
+      HDEBUG(D_auth)
+	debug_printf("Cyrus SASL %s negotiated SSF: %d\n", ob->server_mech, negotiated_ssf);
+      if (negotiated_ssf > 0)
+	{
+	HDEBUG(D_auth)
+	  debug_printf("Exim does not implement SASL wrapping (needed for SSF %d).\n", negotiated_ssf);
+	log_write(0, LOG_REJECT, "%s authenticator (%s):\n  "
+	    "Cyrus SASL SSF %d not supported by Exim", ablock->name, ob->server_mech, negotiated_ssf);
+	sasl_dispose(&conn);
+	sasl_done();
+	return FAIL;
+	}
+
+      /* close down the connection, freeing up library's memory */
       sasl_dispose(&conn);
       sasl_done();
-      return FAIL;
-      }
 
-    /* close down the connection, freeing up library's memory */
-    sasl_dispose(&conn);
-    sasl_done();
+      /* Expand server_condition as an authorization check */
+      return auth_check_serv_cond(ablock);
 
-    /* Expand server_condition as an authorization check */
-    return auth_check_serv_cond(ablock);
+    default:
+      /* Anything else is a temporary failure, and we'll let SASL print out
+       * the error string for us
+       */
+      HDEBUG(D_auth)
+	debug_printf("Cyrus SASL temporary failure %d (%s)\n", rc, sasl_errstring(rc, NULL, NULL));
+      auth_defer_msg =
+	  string_sprintf("Cyrus SASL: %s", sasl_errstring(rc, NULL, NULL));
+      sasl_dispose(&conn);
+      sasl_done();
+      return DEFER;
     }
   }
 /* NOTREACHED */
@@ -498,12 +479,12 @@ return 0;  /* Stop compiler complaints */
 void
 auth_cyrus_sasl_version_report(FILE *f)
 {
-  const char *implementation, *version;
-  sasl_version_info(&implementation, &version, NULL, NULL, NULL, NULL);
-  fprintf(f, "Library version: Cyrus SASL: Compile: %d.%d.%d\n"
-             "                             Runtime: %s [%s]\n",
-          SASL_VERSION_MAJOR, SASL_VERSION_MINOR, SASL_VERSION_STEP,
-          version, implementation);
+const char *implementation, *version;
+sasl_version_info(&implementation, &version, NULL, NULL, NULL, NULL);
+fprintf(f, "Library version: Cyrus SASL: Compile: %d.%d.%d\n"
+	   "                             Runtime: %s [%s]\n",
+	SASL_VERSION_MAJOR, SASL_VERSION_MINOR, SASL_VERSION_STEP,
+	version, implementation);
 }
 
 /*************************************************
@@ -515,16 +496,16 @@ auth_cyrus_sasl_version_report(FILE *f)
 int
 auth_cyrus_sasl_client(
   auth_instance *ablock,                 /* authenticator block */
-  smtp_inblock *inblock,                 /* input connection */
-  smtp_outblock *outblock,               /* output connection */
+  void * sx,			 	 /* connexction */
   int timeout,                           /* command timeout */
-  uschar *buffer,                          /* for reading response */
+  uschar *buffer,                        /* for reading response */
   int buffsize)                          /* size of buffer */
 {
 /* We don't support clients (yet) in this implementation of cyrus_sasl */
 return FAIL;
 }
 
+#endif   /*!MACRO_PREDEF*/
 #endif  /* AUTH_CYRUS_SASL */
 
 /* End of cyrus_sasl.c */

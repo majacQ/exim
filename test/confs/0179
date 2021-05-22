@@ -1,18 +1,14 @@
 # Exim test configuration 0179
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
 queue_run_in_order
-log_selector = +outgoing_port
+# incoming_interface is used here to get the _outgoing_ local port
+log_selector = +outgoing_port +incoming_interface
 
 
 # ----- Routers -----
@@ -34,6 +30,7 @@ begin transports
 smtp:
   driver = smtp
   port = PORT_S
+  hosts_try_fastopen = :
 
 
 # ----- Retry -----

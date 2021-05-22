@@ -7,17 +7,21 @@
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "check_rcpt"
->>> processing "deny"
+>>> processing "deny" (TESTSUITE/test-config 17)
+>>>   message: unverifiable
 >>> check !verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing x@ten-1
 >>> calling dnslookup router
+>>> ten-1 in "*"? yes (matched "*")
 >>> re-routed to x@ten-1.test.ex
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing x@ten-1.test.ex
 >>> calling dnslookup router
+>>> ten-1.test.ex in "*"? yes (matched "*")
 >>> routed by dnslookup router
 >>> ----------- end verify ------------
 >>> deny: condition test failed in ACL "check_rcpt"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 19)
 >>> accept: condition test succeeded in ACL "check_rcpt"
+>>> end of ACL "check_rcpt": ACCEPT

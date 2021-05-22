@@ -1,12 +1,7 @@
 # Exim test configuration 0015
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -38,7 +33,7 @@ userforward:
   allow_filter
   local_parts = userx
   user = CALLER
-  file = DIR/aux-fixed/0015.filter.$local_part
+  file = DIR/aux-fixed/0015.filter.${bless:$local_part}
   local_part_prefix = *+
   local_part_prefix_optional
   pipe_transport = address_pipe
@@ -85,26 +80,29 @@ local_delivery:
   user = CALLER
   delivery_date_add
   envelope_to_add
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   return_path_add
   headers_add = X-local_part: $local_part\n\
-                X-local_part_prefix: $local_part_prefix
+                X-local_part_prefix: $local_part_prefix\n\
+                X-local_part_prefix_v: $local_part_prefix_v
 
 local_delivery_b:
   driver = appendfile
   user = CALLER
   delivery_date_add
   envelope_to_add
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   return_path_add
   use_bsmtp
   headers_add = X-local_part: $local_part\n\
-                X-local_part_prefix: $local_part_prefix
+                X-local_part_prefix: $local_part_prefix\n\
+                X-local_part_prefix_v: $local_part_prefix_v
 
 delivery_s:
   driver = smtp
   hosts = 127.0.0.1
   port = PORT_S
+  hosts_try_fastopen = :
   allow_localhost
 
 address_reply:

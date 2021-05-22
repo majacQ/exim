@@ -8,8 +8,9 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
-rda_interpret (file): TESTSUITE/aux-var/0037.F
-expanded: TESTSUITE/aux-var/0037.F
+dropping to exim gid; retaining priv uid
+rda_interpret (file): 'TESTSUITE/aux-var/0037.F'
+expanded: 'TESTSUITE/aux-var/0037.F'
 ssss bytes read from TESTSUITE/aux-var/0037.F
 data is an Exim filter program
 Filter: start of processing
@@ -38,12 +39,13 @@ local_part=filter-userx domain=test.ex
 checking local_parts
 $home = >/usr<
 calling userfilter router
-rda_interpret (file): TESTSUITE/aux-var/0037.f-user
-expanded: TESTSUITE/aux-var/0037.f-user
+rda_interpret (file): 'TESTSUITE/aux-var/0037.f-user'
+expanded: 'TESTSUITE/aux-var/0037.f-user'
 ssss bytes read from TESTSUITE/aux-var/0037.f-user
 data is an Exim filter program
 Filter: start of processing
 Filter: end of processing
+>>>>>>>>>>>>>>>> Exim pid=pppp (router-interpret) terminating with rc=0 >>>>>>>>>>>>>>>>
 rda_interpret: subprocess yield=0 error=NULL
 userfilter router generated userx@test.ex
   errors_to=NULL transport=NULL
@@ -88,7 +90,7 @@ set transport appendfile
 queued for appendfile transport: local_part = userx
 domain = test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=userx
 routed by user_accept2 router
   envelope to: userx@test.ex
   transport: appendfile
@@ -104,5 +106,5 @@ LOG: MAIN
   => userx <filter-userx@test.ex> R=user_accept2 T=appendfile
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

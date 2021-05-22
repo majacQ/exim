@@ -1,12 +1,7 @@
 # Exim test configuration 0153
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -18,7 +13,7 @@ begin routers
 virtual:
   driver = redirect
   domains = *.virt.test.ex
-  address_data = ${if match{$domain}{^(.*)\\.virt\\.test\\.ex\$}{$1}}
+  address_data = ${if match{$domain}{^(.*)\\.virt\\.test\\.ex\$}{${bless:$1}}}
   data = ${if exists{DIR/aux-fixed/TESTNUM.alias.$address_data} \
            {${lookup{$local_part}lsearch{DIR/aux-fixed/TESTNUM.alias.$address_data}}} \
           fail}
@@ -27,8 +22,8 @@ virtual:
 list:
   driver = redirect
   domains = list.test.ex
-  file = ${if exists{DIR/aux-fixed/TESTNUM.list.$local_part} \
-            {DIR/aux-fixed/TESTNUM.list.$local_part}fail}
+  file = ${if exists{DIR/aux-fixed/TESTNUM.list.${bless:$local_part}} \
+            {DIR/aux-fixed/TESTNUM.list.${bless:$local_part}}fail}
   no_more
 
 real:

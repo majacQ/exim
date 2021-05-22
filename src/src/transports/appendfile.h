@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Private structure for the private options. */
@@ -70,6 +70,8 @@ typedef struct {
   BOOL  mbx_format;
   BOOL  quota_warn_threshold_is_percent;
   BOOL  quota_is_inclusive;
+  BOOL  quota_no_check;
+  BOOL  quota_filecount_no_check;
 } appendfile_transport_options_block;
 
 /* Restricted creation options */
@@ -92,6 +94,6 @@ extern void appendfile_transport_init(transport_instance *);
 
 /* Function that is shared with tf_maildir.c */
 
-extern off_t  check_dir_size(uschar *, int *, const pcre *);
+extern off_t  check_dir_size(const uschar *, int *, const pcre *);
 
 /* End of transports/appendfile.h */

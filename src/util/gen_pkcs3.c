@@ -1,4 +1,4 @@
-/* Copyright (C) 2012 Phil Pennock.
+/* Copyright (C) 2012,2016 Phil Pennock.
  * This is distributed as part of Exim and licensed under the GPL.
  * See the file "NOTICE" for more details.
  */
@@ -54,7 +54,6 @@ void __attribute__((__noreturn__))
 die_openssl_err(const char *msg)
 {
   char err_string[250];
-  unsigned long e;
 
   ERR_error_string_n(ERR_get_error(), err_string, sizeof(err_string));
   die("%s: %s", msg, err_string);
@@ -71,9 +70,9 @@ bn_from_text(const char *text)
   int rc;
 
   len = strlen(text);
-  spaceless = malloc(len);
+  spaceless = malloc(len + 1);
   if (!spaceless)
-    die("malloc(%zu) failed: %s", len, strerror(errno));
+    die("malloc(%zu) failed: %s", len + 1, strerror(errno));
 
   for (p = spaceless, q = text, end = text + len;
        q < end;
@@ -81,13 +80,15 @@ bn_from_text(const char *text)
     if (!isspace(*q))
       *p++ = *q;
   }
+  len = p - spaceless;
+  *p++ = '\0';
 
   b = NULL;
   rc = BN_hex2bn(&b, spaceless);
 
-  if (rc != p - spaceless)
-    die("BN_hex2bn did not convert entire input; took %d of %z bytes",
-        rc, p - spaceless);
+  if (rc != (int)len)
+    die("BN_hex2bn did not convert entire input; took %d of %zu bytes",
+        rc, len);
 
   return b;
 }
@@ -134,7 +135,7 @@ emit_c_format_dh(FILE *stream, DH *dh)
       break;
     }
     *nl = '\0';
-    fprintf(stream, "\"%s\\n\"\n", p);
+    fprintf(stream, "\"%s\\n\"%s\n", p, (nl == end - 1 ? ";" : ""));
     p = nl + 1;
   }
 }
@@ -143,9 +144,11 @@ emit_c_format_dh(FILE *stream, DH *dh)
 void __attribute__((__noreturn__))
 usage(FILE *stream, int exitcode)
 {
-  fprintf(stream, "Usage: %s [-CPcst] <dh_p> <dh_g>\n"
+  fprintf(stream, "Usage: %s [-CPcst] <dh_p> <dh_g> [<dh_q>]\n"
 "Both dh_p and dh_g should be hex strings representing the numbers\n"
+"The same applies to the optional dh_q (prime-order subgroup).\n"
 "They may contain whitespace.\n"
+"Older values, dh_g is often just '2', not a long string.\n"
 "\n"
 " -C      show C string form of PEM result\n"
 " -P      do not show PEM\n"
@@ -161,7 +164,7 @@ usage(FILE *stream, int exitcode)
 int
 main(int argc, char *argv[])
 {
-  BIGNUM *p, *g;
+  BIGNUM *p, *g, *q;
   DH *dh;
   int ch;
   bool perform_dh_check = false;
@@ -169,6 +172,7 @@ main(int argc, char *argv[])
   bool show_numbers = false;
   bool show_pem = true;
   bool show_text = false;
+  bool given_q = false;
 
   while ((ch = getopt(argc, argv, "CPcsth")) != -1) {
     switch (ch) {
@@ -201,25 +205,49 @@ main(int argc, char *argv[])
   argc -= optind;
   argv += optind;
 
-  if (argc != 3) {
+  if ((argc < 3) || (argc > 4)) {
     fprintf(stderr, "argc: %d\n", argc);
     usage(stderr, 1);
   }
 
+  // If we use DH_set0_pqg instead of setting dh fields directly; the q value
+  // is optional and may be NULL.
+  // Just blank them all.
+  p = g = q = NULL;
+
   p = bn_from_text(argv[1]);
   g = bn_from_text(argv[2]);
+  if (argc >= 4) {
+    q = bn_from_text(argv[3]);
+    given_q = true;
+  }
 
   if (show_numbers) {
     printf("p = ");
     BN_print_fp(stdout, p);
     printf("\ng = ");
     BN_print_fp(stdout, g);
+    if (given_q) {
+      printf("\nq = ");
+      BN_print_fp(stdout, q);
+    }
     printf("\n");
   }
 
   dh = DH_new();
+  // The documented method for setting q appeared in OpenSSL 1.1.0.
+#if OPENSSL_VERSION_NUMBER >= 0x1010000f
+  // NULL okay for q; yes, the optional value is in the middle.
+  if (DH_set0_pqg(dh, p, q, g) != 1) {
+    die_openssl_err("initialising DH pqg values failed");
+  }
+#else
   dh->p = p;
   dh->g = g;
+  if (given_q) {
+    dh->q = q;
+  }
+#endif
 
   if (perform_dh_check)
     our_dh_check(dh);
@@ -234,6 +262,6 @@ main(int argc, char *argv[])
       PEM_write_DHparams(stdout, dh);
   }
 
-  DH_free(dh); /* should free p & g too */
+  DH_free(dh); /* should free p,g (& q if non-NULL) too */
   return 0;
 }

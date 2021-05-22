@@ -15,11 +15,15 @@ exim -be
 # Some fixed variables
 
 exim_path: $exim_path
+exim_version: $exim_version
+config_dir: $config_dir
+config_file: $config_file
 primary_hostname: $primary_hostname
 primary_hostname: ${primary_hostname}
 qualify_domain: $qualify_domain
 bounce_return_size_limit: ${bounce_return_size_limit}
 spool_directory: $spool_directory
+queue_name: $queue_name
 unknown: ${unknown}
 h_subject: $h_subject:(should be empty)
 h_subject:$h_subject (should be empty)
@@ -41,80 +45,10 @@ x\
 +$11111111111111111111111111111111111
 +${11111111111111111111111111111111111}
 
-# List operations
-
-filter: "${filter{a:b:c}{eq{1}{1}}}"
-filter: ${filter{a:b:c}{!eq{$item}{b}}}
-filter: ${filter{<' a'b'c}{!eq{$item}{b}}}
-filter: ${filter{<' ''a'b' ''c}{!eq{$item}{b}}}
-filter: "${filter{}{!eq{$item}{b}}}"
-
-map: "${map{}{$item}}"
-map: ${map{a:b:c}{$item}}
-map: ${map{a:b:c}{:$item:}}
-map: ${if eq{1}{0}{${map{a:b:c}{:$item:}}}{fail string}}
-map: ${map{:b:c}{[$item]}}
-
-reduce: "${reduce{}{+}{$value$item}}"
-reduce: ${reduce{a:b:c}{+}{$value$item}}
-reduce: ${reduce {<, 1,2,3}{0}{${eval:$value+$item}}}
-reduce: ${reduce {3:0:9:4:6}{0}{${if >{$item}{$value}{$item}{$value}}}}
-
-listnamed: ${listnamed:dlist}
-listnamed: ${listnamed:+dlist}
-listnamed: ${listnamed:hlist}
-listnamed: ${listnamed:elist}
-listnamed: ${listnamed:flist}
-listnamed: ${listnamed:nolist}
-listnamed: ${listnamed_d:dlist}
-listnamed: ${listnamed_d:hlist}
-listnamed: ${listnamed_z:dlist}
-
-listcount: ${listcount:a:b:c}
-listcount: ${listcount:}
-listcount: ${listcount:<;a;b;c}
-listcount: ${listcount:${listnamed:dlist}}
-
-# Tests with iscntrl() and illegal separators
-
-map: ${map{<\n a\n\nb\nc}{'$item'}}
-
-reduce: ${reduce {<n 1\n2\n3}{0}{${eval:$value+$item}}}
-reduce: ${reduce {<\n 1\n2\n3}{0}{${eval:$value+$item}}}
-reduce: ${reduce { <\n 1\n 2 \n 3 }{0}{${eval:$value+$item}}}
-reduce: ${reduce {<\x7f 1\x7f2\177 3}{0}{${eval:$value+$item}}}
-
-# Operators
-
-acl: ${acl
-acl: ${acl}
-acl: ${acl {a_nosuch}}
-acl: ${acl {a_ret}}
-acl: ${acl {a_ret}{person@dom.ain}}
-acl: ${acl {a_ret}{firstarg}{secondarg}}
-acl: ${acl {a_ret}{arg with spaces}}
-acl: ${acl {a_none}}
-acl: ${acl {a_none}{person@dom.ain}}
-acl: ${acl {a_deny}}
-acl: ${acl {a_deny}{person@dom.ain}}
-acl: ${acl {a_defer}}
-acl: ${acl {a_sub}{top_arg_1}{top_arg_2}{top_arg_3}}
-acl: ${reduce {1:2:3:4} {} {$value ${acl {a_ret}{$item}}}}
-
-addrss: ${address:local-part@dom.ain}
-addrss: ${address:Exim Person <local-part@dom.ain> (that's me)}
-domain: ${domain:local-part@dom.ain}
-domain: ${domain:Exim Person <local-part@dom.ain> (that's me)}
-
-addresses: ${addresses:>' 'abc@xyz, 'pqr@xyz}
-addresses: ${addresses:Exim Person <local-part@dom.ain> (that's me)}
-addresses: ${addresses:>+ Exim Person <local-part@dom.ain> (that's me),\
-           xyz@abc}
-addresses: ${addresses:Exim Person <local-part@dom.ain> (that's me), \
-           xyz@abc, nullgroupname:;, group: p@q, r@s; }
-addresses: ${addresses:local-part@dom.ain <local-part@dom.ain>}
-
-escape: ${escape:B7·F2ò}
+eval:   ${eval:0}
+eval:   ${eval:1}
+eval:   ${eval:-1}
+eval:   ${eval:+1}
 eval:   ${eval:1+1}
 eval:   ${eval:1+2*3}
 eval:   ${eval:(1+2)*3}
@@ -149,6 +83,115 @@ eval:   ${eval:~255&0x1234}
 eval:   ${eval:~ 255&0x1234}
 eval:   ${eval: -(~255&0x1234)}
 
+# List operations
+
+filter: "${filter{a:b:c}{eq{1}{1}}}"
+filter: ${filter{a:b:c}{!eq{$item}{b}}}
+filter: ${filter{<' a'b'c}{!eq{$item}{b}}}
+filter: ${filter{<' ''a'b' ''c}{!eq{$item}{b}}}
+filter: "${filter{}{!eq{$item}{b}}}"
+
+map: "${map{}{$item}}"
+map: ${map{a:b:c}{$item}}
+map: ${map{a:b:c}{:$item:}}
+map: ${if eq{1}{0}{${map{a:b:c}{:$item:}}}{fail string}}
+map: ${map{:b:c}{[$item]}}
+
+reduce: "${reduce{}{+}{$value$item}}"
+reduce: ${reduce{a:b:c}{+}{$value$item}}
+reduce: ${reduce {<, 1,2,3}{0}{${eval:$value+$item}}}
+reduce: ${reduce {3:0:9:4:6}{0}{${if >{$item}{$value}{$item}{$value}}}}
+# Check for extract corrupting reduce's $value
+reduce: ${reduce {b}{a aaa}{${extract{1}{ }{$value}} , $item}}
+
+listnamed: ${listnamed:dlist}
+listnamed: ${listnamed:+dlist}
+listnamed: ${listnamed:hlist}
+listnamed: ${listnamed:elist}
+listnamed: ${listnamed:flist}
+listnamed: ${listnamed:nolist}
+listnamed: ${listnamed_d:dlist}
+listnamed: ${listnamed_d:hlist}
+listnamed: ${listnamed_z:dlist}
+
+listcount: ${listcount:a:b:c}
+listcount: ${listcount:}
+listcount: ${listcount:<;a;b;c}
+listcount: ${listcount:${listnamed:dlist}}
+
+listextract: ${listextract{ 2}{a:b:c:d}}
+listextract: ${listextract{-2}{<,a,b,c,d}{X${value}X}}
+listextract: ${listextract{ 5}{a:b:c:d}}
+listextract: ${listextract{-5}{a:b:c:d}}
+listextract: ${listextract{ 5}{a:b:c:d}{}{fail}}
+listextract: ${listextract{ 5}{a:b:c:d}{}fail}
+
+listquote: ${listquote{:}{abcd}}
+listquote: ${listquote{:}{ab:cd}}
+listquote: ${listquote{:}{:a:b:c:d:}}
+listquote: ${listquote{:}{ab::cd}}
+listquote: ${listquote{;}{ab:cd}}
+listquote: ${listquote{;}{ab;cd}}
+listquote: ${listquote{ }{ ab cd}}
+listquote: <${listquote{:}{}}>
+
+sort: ${sort{3:2:1:4}{<}{$item}}
+sort: ${sort {<, 3,2,1,4}{>}{$item}}
+sort: ${sort{c:B:a:aa}{lti}{$item}}
+sort: ${sort{666 r99.ex.com:10 smtp.ex.com:100 r2.ex.com}{<}{${sg {$item}{([0-9]*).*\$}{\$1}}}}
+sort: ${sort{666,r99.ex.com:10,smtp.ex.com:100,r2.ex.com}{<}{${listextract{1}{<,$item}}}}
+sort: "${sort{}{<}{$item}}"
+
+# Tests with iscntrl() and illegal separators
+
+map: ${map{<\n a\n\nb\nc}{'$item'}}
+
+reduce: ${reduce {<n 1\n2\n3}{0}{${eval:$value+$item}}}
+reduce: ${reduce {<\n 1\n2\n3}{0}{${eval:$value+$item}}}
+reduce: ${reduce { <\n 1\n 2 \n 3 }{0}{${eval:$value+$item}}}
+reduce: ${reduce {<\x7f 1\x7f2\177 3}{0}{${eval:$value+$item}}}
+
+# Operators
+
+acl: ${acl
+acl: ${acl}
+acl: ${acl {a_nosuch}}
+acl: ${acl {a_ret}}
+acl: ${acl {a_ret}{person@dom.ain}}
+acl: ${acl {a_ret}{firstarg}{secondarg}}
+acl: ${acl {a_ret}{arg with spaces}}
+acl: ${acl {a_none}}
+acl: ${acl {a_none}{person@dom.ain}}
+acl: ${acl {a_deny}}
+acl: ${acl {a_deny}{person@dom.ain}}
+acl: ${acl {a_defer}}
+acl: ${acl {a_sub}{top_arg_1}{top_arg_2}{top_arg_3}}
+acl: ${reduce {1:2:3:4} {} {$value ${acl {a_ret}{$item}}}}
+
+addrss: ${address:local-part@dom.ain}
+addrss: ${address:Exim Person <local-part@dom.ain> (that's me)}
+addrss: ${address:Exim Person <local-part(comment)@dom.ain> (that's me)}
+addrss: ${address:Exim Person <local-part@dom.ain(comment)> (that's me)}
+addrss: ${address:Exim Person <local-part(comment)@dom.ain(comment2)> (that's me)}
+addrss: ${address:Exim Person <local-part.(comment)dot-atom@dom.ain(comment2)> (that's me)}
+addrss: ${address:Exim Person <(comment)local-part@dom.ain(comment2)> (that's me)}
+domain: ${domain:local-part@dom.ain}
+domain: ${domain:Exim Person <local-part@dom.ain> (that's me)}
+domain: ${domain:Exim Person <local-part(foo)@(bar)dom.ain> (that's me)}
+domain: ${domain:a.b.c}
+
+addresses: ${addresses:>' 'abc@xyz, 'pqr@xyz}
+addresses: ${addresses:Exim Person <local-part@dom.ain> (that's me)}
+addresses: ${addresses:>+ Exim Person <local-part@dom.ain> (that's me),\
+           xyz@abc}
+addresses: ${addresses:Exim Person <local-part@dom.ain> (that's me), \
+           xyz@abc, nullgroupname:;, group: p@q, r@s; }
+addresses: ${addresses:local-part@dom.ain <local-part@dom.ain>}
+addresses: ${addresses:>}
+
+escape:     ${escape:B7·F2ò}
+excape8bit: ${escape8bit:undisturbed text\ttab\nnewline\ttab\\backslash \176tilde\177DEL\200\x81.}
+
 expand: \$primary_hostname ${expand:\$primary_hostname}
 hash:   ${hash_3:monty} ${hash_5:monty} ${hash_4_62:monty python}
 hash:   ${hash_3:abc}X ${hash_3:ab}X ${hash_3:a}X ${hash_3:}X
@@ -161,7 +204,21 @@ hex2b64:${hex2b64:1a2b3c4d5e6g}
 hex2b64:${hex2b64:${md5:the quick brown fox}}
 hex2b64:${hex2b64:${sha1:the quick brown fox}}
 
-The base62 operator is actually a base36 operator in the Darwin and Cygwin
+base32: 0  <${base32:0}>
+base32: 1  <${base32:1}>
+base32: 31 <${base32:31}>
+base32: 32 <${base32:32}>
+base32: 42 <${base32:42}>
+base32 error: 0x1 ${base32:0x1}
+
+base32d: 0  ${base32d:${base32:0}}
+base32d: 1  ${base32d:${base32:1}}
+base32d: 31 ${base32d:${base32:31}}
+base32d: 32 ${base32d:${base32:32}}
+base32d: 42 ${base32d:${base32:42}}
+base32d error: ABC ${base32d:ABC}
+
+the base62 operator is actually a base36 operator in the Darwin and Cygwin
 environments. Write cunning tests that produce the same output in both cases,
 while doing a reasonable check.
 
@@ -191,11 +248,24 @@ mask:   ${mask:192.168.10.206/33}
 mask:   ${mask:192.168.10.206/0}
 mask:   ${mask:192.168.10.206}
 mask:   ${mask:a.b.c.d}
+ipv6denorm: ${ipv6denorm:::1}
+ipv6denorm: ${ipv6denorm:fe00::1}
+ipv6denorm: ${ipv6denorm:192.168.0.1}
+ipv6denorm: ${ipv6denorm:fe80::192.168.0.1}
+ipv6norm:   ${ipv6norm:0:0:0::1}
+ipv6norm:   ${ipv6norm:2a00::0}
+ipv6norm:   ${ipv6norm:2a00::1}
+ipv6norm:   ${ipv6norm:2a00:eadf:0000:0000:0000:0000:0001:0000}
+ipv6norm:   ${ipv6norm:2a00:eadf:0000:0001:0000:0000:0000:0000}
+ipv6norm:   ${ipv6norm:2a00:0:0:0::}
+ipv6norm:   ${ipv6norm:2a00:2:3:4:5:6:7:8}trailing_text
 nhash:  ${nhash_24:monty} ${nhash_8_63:monty python}
 lc/uc:  ${lc:The Quick} ${uc: Brown Fox}
 length: ${length_10:The quick brown fox} ${l_10:abc}
 lclpt:  ${local_part:local-part@dom.ain}
 lclpt:  ${local_part:Exim Person <local-part@dom.ain> (that's me)}
+lclpt:  ${local_part:Exim Person <local(comment).part@dom.(comment2)ain> (that's me)}
+lclpt:  ${local_part:a.b.c}
 quote:  ${quote:aZ09_.-Q} ${quote:ab*cd} ${quote:ab\cd"ef}
 quote:  ${quote:nl(\n)}
 quote:  ${quote:cr(\r)}
@@ -215,12 +285,25 @@ quote_local_part: ${quote_local_part:x:y}
 quote_local_part: ${quote_local_part:ab\cd"ef}
 quote_local_part: ${quote_local_part:}
 rxquote:${rxquote:aZ09_,-Q} ${rxquote:ab*cd} ${rxquote:ab\cd"ef}
+hexquote: ${hexquote:\
+    \001\002\003\004\005\006\007 \010\011\012\013\014\015\016\017 \
+\020\021\022\023\024\025\026\027 \030\031\032\033\034\035\036\037 \
+\040\041\042\043\044\045\046\047 \050\051\052\053\054\055\056\057 \
+\060\061\062\063\064\065\066\067 \070\071\072\073\074\075\076\077 \
+\100\101\102\103\104\105\106\107 \110\111\112\113\114\115\116\117 \
+\120\121\122\123\124\125\126\127 \130\131\132\133\134\135\136\137 \
+\140\141\142\143\144\145\146\147 \150\151\152\153\154\155\156\157 \
+\160\161\162\163\164\165\166\167 \170\171\172\173\174\175\176\177}
 substr: ${substr_3_2:rhubarb} ${s_-5_2:1234567} ${s_-5_2:12} ${s_-3_2:12}
 substr: ${s_3:rhubarb} ${s_-2:rhubarb}
 substr: ${s_1:}
 substr: ${substr_10:abc}
 str2b64:${str2b64:abcd}
 str2b64:${str2b64:The quick brown \n fox}
+base64: ${base64:abcd}
+base64: ${base64:The quick brown \n fox}
+base64d:${base64d:YWJjZA==}
+base64d:${base64d:VGhlIHF1aWNrIGJyb3duIAogZm94}
 strlen: ${strlen:}
 strlen: ${strlen:a}
 strlen: ${strlen:abcdefgh}
@@ -278,10 +361,12 @@ mask:   ${if eq {1}{2}{${mask:invalid}}{NO}}
 # Numeric overflow
 # >32b should work, >64b not
 
-4096M      ${if >{1}{4096M}{y}{n}}
-4096000000 ${if >{1}{4096000000}{y}{n}}
-4611686018427387904  ${if >{1}{4611686018427387904} {y}{n}}
-46116860184273879040 ${if >{1}{46116860184273879040}{y}{n}}
+1 > 2047M                ${if >{1}{2047M}{y}{n}}
+1 > 2048M                ${if >{1}{2048M}{y}{n}}
+1 > 4096000000           ${if >{1}{4096000000}{y}{n}}
+1 > 4096M                ${if >{1}{4096M}{y}{n}}
+1 > 4611686018427387904  ${if >{1}{4611686018427387904} {y}{n}}
+1 > 46116860184273879040 ${if >{1}{46116860184273879040}{y}{n}}
 
 # Conditions
 
@@ -313,6 +398,7 @@ mask:   ${if eq {1}{2}{${mask:invalid}}{NO}}
 5>3m:   ${if >{5 } {3m }{y}{n}}
 5>3z:   ${if >{5 } {3z }{y}{n}}
 5>a:    ${if >{ 5 } {a}{y}{n}}
+5>bad:  ${if >{5 } {${lookup{trick}lsearch{DIR/aux-fixed/0002.lsearch}}} {y}{n}}
 
 >0:     ${if > {}{0}{y}{n}}
 =:      ${if = {}{}{y}{n}}
@@ -354,6 +440,8 @@ gei:    ${if gei{ABC}{abc}{y}{n}}
 isip:   ${if isip {1.2.3.4}{y}{n}}  1.2.3.4
 isip4:  ${if isip4{1.2.3.4}{y}{n}}  1.2.3.4
 isip6:  ${if isip6{1.2.3.4}{y}{n}}  1.2.3.4
+isip:   ${if isip {::1.2.3.256}{y}{n}}  ::1.2.3.256
+isip4:  ${if isip4{1.2.3.256}{y}{n}}  1.2.3.256
 isip:   ${if isip {1:2:3:4}{y}{n}}  1:2:3:4
 isip4:  ${if isip4{1:2:3:4}{y}{n}}  1:2:3:4
 isip6:  ${if isip6{1:2:3:4}{y}{n}}  1:2:3:4
@@ -363,6 +451,7 @@ isip6:  ${if isip6{::1}{y}{n}}      ::1
 isip:   ${if isip {fe80::a00:20ff:fe86:a061}{y}{n}}  fe80::a00:20ff:fe86:a061
 isip4:  ${if isip4{fe80::a00:20ff:fe86:a061}{y}{n}}  fe80::a00:20ff:fe86:a061
 isip6:  ${if isip6{fe80::a00:20ff:fe86:a061}{y}{n}}  fe80::a00:20ff:fe86:a061
+isip:   ${if isip {fe80::1.2.3.4}{y}{n}}  fe80::1.2.3.4
 isip:   ${if isip {rhubarb}{y}{n}}  rhubarb
 isip4:  ${if isip4{rhubarb}{y}{n}}  rhubarb
 isip6:  ${if isip6{rhubarb}{y}{n}}  rhubarb
@@ -464,8 +553,8 @@ abc:   ${lookup{abc}wildlsearch{DIR/aux-var/0002.wild}}
 a.b.c: ${lookup{a.b.c}wildlsearch{DIR/aux-var/0002.wild}}
 ab.c:  ${lookup{ab.c}wildlsearch{DIR/aux-var/0002.wild}}
 xyz:   ${lookup{xyz}wildlsearch{DIR/aux-var/0002.wild}}
-Xyz:   ${lookup{Xyz}wildlsearch{DIR/aux-var/0002.wild}}
-Zyz:   ${lookup{Zyz}wildlsearch{DIR/aux-var/0002.wild}}
+.Xyz:   ${lookup{Xyz}wildlsearch{DIR/aux-var/0002.wild}}
+.Zyz:   ${lookup{Zyz}wildlsearch{DIR/aux-var/0002.wild}}
 a b:   ${lookup{a b}wildlsearch{DIR/aux-var/0002.wild}}
 a  b:  ${lookup{a  b}wildlsearch{DIR/aux-var/0002.wild}}
 a:b:   ${lookup{a:b}wildlsearch{DIR/aux-var/0002.wild}}
@@ -480,8 +569,8 @@ abc:   ${lookup{abc}nwildlsearch{DIR/aux-var/0002.wild}}
 a.b.c: ${lookup{a.b.c}nwildlsearch{DIR/aux-var/0002.wild}}
 ab.c:  ${lookup{ab.c}nwildlsearch{DIR/aux-var/0002.wild}}
 xyz:   ${lookup{xyz}nwildlsearch{DIR/aux-var/0002.wild}}
-Xyz:   ${lookup{Xyz}nwildlsearch{DIR/aux-var/0002.wild}}
-Zyz:   ${lookup{Zyz}nwildlsearch{DIR/aux-var/0002.wild}}
+.Xyz:   ${lookup{Xyz}nwildlsearch{DIR/aux-var/0002.wild}}
+.Zyz:   ${lookup{Zyz}nwildlsearch{DIR/aux-var/0002.wild}}
 a b:   ${lookup{a b}nwildlsearch{DIR/aux-var/0002.wild}}
 a  b:  ${lookup{a  b}nwildlsearch{DIR/aux-var/0002.wild}}
 a:b:   ${lookup{a:b}nwildlsearch{DIR/aux-var/0002.wild}}
@@ -500,10 +589,10 @@ a\\:Xb: ${lookup{a\\:Xb}nwildlsearch{DIR/aux-var/0002.wild}}
 
 # Some tests of case-(in)dependence
 
-MiXeD-CD:  ${lookup{MiXeD-CD}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
-MixeD-CD:  ${lookup{MixeD-CD}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
-MiXeD-Ncd: ${lookup{MiXeD-Ncd}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
-MixeD-Ncd: ${lookup{MixeD-Ncd}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
+.MiXeD-CD:  ${lookup{MiXeD-CD}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
+.MixeD-CD:  ${lookup{MixeD-CD}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
+.MiXeD-Ncd: ${lookup{MiXeD-Ncd}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
+.MixeD-Ncd: ${lookup{MixeD-Ncd}nwildlsearch{DIR/aux-var/0002.wild}{$value}{NOT FOUND}}
 
 # IP address (CIDR) lookups
 
@@ -547,12 +636,12 @@ ${extract{B}{A=1 B=2 C=3}}
 ${extract{ B }{A=1 B=2 C=3}{$value}{NOT FOUND}}
 ${extract{2}{:}{1:2:3}}
 ${extract{ 2 }{:}{1:2:3}{$value}{NOT FOUND}}
-Empty:<${extract{D}{A=1 B=2 C=3}}>
-Empty:<${extract{4}{:}{1:2:3}}>
+empty:<${extract{D}{A=1 B=2 C=3}}>
+empty:<${extract{4}{:}{1:2:3}}>
 ${extract{C}{A=1 B=2 C=3}{<$value>}}
 ${extract{3}{:}{1:2:3}{<$value>}}
-Empty:<${extract{Z}{A=1 B=2 C=3}{<$value>}}>
-Empty:<${extract{4}{:}{1:2:3}{<$value>}}>
+empty:<${extract{Z}{A=1 B=2 C=3}{<$value>}}>
+empty:<${extract{4}{:}{1:2:3}{<$value>}}>
 ${extract{Z}{A=1 B=2 C=3}{<$value>}{no Z}}
 ${extract{4}{:}{1:2:3}{<$value>}{no 4}}
 ${extract{Z}{A=1 B=2 C=3}{<$value>}fail}
@@ -571,6 +660,10 @@ ${extract{}{X=3}}
 ${extract{ }{X=3}}
 ${extract{ 2 }{ }{a b c}}
 
+${map{a,1:b,2:c,3}{${extract{1}{,}{$item}{$value}{}}}}
+${map{a,1:b,2:c,3}{${extract{1}{,}{$item}{$value}{failcase}{bogus_argument}}}}
+${map{a,1:b,2:c,3}{${extract{1}{,}{$item}{$value}fail}}}
+
 # Translation
 
 abcdea aaa xyz ${tr{abcdea}{aaa}{xyz}}
@@ -584,7 +677,7 @@ abcdea abc z   ${tr{abcdea}{abc}{z}}
 " yes"                ${if bool{ yes}{true}{false}}      EXPECT: true
 " no"                 ${if bool{ no}{true}{false}}     EXPECT: false
 "yes "                ${if bool{yes }{true}{false}}      EXPECT: true
-"-1"                  ${if bool{-1}{true}{false}}     EXPECT: error
+"-1"                  ${if bool{-1}{true}{false}}     EXPECT: true
 "0"                   ${if bool{0}{true}{false}}     EXPECT: false
 "1"                   ${if bool{1}{true}{false}}      EXPECT: true
 " 0 "                 ${if bool{ 0 }{true}{false}}     EXPECT: false
@@ -594,6 +687,7 @@ abcdea abc z   ${tr{abcdea}{abc}{z}}
 " "                   ${if bool{ }{true}{false}}     EXPECT: false
 "text"                ${if bool{text}{true}{false}}     EXPECT: error
 " text"               ${if bool{ text}{true}{false}}     EXPECT: error
+"-text"               ${if bool{-text}{true}{false}}     EXPECT: error
 "text "               ${if bool{text }{true}{false}}     EXPECT: error
 " text "              ${if bool{ text }{true}{false}}     EXPECT: error
 "00"                  ${if bool{00}{true}{false}}     EXPECT: false
@@ -626,8 +720,8 @@ abcdea abc z   ${tr{abcdea}{abc}{z}}
 abcd      ${rfc2047:abcd}
 <:abcd:>  ${rfc2047:<:abcd:>}
 <:ab cd:> ${rfc2047:<:ab cd:>}
-Long:     ${rfc2047: here we go: a string that is going to be encoded: it will go over the 75-char limit}
-Long:     ${rfc2047: here we go: a string that is going to be encoded: it will go over the 75-char limit by a long way; in fact this one will go over the 150 character limit}
+long:     ${rfc2047: here we go: a string that is going to be encoded: it will go over the 75-char limit}
+long:     ${rfc2047: here we go: a string that is going to be encoded: it will go over the 75-char limit by a long way; in fact this one will go over the 150 character limit}
 
 # RFC 2047 decode
 
@@ -667,21 +761,21 @@ ${if exists{/non/exist/file}{${readfile{/non/exist/file}}}{non-exist}}
 # Calling a command
 
 ${run{DIR/aux-fixed/0002.runfile 0}}
-RC=$runrc
+rc=$runrc
 ${run{DIR/aux-fixed/0002.runfile 0}{1}{2}}
-RC=$runrc
+rc=$runrc
 ${run{DIR/aux-fixed/0002.runfile 0}{$value}{2}}
-RC=$runrc
+rc=$runrc
 ${run{DIR/aux-fixed/0002.runfile 1}{$value}{2}}
-RC=$runrc
+rc=$runrc
 ${run{DIR/aux-fixed/0002.runfile 1}{$value}{$value}}
-RC=$runrc
+rc=$runrc
 ${run{DIR/test-nonexist}{Y}{N}}
-RC=$runrc
+rc=$runrc
 >>${run{DIR/bin/iefbr14}}<<
-RC=$runrc
+rc=$runrc
 ${if eq{1}{2}{${run{/non/exist}}}{1!=2}}
-RC=$runrc
+rc=$runrc
 
 # PRVS
 
@@ -797,13 +891,67 @@ ${if forany{a:b:c}\
 
 ${if ={1}{1} {true}{${if ={1}{1} {true}{${if ={1}{1}{true}fail}}}}}
 
+# Environment access
+
+${env {USER}}
+${env {NO_SUCH_VARIABLE} {oops, success} {correct}}
+
+# JSON
+
+${extract json {Url} \
+  {   \{ \"Url\":    \"http://www.example.com/image/481989943\",\
+	 \"Height\": 125,\
+	 \"Width\":  100\
+      \} \
+  } \
+ }
+${extract json {Width} \
+  {   \{ \"Url\":    \"http://www.example.com/image/481989943\",\
+	 \"Height\": 125,\
+	 \"Width\":  100\
+      \} \
+  } \
+ }
+${extract json {2} {[116, 943, 234, 38793]} }
+${extract json {2} {${extract json{IDs} {\{"other":"foo", "IDs": [116, 943, 234]\} }}} }
+
+${extract json {2} {["red", "green", "blue", "black"]} }
+${extract jsons{2} {["red", "green", "blue", "black"]} }
+<${extract jsons{5} {["red", "green", "blue", "black"]} }>
+expect: <>
+
+${extract json {seconds} { \{"hours":0, "mins":0, "seconds":59\} }}
+${extract json {seconds} {${extract json {2} { ["irrelevant", \{"hours":0, "mins":0, "seconds":59\}] }}}}
+
+${extract json{IDs}{ \{"IDs": \{"1":116, "2":943, "3":234\}\} }}
+expect: {"1":116, "2":943, "3":234}
+
+${extract json{IDs}{ \{"id": \{"a":101, "b":102\}, "IDs": \{"1":116, "2":943, "3":234\}\} }}
+expect: {"1":116, "2":943, "3":234}
+
+<${extract json{nonexistent}{ \{"id": \{"a":101, "b":102\}, "IDs": \{"1":116, "2":943, "3":234\}\} }}>
+expect: <>
+<${extract jsons{nonexistent}{ \{"id": \{"a":101, "b":102\}, "IDs": \{"1":116, "2":943, "3":234\}\} }}>
+expect: <>
+
+${if forany_json {[1, 2, 3]}{={$item}{1}}{yes}{no}}
+${if forany_jsons{["A", "B", "C"]}{eq{$item}{B}}{yes}{no}}
+
 ****
 # Test "escape" with print_topbitchars
 exim -be -DPTBC=print_topbitchars
 escape: ${escape:B7·F2ò}
 ****
 # Checkout expansion debugging
-exim -d-all+expand -be
+exim -d-all+expand -f sndr@dom -be
+primary_hostname: $primary_hostname
+sender_address: $sender_address
+match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
+${if eq {1}{1}{yes}{${lookup{xx}lsearch{/non/exist}}}}
+match_address:   ${if match_address{a.b.c}{a.b.c}{yes}{no}}
+****
+exim -d-all+expand+noutf8 -be
 primary_hostname: $primary_hostname
 match:  ${if match{abcd}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
 match:  ${if match{wxyz}{\N^([ab]+)(\w+)$\N}{$2$1}fail}
@@ -812,6 +960,7 @@ match_address:   ${if match_address{a.b.c}{a.b.c}{yes}{no}}
 ****
 # Sender host name and address etc, all unset
 exim -be
+-be Sender host name and address etc, all unset
 -oMa  sender_host_address = $sender_host_address
       sender_host_port = $sender_host_port
 -oMaa sender_host_authenticated = $sender_host_authenticated
@@ -825,6 +974,7 @@ exim -be
 ****
 # Sender host name and address etc, all set except host name.
 exim -d-all+expand -be -oMa V4NET.0.0.1.1234 -oMaa AAA -oMai philip -oMas xx@yy.zz -oMi 1.1.1.1.99 -oMr special -oMt me
+-be Sender host name and address etc, all set except host name.
 -oMa  sender_host_address = $sender_host_address
       sender_host_port = $sender_host_port
 -oMaa sender_host_authenticated = $sender_host_authenticated
@@ -837,17 +987,20 @@ exim -d-all+expand -be -oMa V4NET.0.0.1.1234 -oMaa AAA -oMai philip -oMas xx@yy.
 ****
 # Sender host name explicitly set
 exim -be -oMa V4NET.0.0.1.1234 -oMs my.host.name
+-be Sender host name explicitly set
 -oMa  sender_host_address = $sender_host_address
       sender_host_port = $sender_host_port
 -oMs  sender_host_name = $sender_host_name
 ****
 # Sender host name lookup fails (V4NET.11.12.13 is not reverse registered)
 exim -be -oMa V4NET.11.12.13
+be Sender host name lookup fails (V4NET.11.12.13 is not reverse registered)
 -oMs  sender_host_name = $sender_host_name
       host_lookup_failed = $host_lookup_failed
 ****
 # Sender host name and protocol set by Sendmail-compatible option
 exim -be -pspecial:host.name
+-be Sender host name and protocol set by Sendmail-compatible option
 -p  received_protocol = $received_protocol
 -p  sender_host_name = $sender_host_name
 ****
@@ -856,6 +1009,7 @@ exim -be -pspecial:host.name
 # we are skipping. The debug output for this test will show when
 # the lookup occurs.
 exim -d-all+host_lookup+expand -be -oMa V4NET.0.0.1.1234 -oMaa AAA -oMai philip -oMas xx@yy.zz -oMi 1.1.1.1.99 -oMr special -oMt me
+-be Sender host name and address etc, all set except host name
 -oMa  sender_host_address = $sender_host_address
       sender_host_port = $sender_host_port
 -oMaa sender_host_authenticated = $sender_host_authenticated
@@ -930,4 +1084,8 @@ match_ip:        16 ${if match_ip{1.2.3.4}{1.2.3.4/abc}}
 exim -be
 ${if inlist{aa}{aa} {in list}{not in list}}
 ${if !inlist{aa}{aa} {not in list}{in list}}
+****
+# listextract from tainted list
+exim -be -oMs my.target.host.name
+'\${listextract {2} {<. $sender_host_name}}'  =>   '${listextract {2} {<. $sender_host_name}}'
 ****

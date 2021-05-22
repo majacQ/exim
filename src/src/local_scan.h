@@ -2,14 +2,24 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2012 */
+/* Copyright (c) University of Cambridge 1995 - 2020 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This file is the header that is the only Exim header to be included in the
 source for the local_scan.c() function. It contains definitions that are made
-available for use in that function, and which are documented.
+available for use in that function, and which are documented.  That source
+should first #define LOCAL_SCAN
 
-This API is also used for functions called by the ${dlfunc expansion item. */
+Not every definition that becomes available to the compiler by the inclusion
+of this file is part of the local_scan API.  The "Adding a local scan function
+to Exim" chapter in the documentation is definitive.
+
+This API is also used for functions called by the ${dlfunc expansion item.
+Source for those should first #define DLFUNC_IMPL and then include this file.
+Coders of dlfunc routines should read the notes on tainting at the start of
+store.c
+*/
 
 
 /* Some basic types that make some things easier, the Exim configuration
@@ -20,6 +30,21 @@ settings, and the store functions. */
 #include "config.h"
 #include "mytypes.h"
 #include "store.h"
+
+
+/* Some people (Marc Merlin et al) are maintaining a patch that allows for
+dynamic local_scan() libraries. This code is not yet in Exim proper, but it
+helps the maintainers if we keep their ABI version numbers here. This may
+mutate into more general support later. The major number is increased when the
+ABI is changed in a non backward compatible way. The minor number is increased
+each time a new feature is added (in a way that doesn't break backward
+compatibility). */
+
+#define LOCAL_SCAN_ABI_VERSION_MAJOR 4
+#define LOCAL_SCAN_ABI_VERSION_MINOR 1
+#define LOCAL_SCAN_ABI_VERSION \
+  LOCAL_SCAN_ABI_VERSION_MAJOR.LOCAL_SCAN_ABI_VERSION_MINOR
+
 
 
 /* The function and its return codes. */
@@ -90,19 +115,6 @@ the name of the data file to be present in the first line. */
 
 #define SPOOL_DATA_START_OFFSET (MESSAGE_ID_LENGTH+3)
 
-/* Some people (Marc Merlin et al) are maintaining a patch that allows for
-dynamic local_scan() libraries. This code is not yet in Exim proper, but it
-helps the maintainers if we keep their ABI version numbers here. This may
-mutate into more general support later. The major number is increased when the
-ABI is changed in a non backward compatible way. The minor number is increased
-each time a new feature is added (in a way that doesn't break backward
-compatibility). */
-
-#define LOCAL_SCAN_ABI_VERSION_MAJOR 1
-#define LOCAL_SCAN_ABI_VERSION_MINOR 1
-#define LOCAL_SCAN_ABI_VERSION \
-  LOCAL_SCAN_ABI_VERSION_MAJOR.LOCAL_SCAN_ABI_VERSION_MINOR
-
 /* Structure definitions that are documented as visible in the function. */
 
 typedef struct header_line {
@@ -115,12 +127,17 @@ typedef struct header_line {
 /* Entries in lists options are in this form. */
 
 typedef struct {
-  const char   *name;
-  int           type;
-  void         *value;
+  const char *	name; /* should have been uschar but too late now */
+  int		type;
+  union {
+    void *	value;
+    long	offset;
+    void (*	fn)();
+  } v;
 } optionlist;
+#define OPT_OFF(s, field) {.offset = offsetof(s, field)}
 
-/*Structure for holding information about an envelope address. The errors_to
+/* Structure for holding information about an envelope address. The errors_to
 field is always NULL except for one_time aliases that had errors_to on the
 routers that generated them. */
 
@@ -128,6 +145,8 @@ typedef struct recipient_item {
   uschar *address;              /* the recipient address */
   int     pno;                  /* parent number for "one_time" alias, or -1 */
   uschar *errors_to;            /* the errors_to address or NULL */
+  uschar *orcpt;                /* DSN orcpt */
+  int     dsn_flags;            /* DSN flags */
 #ifdef EXPERIMENTAL_BRIGHTMAIL
   uschar *bmi_optin;
 #endif
@@ -163,9 +182,6 @@ extern BOOL    smtp_input;             /* TRUE if input is via SMTP */
 /* Functions that are documented as visible in local_scan(). */
 
 extern int     child_close(pid_t, int);
-extern pid_t   child_open(uschar **, uschar **, int, int *, int *, BOOL);
-extern pid_t   child_open_exim(int *);
-extern pid_t   child_open_exim2(int *, uschar *, uschar *);
 extern void    debug_printf(const char *, ...) PRINTF_FUNCTION(1,2);
 extern uschar *expand_string(uschar *);
 extern void    header_add(int, const char *, ...);
@@ -184,10 +200,39 @@ extern void    receive_add_recipient(uschar *, int);
 extern BOOL    receive_remove_recipient(uschar *);
 extern uschar *rfc2047_decode(uschar *, BOOL, uschar *, int, int *, uschar **);
 extern int     smtp_fflush(void);
-extern void    smtp_printf(const char *, ...) PRINTF_FUNCTION(1,2);
-extern void    smtp_vprintf(const char *, va_list);
-extern uschar *string_copy(const uschar *);
-extern uschar *string_copyn(uschar *, int);
-extern uschar *string_sprintf(const char *, ...) ALMOST_PRINTF(1,2);
+extern void    smtp_printf(const char *, BOOL, ...) PRINTF_FUNCTION(1,3);
+extern void    smtp_vprintf(const char *, BOOL, va_list);
+
+#define string_sprintf(fmt, ...) \
+	string_sprintf_trc(fmt, US __FUNCTION__, __LINE__, __VA_ARGS__)
+extern uschar *string_sprintf_trc(const char *, const uschar *, unsigned, ...) ALMOST_PRINTF(1,4);
+
+#define store_get(size, tainted) \
+	store_get_3(size, tainted, __FUNCTION__, __LINE__)
+extern void   *store_get_3(int, BOOL, const char *, int)	ALLOC ALLOC_SIZE(1) WARN_UNUSED_RESULT;
+#define store_get_perm(size, tainted) \
+	store_get_perm_3(size, tainted, __FUNCTION__, __LINE__)
+extern void   *store_get_perm_3(int, BOOL, const char *, int)	ALLOC ALLOC_SIZE(1) WARN_UNUSED_RESULT;
+
+
+#if defined(LOCAL_SCAN) || defined(DLFUNC_IMPL)
+/* When compiling a local_scan() file we want to rename a published API, so that
+we can use an inlined implementation in the compiles of the main Exim files,
+with the original name. */
+
+# define string_copy(s) string_copy_function(s)
+# define string_copyn(s, n) string_copyn_function((s), (n))
+# define string_copy_taint(s, t) string_copy_taint_function((s), (t))
+# define child_open_exim(p)        child_open_exim_function((p), US"from local_scan")
+# define child_open_exim2(p, s, a) child_open_exim2_function((p), (s), (a), US"from local_scan")
+# define child_open(a,e,u,i,o,l) child_open_function((a),(e),(u),(i),(o),(l),US"from local_scan")
+
+extern uschar * string_copy_function(const uschar *);
+extern uschar * string_copyn_function(const uschar *, int n);
+extern uschar * string_copy_taint_function(const uschar *, BOOL tainted);
+extern pid_t    child_open_exim_function(int *, const uschar *);
+extern pid_t    child_open_exim2_function(int *, uschar *, uschar *, const uschar *);
+extern pid_t    child_open_function(uschar **, uschar **, int, int *, int *, BOOL, const uschar *);
+#endif
 
 /* End of local_scan.h */

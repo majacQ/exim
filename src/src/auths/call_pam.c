@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -36,7 +37,7 @@ data pointer passed to the conversation function. However, I was unable to get
 this to work on Solaris 2.6, so static variables are used instead. */
 
 static int pam_conv_had_error;
-static uschar *pam_args;
+static const uschar *pam_args;
 static BOOL pam_arg_ended;
 
 
@@ -66,43 +67,41 @@ static int
 pam_converse (int num_msg, PAM_CONVERSE_ARG2_TYPE **msg,
   struct pam_response **resp, void *appdata_ptr)
 {
-int i;
 int sep = 0;
 struct pam_response *reply;
 
-if (pam_arg_ended) return PAM_CONV_ERR;
+/* It seems that PAM frees reply[] */
 
-reply = malloc(sizeof(struct pam_response) * num_msg);
+if (  pam_arg_ended
+   || !(reply = malloc(sizeof(struct pam_response) * num_msg)))
+  return PAM_CONV_ERR;
 
-if (reply == NULL) return PAM_CONV_ERR;
-
-for (i = 0; i < num_msg; i++)
+for (int i = 0; i < num_msg; i++)
   {
   uschar *arg;
   switch (msg[i]->msg_style)
     {
     case PAM_PROMPT_ECHO_ON:
     case PAM_PROMPT_ECHO_OFF:
-    arg = string_nextinlist(&pam_args, &sep, big_buffer, big_buffer_size);
-    if (arg == NULL)
-      {
-      arg = US"";
-      pam_arg_ended = TRUE;
-      }
-    reply[i].resp = CS string_copy_malloc(arg); /* PAM frees resp */
-    reply[i].resp_retcode = PAM_SUCCESS;
-    break;
+      if (!(arg = string_nextinlist(&pam_args, &sep, NULL, 0)))
+	{
+	arg = US"";
+	pam_arg_ended = TRUE;
+	}
+      reply[i].resp = CS string_copy_malloc(arg); /* PAM frees resp */
+      reply[i].resp_retcode = PAM_SUCCESS;
+      break;
 
     case PAM_TEXT_INFO:    /* Just acknowledge messages */
     case PAM_ERROR_MSG:
-    reply[i].resp_retcode = PAM_SUCCESS;
-    reply[i].resp = NULL;
-    break;
+      reply[i].resp_retcode = PAM_SUCCESS;
+      reply[i].resp = NULL;
+      break;
 
     default:  /* Must be an error of some sort... */
-    free (reply);
-    pam_conv_had_error = TRUE;
-    return PAM_CONV_ERR;
+      free(reply);
+      pam_conv_had_error = TRUE;
+      return PAM_CONV_ERR;
     }
   }
 
@@ -129,7 +128,7 @@ Returns:   OK if authentication succeeded
 */
 
 int
-auth_call_pam(uschar *s, uschar **errptr)
+auth_call_pam(const uschar *s, uschar **errptr)
 {
 pam_handle_t *pamh = NULL;
 struct pam_conv pamc;
@@ -155,7 +154,7 @@ pam_arg_ended = FALSE;
 fail. PAM doesn't support authentication with an empty user (it prompts for it,
 causing a potential mis-interpretation). */
 
-user = string_nextinlist(&pam_args, &sep, big_buffer, big_buffer_size);
+user = string_nextinlist(&pam_args, &sep, NULL, 0);
 if (user == NULL || user[0] == 0) return FAIL;
 
 /* Start off PAM interaction */
@@ -189,7 +188,7 @@ if (pam_error == PAM_SUCCESS)
   return OK;
   }
 
-*errptr = (uschar *)pam_strerror(pamh, pam_error);
+*errptr = US pam_strerror(pamh, pam_error);
 DEBUG(D_auth) debug_printf("PAM error: %s\n", *errptr);
 
 if (pam_error == PAM_USER_UNKNOWN ||

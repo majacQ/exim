@@ -1,15 +1,11 @@
 # Exim test configuration 3451
 
 SERVER =
+PEX = :
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -65,7 +61,7 @@ begin transports
 
 local_delivery:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   headers_add = TLS: cipher=$tls_cipher peerdn=$tls_peerdn
   user = CALLER
 
@@ -73,7 +69,9 @@ send_to_server:
   driver = smtp
   allow_localhost
   hosts = 127.0.0.1
-  hosts_try_auth = *
   port = PORT_D
+  hosts_try_fastopen =	:
+  hosts_try_auth = *
+  hosts_noproxy_tls = PEX
 
 # End

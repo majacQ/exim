@@ -15,8 +15,10 @@ AC_PROG_CC
 
 dnl Checks for header files.
 
+AC_CHECK_HEADERS(sys/socket.h)
 AC_CHECK_HEADERS(openssl/crypto.h,[CLIENT_SSL=bin/client-ssl])
 AC_CHECK_HEADERS(gnutls/gnutls.h,[CLIENT_GNUTLS=bin/client-gnutls])
+AC_CHECK_HEADERS(gnutls/gnutls.h,[B64_GNUTLS=bin/ed25519_privkey_pem_to_pubkey_raw_b64])
 
 dnl The check on dynamically loaded modules requires the building of
 dnl something to load. This seems to be something that varies between
@@ -29,7 +31,7 @@ dnl "install" script for some weird reason.
 host_os=`uname -s`
 
 case $CC-$host_os in
-  gcc-*linux* | gcc-*Linux* | gcc-*LINUX* | gcc-FreeBSD)
+  gcc-*linux* | gcc-*Linux* | gcc-*LINUX* | gcc-FreeBSD | gcc-*SunOS* | cc-*SunOS* )
     LOADED=bin/loaded
     LOADED_OPT="-shared -fPIC"
     echo "Using gcc on $host_os: will compile dynamically loaded module"
@@ -48,13 +50,24 @@ case $host_os in
     ;;
 esac
 
+dnl Solaris requires additional libraries for networking functions.
+
+AC_SEARCH_LIBS([inet_addr], [nsl])
+AC_SEARCH_LIBS([connect], [socket])
+AC_SEARCH_LIBS([inet_pton], [nsl socket resolv])
+AC_SEARCH_LIBS([inet_ntop], [nsl socket resolv])
+
+AC_CHECK_FUNCS_ONCE(getaddrinfo)
+
 dnl "Export" these variables
 
 AC_SUBST(BIND_8_COMPAT)
 AC_SUBST(CLIENT_SSL)
 AC_SUBST(CLIENT_GNUTLS)
+AC_SUBST(B64_GNUTLS)
 AC_SUBST(LOADED)
 AC_SUBST(LOADED_OPT)
+AC_SUBST(LIBS)
 
 dnl This must be last; it determines what files are written
 

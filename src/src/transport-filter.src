@@ -1,4 +1,4 @@
-#! PERL_COMMAND -w
+#! PERL_COMMAND
 
 # This is a Perl script to demonstrate the possibilities of on-the-fly
 # delivery filtering in Exim. It is presented with a message on its standard
@@ -11,6 +11,16 @@
 # Philip Hazel, May 1997
 #############################################################################
 
+use warnings;
+BEGIN { pop @INC if $INC[-1] eq '.' };
+use File::Basename;
+
+if ($ARGV[0] eq '--version') {
+    print basename($0) . ": $0\n",
+        "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+        "perl(runtime): $]\n";
+        exit 0;
+}
 
 # If the filter is called with any arguments, insert them into the message
 # as X-Arg headers, just to verify what they are.

@@ -34,9 +34,13 @@ example, the sqlite lookup is of this type.
 
 When a single-key or absfilequery lookup file is opened, the handle returned by
 the xxx_open() function is saved, along with the file name and lookup type, in
-a tree. The xxx_close() function is not called when the first lookup is
-completed. If there are subsequent lookups of the same type that quote the same
-file name, xxx_open() isn't called; instead the cached handle is re-used.
+a tree. Traditionally, lookup_querystyle does not use this (just returning a
+dummy value, and doing the "open" work in the xxx_find() routine); but this is
+not enforced by the framework.
+
+The xxx_close() function is not called when the first lookup is completed. If
+there are subsequent lookups of the same type that quote the same file name,
+xxx_open() isn't called; instead the cached handle is re-used.
 
 Exim calls the function search_tidyup() at strategic points in its processing
 (e.g. after all routing and directing has been done) and this function walks
@@ -122,12 +126,17 @@ DEFER. The arguments are:
   uschar **errmsg     where to put an error message on failure;
                       this is initially set to "", and should be left
                       as that for a standard "entry not found" error
-  BOOL *do_cache      the lookup should set this to FALSE when it changes data.
-                      This is TRUE by default. When set to FALSE the cache tree
+  uint *do_cache      the lookup should set this to 0 when it changes data.
+                      This is MAXINT by default. When set to 0 the cache tree
                       of the current search handle will be cleaned and the
                       current result will NOT be cached. Currently the mysql
                       and pgsql lookups use this when UPDATE/INSERT queries are
                       executed.
+                      If set to a nonzero number of seconds, the cached value
+                      becomes unusable after this time. Currently the dnsdb
+                      lookup uses this to support the TTL value.
+  uschar *opts	      options, a comma-separated list of tagged values for
+                      modifying the search operation
 
 Even though the key is zero-terminated, the length is passed because in the
 common case it has been computed already and is often needed.
@@ -159,7 +168,7 @@ needed, it can return its single argument, which is a uschar *. This function
 does NOT use the POOL_SEARCH store, because it's usually never called from any
 lookup code.
 
-xxx_report_version()
+xxx_version_report()
 --------------------
 
 This is called to report diagnostic information to a file stream.

@@ -1,19 +1,23 @@
 # Exim test configuration 0183
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
 dns_ipv4_lookup = *
 queue_run_in_order
 
+
+# ----- ACL -----
+
+begin acl
+
+delay:
+  accept
+	delay = 3s
+	message = y
 
 # ----- Routers -----
 
@@ -36,6 +40,13 @@ useryz:
 
 lookuphost:
   driver = dnslookup
+  local_parts = !userd
+  transport = smtp
+  no_more
+
+delay:
+  driver = dnslookup
+  condition =	${acl {delay}}
   transport = smtp
   no_more
 
@@ -46,6 +57,7 @@ begin transports
 
 smtp:
   driver = smtp
+  hosts_try_fastopen =	:
 
 
 # End

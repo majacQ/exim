@@ -7,15 +7,16 @@
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "rcpt"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 20)
 >>> check verify = sender/callout=1s
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing x@ten-1.test.ex
 >>> calling r1 router
+>>> ten-1.test.ex in "*"? yes (matched "*")
 >>> routed by r1 router
 >>> Attempting full verification using callout
->>> callout cache: no domain record found
->>> callout cache: no address record found
+>>> callout cache: no domain record found for ten-1.test.ex
+>>> callout cache: no address record found for x@ten-1.test.ex
 >>> cannot callout via null transport
 >>> ----------- end verify ------------
 >>> accept: condition test deferred in ACL "rcpt"

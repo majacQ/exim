@@ -1,4 +1,7 @@
-#! /usr/bin/perl -w
+#! /usr/bin/env perl
+
+use strict;
+use warnings;
 
 ###############################################################################
 # This is an auxiliary script that is part of the Exim test suite. It must be #
@@ -10,19 +13,30 @@
 # be copied. The script must be run in the correct current directory.         #
 ###############################################################################
 
-open(IN, "$ARGV[0]") || die "** Failed to open $ARGV[0]: $!\n";
-open(OUT, ">eximdir/exim") || die "** Failed to open eximdir/exim: $!\n";
+open(IN, $ARGV[0]) || die "** Failed to open $ARGV[0]: $!\n";
+open(OUT, '>eximdir/exim') || die "** Failed to open eximdir/exim: $!\n";
 
 while(<IN>)
   {
   s/>>>running<<</<<<testing>>>/;
-  s/(\d+\.\d+(?:[_.]\d+)?([_-]RC\d+|[_-]dev)?(?:[0-9a-fA-F-]*)(?:-XX)?\0<<eximversion>>)/"x.yz\0" . ("*" x (length($1) - 5))/e;
+  s{
+    (\d+[_.]\d+                       # major.minor
+    (?:[_.]\d+)?                      # optional security-patchlevel
+    (?:[_.]\d+)?                      # optional patchlevel
+    (?:[_-]RC\d+|[_-]?dev(?:start)?)? # optional RC or dev(start)
+    (?:(?:[_-]\d+)?                   # git tag distance
+       [-_][[:xdigit:]]+)?            # git id
+    (?:[-_]XX)?\0                     # git dirty bit
+    <<eximversion>>                   # marker
+    )
+   }
+   {"x.yz\0" . ("*" x (length($1) - 5))}xe;
   print OUT;
   }
 
 close(IN);
 close(OUT);
 
-chmod 04755, "eximdir/exim";
+chmod 04755, 'eximdir/exim';
 
 # End of patchexim script

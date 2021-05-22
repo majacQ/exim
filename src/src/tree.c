@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions for maintaining binary balanced trees and some associated
@@ -27,12 +27,13 @@ Returns:  nothing
 */
 
 void
-tree_add_nonrecipient(uschar *s)
+tree_add_nonrecipient(const uschar *s)
 {
-tree_node *node = store_get(sizeof(tree_node) + Ustrlen(s));
+rmark rpoint = store_mark();
+tree_node *node = store_get(sizeof(tree_node) + Ustrlen(s), is_tainted(s));
 Ustrcpy(node->name, s);
 node->data.ptr = NULL;
-if (!tree_insertnode(&tree_nonrecipients, node)) store_reset(node);
+if (!tree_insertnode(&tree_nonrecipients, node)) store_reset(rpoint);
 }
 
 
@@ -51,12 +52,13 @@ Returns:  nothing
 */
 
 void
-tree_add_duplicate(uschar *s, address_item *addr)
+tree_add_duplicate(const uschar *s, address_item *addr)
 {
-tree_node *node = store_get(sizeof(tree_node) + Ustrlen(s));
+rmark rpoint = store_mark();
+tree_node *node = store_get(sizeof(tree_node) + Ustrlen(s), is_tainted(s));
 Ustrcpy(node->name, s);
 node->data.ptr = addr;
-if (!tree_insertnode(&tree_duplicates, node)) store_reset(node);
+if (!tree_insertnode(&tree_duplicates, node)) store_reset(rpoint);
 }
 
 
@@ -72,16 +74,18 @@ Returns:     nothing
 */
 
 void
-tree_add_unusable(host_item *h)
+tree_add_unusable(const host_item *h)
 {
+rmark rpoint = store_mark();
 tree_node *node;
 uschar s[256];
 sprintf(CS s, "T:%.200s:%s", h->name, h->address);
-node = store_get(sizeof(tree_node) + Ustrlen(s));
+node = store_get(sizeof(tree_node) + Ustrlen(s),
+			is_tainted(h->name) || is_tainted(h->address));
 Ustrcpy(node->name, s);
 node->data.val = h->why;
 if (h->status == hstatus_unusable_expired) node->data.val += 256;
-if (!tree_insertnode(&tree_unusable, node)) store_reset(node);
+if (!tree_insertnode(&tree_unusable, node)) store_reset(rpoint);
 }
 
 
@@ -328,13 +332,13 @@ Returns:    pointer to node, or NULL if not found
 */
 
 tree_node *
-tree_search(tree_node *p, uschar *name)
+tree_search(tree_node *p, const uschar *name)
 {
-while (p != NULL)
+while (p)
   {
   int c = Ustrcmp(name, p->name);
   if (c == 0) return p;
-  p = (c < 0)? p->left : p->right;
+  p = c < 0 ? p->left : p->right;
   }
 return NULL;
 }
@@ -355,11 +359,34 @@ Arguments:
 void
 tree_walk(tree_node *p, void (*f)(uschar*, uschar*, void*), void *ctx)
 {
-if (p == NULL) return;
+if (!p) return;
 f(p->name, p->data.ptr, ctx);
-if (p->left != NULL) tree_walk(p->left, f, ctx);
-if (p->right != NULL) tree_walk(p->right, f, ctx);
+tree_walk(p->left, f, ctx);
+tree_walk(p->right, f, ctx);
 }
+
+
+
+/* Add a node to a tree, ignoring possibility of duplicates */
+
+static void
+tree_add_var(uschar * name, uschar * val, void * ctx)
+{
+tree_node ** root = ctx;
+tree_node * node = store_get(sizeof(tree_node) + Ustrlen(name), is_tainted(name));
+Ustrcpy(node->name, name);
+node->data.ptr = val;
+(void) tree_insertnode(root, node);
+}
+
+/* Duplicate a tree */
+
+void
+tree_dup(tree_node ** dstp, tree_node * src)
+{
+tree_walk(src, tree_add_var, dstp);
+}
+
 
 
 /* End of tree.c */

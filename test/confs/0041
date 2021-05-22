@@ -1,25 +1,29 @@
 # Exim test configuration 0041
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
 domainlist local_domains = test.ex
 
+acl_smtp_vrfy = check_vrfy
 acl_smtp_expn = check_expn
 qualify_domain = test.ex
 no_write_rejectlog
+recipient_unqualified_hosts = 3.3.3.3
 
 
 # ----- ACLs -----
 
 begin acl
+
+check_vrfy:
+  deny	 local_parts = hardfail
+         message = 599 custom reject
+  accept local_parts = acceptable
+  accept local_parts = ok_with_dom
+	 domains = test.ex
 
 check_expn:
   accept hosts = 2.2.2.2
@@ -36,7 +40,7 @@ system_aliases:
 
 localuser:
   driver = accept
-  local_parts = userx
+  local_parts = userx : ok_with_dom : acceptable
   transport = local_delivery
 
 
@@ -48,7 +52,7 @@ local_delivery:
   driver = appendfile
   delivery_date_add
   envelope_to_add
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   return_path_add
   user = CALLER
 

@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -21,7 +22,7 @@ the find function. */
 /* See local README for interface description. */
 
 static void *
-testdb_open(uschar *filename, uschar **errmsg)
+testdb_open(const uschar * filename, uschar ** errmsg)
 {
 filename = filename;   /* Keep picky compilers happy */
 errmsg = errmsg;
@@ -37,8 +38,9 @@ return (void *)(1);    /* Just return something non-null */
 /* See local README for interface description. */
 
 static int
-testdb_find(void *handle, uschar *filename, uschar *query, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+testdb_find(void * handle, const uschar * filename, const uschar * query,
+  int length, uschar ** result, uschar ** errmsg, uint * do_cache,
+  const uschar * opts)
 {
 handle = handle;          /* Keep picky compilers happy */
 filename = filename;
@@ -47,17 +49,17 @@ length = length;
 if (Ustrcmp(query, "fail") == 0)
   {
   *errmsg = US"testdb lookup forced FAIL";
-  DEBUG(D_lookup) debug_printf("%s\n", *errmsg);
+  DEBUG(D_lookup) debug_printf_indent("%s\n", *errmsg);
   return FAIL;
   }
 if (Ustrcmp(query, "defer") == 0)
   {
   *errmsg = US"testdb lookup forced DEFER";
-  DEBUG(D_lookup) debug_printf("%s\n", *errmsg);
+  DEBUG(D_lookup) debug_printf_indent("%s\n", *errmsg);
   return DEFER;
   }
 
-if (Ustrcmp(query, "nocache") == 0) *do_cache = FALSE;
+if (Ustrcmp(query, "nocache") == 0) *do_cache = 0;
 
 *result = string_copy(query);
 return OK;
@@ -82,15 +84,15 @@ fprintf(f, "Library version: TestDB: Exim version %s\n", EXIM_VERSION_STR);
 
 
 static lookup_info _lookup_info = {
-  US"testdb",                    /* lookup name */
-  lookup_querystyle,             /* query-style lookup */
-  testdb_open,                   /* open function */
-  NULL,                          /* check function */
-  testdb_find,                   /* find function */
-  NULL,                          /* no close function */
-  NULL,                          /* no tidy function */
-  NULL,                          /* no quoting function */
-  testdb_version_report          /* version reporting */
+  .name = US"testdb",			/* lookup name */
+  .type = lookup_querystyle,		/* query-style lookup */
+  .open = testdb_open,			/* open function */
+  .check = NULL,			/* check function */
+  .find = testdb_find,			/* find function */
+  .close = NULL,			/* no close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = NULL,			/* no quoting function */
+  .version_report = testdb_version_report          /* version reporting */
 };
 
 #ifdef DYNLOOKUP

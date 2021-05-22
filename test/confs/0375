@@ -1,13 +1,8 @@
 # Exim test configuration 0375
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -90,7 +85,7 @@ begin transports
 # Successful local transport
 ut1:
   driver = appendfile
-  file = DIR/test-mail/$local_part-u
+  file = DIR/test-mail/${bless:$local_part}-u
   user = CALLER
   return_path_add
   envelope_to_add
@@ -119,6 +114,7 @@ ut4:
   driver = smtp
   hosts = 127.0.0.1
   port = PORT_S
+  hosts_try_fastopen = :
   allow_localhost
   max_rcpt = 1
   disable_logging
@@ -129,6 +125,7 @@ ut5:
   driver = smtp
   hosts = 127.0.0.1
   port = PORT_S
+  hosts_try_fastopen =	:
   allow_localhost
   max_rcpt = 1
   disable_logging
@@ -140,6 +137,7 @@ ut6:
   driver = smtp
   hosts = 127.0.0.1
   port = PORT_S
+  hosts_try_fastopen =	:
   allow_localhost
   max_rcpt = 1
   disable_logging
@@ -148,7 +146,7 @@ ut6:
 # Real delivery
 real:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   user = CALLER
   return_path_add
   envelope_to_add

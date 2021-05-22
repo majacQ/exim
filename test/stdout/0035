@@ -144,7 +144,8 @@ End of script
 EXIMUSER EXIM_UID EXIM_GID
 <notsubmit@y>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp
@@ -164,7 +165,8 @@ dddP Received: from [127.0.0.1] (helo=rhu.barb)
 EXIMUSER EXIM_UID EXIM_GID
 <a@y>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp
@@ -187,7 +189,8 @@ dddF From: a@y
 EXIMUSER EXIM_UID EXIM_GID
 <>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp
@@ -208,7 +211,8 @@ dddP Received: from [127.0.0.1] (helo=rhu.barb)
 EXIMUSER EXIM_UID EXIM_GID
 <notsubmit@y>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp
@@ -229,7 +233,8 @@ dddS Sender: sender@some.where
 EXIMUSER EXIM_UID EXIM_GID
 <a@y>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp
@@ -253,7 +258,8 @@ dddF From: a@y
 EXIMUSER EXIM_UID EXIM_GID
 <a@y>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp
@@ -277,7 +283,8 @@ dddF From: a@y
 EXIMUSER EXIM_UID EXIM_GID
 <a@y>
 ddddddddd 0
--helo_name rhu.barb
+-received_time_usec .uuuuuu
+--helo_name rhu.barb
 -host_address 127.0.0.1.9999
 -interface_address 127.0.0.1.1225
 -received_protocol esmtp

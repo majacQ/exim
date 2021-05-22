@@ -17,8 +17,8 @@ file check: TESTSUITE/aux-fixed/0084.$local_part
 expanded file: TESTSUITE/aux-fixed/0084.yes
 stat() yielded 0
 calling forward router
-rda_interpret (file): TESTSUITE/aux-fixed/0084.$local_part
-expanded: TESTSUITE/aux-fixed/0084.yes
+rda_interpret (file): 'TESTSUITE/aux-fixed/0084.${bless:$local_part}'
+expanded: 'TESTSUITE/aux-fixed/0084.yes'
 ssss bytes read from TESTSUITE/aux-fixed/0084.yes
 file is not a filter file
 parse_forward_list: userx@test.ex
@@ -41,7 +41,7 @@ localuser router called for userx@test.ex
 queued for <unset> transport: local_part = userx
 domain = test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=userx
 routed by localuser router
   envelope to: userx@test.ex
   transport: <none>
@@ -53,15 +53,15 @@ checking require_files
 file check: ! TESTSUITE/aux-fixed/0084.$local_part
 expanded file: TESTSUITE/aux-fixed/0084.no
 stat() yielded -1
-errno = 2
+errno = EEE
 calling smart router
 smart router called for no@myhost.test.ex
   domain = myhost.test.ex
 queued for <unset> transport: local_part = no
 domain = myhost.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by smart router
   envelope to: no@myhost.test.ex
   transport: <none>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

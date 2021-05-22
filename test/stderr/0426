@@ -8,6 +8,7 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -25,6 +26,7 @@ local_part=x domain=uppercase.test.ex
 calling r1 router
 r1 router called for x@uppercase.test.ex
   domain = uppercase.test.ex
+uppercase.test.ex (MX resp) DNSSEC
 local host found for non-MX address
 fully qualified name = UpperCase.test.ex
 uppercase.test.ex 127.0.0.1 mx=-1 sort=xx 
@@ -33,7 +35,7 @@ set transport t1
 queued for t1 transport: local_part = x
 domain = uppercase.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by r1 router
   envelope to: x@UpperCase.test.ex
   transport: t1
@@ -48,7 +50,7 @@ After routing:
 locking TESTSUITE/spool/db/retry.lockfile
 locking TESTSUITE/spool/db/wait-t1.lockfile
 LOG: MAIN
-  ** x@uppercase.test.ex R=r1 T=t1: SMTP error from remote mail server after RCPT TO:<x@UpperCase.test.ex>: host uppercase.test.ex [127.0.0.1]: 550 Unknown
+  ** x@uppercase.test.ex R=r1 T=t1 H=uppercase.test.ex [127.0.0.1]: SMTP error from remote mail server after RCPT TO:<x@UpperCase.test.ex>: 550 Unknown
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
@@ -59,6 +61,7 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -71,8 +74,8 @@ routing CALLER@test.ex
 local_part=CALLER domain=test.ex
 checking senders
 calling r0 router
-rda_interpret (string): :blackhole:
-expanded: :blackhole:
+rda_interpret (string): ':blackhole:'
+expanded: ':blackhole:'
 file is not a filter file
 parse_forward_list: :blackhole:
 extract item: :blackhole:
@@ -87,9 +90,9 @@ After routing:
   Deferred addresses:
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (bounce-message) terminating with rc=0 >>>>>>>>>>>>>>>>
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

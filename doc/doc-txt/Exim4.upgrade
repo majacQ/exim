@@ -468,11 +468,12 @@ Generic Router Options
 . The way that require_files works has been changed. Each item in the list is
   now separately expanded as the test proceeds. The use of leading ! and +
   characters is unchanged. However, user and group checking is done differently.
-  Previously, seteuid() was used, but seteuid() is no longer used in Exim (see
-  "Security" below). Instead, Exim now scans along the components of the file
-  path and checks the access for the given uid and gid. It expects "x" access
-  on directories and "r" on the final file. This means that file access control
-  lists (on those operating systems that have them) are ignored.
+  Previously, seteuid() was used, but seteuid() is no longer used (see
+  "Security" below) for checking the files required by this option. Instead,
+  Exim now scans along the components of the file path and checks the access
+  for the given uid and gid. It expects "x" access on directories and "r" on
+  the final file. This means that file access control lists (on those
+  operating systems that have them) are ignored.
 
 
 Other Consequences of the Director/Router Merge
@@ -802,7 +803,7 @@ The smtp transport
 . The authenticate_hosts option has been renamed as hosts_try_auth. A new
   option called hosts_require_auth has been added; if authentication fails for
   one of these hosts, Exim does _not_ try to send unauthenticated. It defers
-  instead. The deferal error is detectable in the retry rules, so this can be
+  instead. The deferral error is detectable in the retry rules, so this can be
   turned into a hard failure if required.
 
 
@@ -1206,7 +1207,7 @@ and the bounce.
 
 The logging options that have been abolished are: log_all_parents,
 log_arguments, log_incoming_port, log_interface, log_ip_options,
-log_level, log_queue_run_level, log_received_sender, log_received_rceipients,
+log_level, log_queue_run_level, log_received_sender, log_received_recipients,
 log_rewrites, log_sender_on_delivery, log_smtp_confirmation,
 log_smtp_connections, log_smtp_syntax_errors, log_subject, tls_log_cipher,
 tls_log_peerdn.
@@ -1323,7 +1324,7 @@ String Expansion
 
 . There's a new expansion feature for running commands:
 
-    ${run{comand args}{yes}{no}}
+    ${run{command args}{yes}{no}}
 
   Like all the other conditional items, the {yes} and {no} strings are
   optional. Omitting both is equivalent to {$value}. The standard output of the
@@ -1380,8 +1381,11 @@ Security
 --------
 
 Exim 3 could be run in a variety of ways as far as security was concerned. This
-has all been simplified in Exim 4. The security-conscious might like to know
-that it no longer makes any use of the seteuid() function.
+has all been simplified in Exim 4. Exim dropped the use of seteuid() in
+most places. But recent (2020-10/2021-04) vulnerabilities forced us to
+re-introduce seteuid() for opening the database files (hint files) as secure as
+possible. For future (>= 4.95) versions we work on a solution that
+does not need the seteuid call.
 
 . A UID and GID are required to be specified when Exim is compiled. They can be
   now specified by name as well as by number, so the relevant options are now

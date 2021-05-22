@@ -7,23 +7,26 @@
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "check_recipient"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 19)
 >>> check domains = +relay_domains
 >>> d in "@mx_any"? no (end of list)
 >>> d in "+relay_domains"? no (end of list)
 >>> accept: condition test failed in ACL "check_recipient"
->>> processing "deny"
+>>> processing "deny" (TESTSUITE/test-config 20)
+>>>   message: relay not permitted
 >>> deny: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": DENY
 LOG: H=[V4NET.0.0.0] F=<a@b> rejected RCPT <c@d>: relay not permitted
 >>> using ACL "check_recipient"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 19)
 >>> check domains = +relay_domains
 >>> local host has lowest MX
 >>> mxt1.test.ex in "@mx_any"? yes (matched "@mx_any")
 >>> mxt1.test.ex in "+relay_domains"? yes (matched "+relay_domains")
 >>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT
 >>> using ACL "check_recipient"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 19)
 >>> check domains = +relay_domains
 >>> local host in host list - removed hosts:
 >>>   ten-2.test.ex V4NET.0.0.2 6
@@ -31,3 +34,4 @@ LOG: H=[V4NET.0.0.0] F=<a@b> rejected RCPT <c@d>: relay not permitted
 >>> mxt6.test.ex in "@mx_any"? yes (matched "@mx_any")
 >>> mxt6.test.ex in "+relay_domains"? yes (matched "+relay_domains")
 >>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT

@@ -25,17 +25,20 @@ host in helo_accept_junk_hosts? no (option unset)
 SMTP>> 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<x@y>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<x@a.b.c>
 using ACL "check_rcpt"
-processing "accept"
+processing "accept" (TESTSUITE/test-config 22)
 check domains = +local_domains
 a.b.c in "*.test.ex"? no (end of list)
 a.b.c in "+local_domains"? no (end of list)
 accept: condition test failed in ACL "check_rcpt"
-processing "accept"
+processing "accept" (TESTSUITE/test-config 23)
 check domains = +relay_domains
 a.b.c in "a.b.c"? yes (matched "a.b.c")
+data from lookup saved for cache for +relay_domains: key 'a.b.c' value 'a.b.c'
 a.b.c in "+relay_domains"? yes (matched "+relay_domains")
 check verify = recipient
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -59,6 +62,7 @@ r1 router skipped: domains mismatch
 local_part=x domain=x.test.ex
 checking domains
 x.test.ex in "*.test.ex"? yes (matched "*.test.ex")
+data from lookup saved for cache for +local_domains: key 'x.test.ex' value '*.test.ex'
 x.test.ex in "+local_domains"? yes (matched "+local_domains")
 calling r2 router
 r2 router called for x@x.test.ex
@@ -67,16 +71,17 @@ set transport t2
 queued for t2 transport: local_part = x
 domain = x.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=*.test.ex local_part_data=NULL
 routed by r2 router
   envelope to: x@x.test.ex
   transport: t2
 ----------- end verify ------------
 accept: condition test succeeded in ACL "check_rcpt"
+end of ACL "check_rcpt": ACCEPT
 SMTP>> 250 Accepted
 SMTP<< quit
 SMTP>> 221 the.local.host.name closing connection
 LOG: smtp_connection MAIN
   SMTP connection from [V4NET.0.0.0] closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

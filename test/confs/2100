@@ -2,15 +2,13 @@
 
 SERVER=
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/tls_conf_prefix
 
+primary_hostname = myhost.test.ex
+
+.ifdef _HAVE_TLS
+# that was purely to trigger the lazy-create of builtin macros
+.endif
 # ----- Main settings -----
 
 acl_smtp_rcpt = accept
@@ -51,9 +49,11 @@ send_to_server:
   allow_localhost
   hosts = 127.0.0.1
   port = PORT_D
+  hosts_try_fastopen = :
   tls_certificate = DIR/aux-fixed/cert2
   tls_privatekey = DIR/aux-fixed/cert2
   tls_verify_certificates = DIR/aux-fixed/cert2
+  tls_try_verify_hosts = :
 
 
 # ----- Retry -----

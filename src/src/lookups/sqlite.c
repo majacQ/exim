@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -18,19 +19,28 @@
 /* See local README for interface description. */
 
 static void *
-sqlite_open(uschar *filename, uschar **errmsg)
+sqlite_open(const uschar * filename, uschar ** errmsg)
 {
 sqlite3 *db = NULL;
 int ret;
 
-ret = sqlite3_open((char *)filename, &db);
-if (ret != 0)
+if (!filename || !*filename)
+  {
+  DEBUG(D_lookup) debug_printf_indent("Using sqlite_dbfile: %s\n", sqlite_dbfile);
+  filename = sqlite_dbfile;
+  }
+if (!filename || *filename != '/')
+  *errmsg = US"absolute file name expected for \"sqlite\" lookup";
+else if ((ret = sqlite3_open(CCS filename, &db)) != 0)
   {
   *errmsg = (void *)sqlite3_errmsg(db);
-  debug_printf("Error opening database: %s\n", *errmsg);
+  sqlite3_close(db);
+  db = NULL;
+  DEBUG(D_lookup) debug_printf_indent("Error opening database: %s\n", *errmsg);
   }
 
-sqlite3_busy_timeout(db, 1000 * sqlite_lock_timeout);
+if (db)
+  sqlite3_busy_timeout(db, 1000 * sqlite_lock_timeout);
 return db;
 }
 
@@ -41,61 +51,52 @@ return db;
 
 /* See local README for interface description. */
 
-struct strbuf {
-  uschar *string;
-  int size;
-  int len;
-};
-
-static int sqlite_callback(void *arg, int argc, char **argv, char **azColName)
+static int
+sqlite_callback(void *arg, int argc, char **argv, char **azColName)
 {
-struct strbuf *res = arg;
-int i;
+gstring * res = *(gstring **)arg;
 
 /* For second and subsequent results, insert \n */
 
-if (res->string != NULL)
-  res->string = string_cat(res->string, &res->size, &res->len, US"\n", 1);
+if (res)
+  res = string_catn(res, US"\n", 1);
 
 if (argc > 1)
   {
   /* For multiple fields, include the field name too */
-  for (i = 0; i < argc; i++)
+  for (int i = 0; i < argc; i++)
     {
     uschar *value = US((argv[i] != NULL)? argv[i]:"<NULL>");
-    res->string = lf_quote(US azColName[i], value, Ustrlen(value), res->string,
-      &res->size, &res->len);
+    res = lf_quote(US azColName[i], value, Ustrlen(value), res);
     }
   }
 
 else
-  {
-  res->string = string_append(res->string, &res->size, &res->len, 1,
-    (argv[0] != NULL)? argv[0]:"<NULL>");
-  }
+  res = string_cat(res, argv[0] ? US argv[0] : US "<NULL>");
 
-res->string[res->len] = 0;
+*(gstring **)arg = res;
 return 0;
 }
 
 
 static int
-sqlite_find(void *handle, uschar *filename, uschar *query, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+sqlite_find(void * handle, const uschar * filename, const uschar * query,
+  int length, uschar ** result, uschar ** errmsg, uint * do_cache,
+  const uschar * opts)
 {
 int ret;
-struct strbuf res = { NULL, 0, 0 };
+gstring * res = NULL;
 
-ret = sqlite3_exec(handle, (char *)query, sqlite_callback, &res, (char **)errmsg);
+ret = sqlite3_exec(handle, CS query, sqlite_callback, &res, CSS errmsg);
 if (ret != SQLITE_OK)
   {
-  debug_printf("sqlite3_exec failed: %s\n", *errmsg);
+  debug_printf_indent("sqlite3_exec failed: %s\n", *errmsg);
   return FAIL;
   }
 
-if (res.string == NULL) *do_cache = FALSE;
+if (!res) *do_cache = 0;
 
-*result = res.string;
+*result = string_from_gstring(res);
 return OK;
 }
 
@@ -141,7 +142,7 @@ if (opt != NULL) return NULL;     /* No options recognized */
 while ((c = *t++) != 0) if (c == '\'') count++;
 
 if (count == 0) return s;
-t = quoted = store_get(Ustrlen(s) + count + 1);
+t = quoted = store_get(Ustrlen(s) + count + 1, is_tainted(s));
 
 while ((c = *s++) != 0)
   {
@@ -175,15 +176,15 @@ fprintf(f, "                         Exim version %s\n", EXIM_VERSION_STR);
 }
 
 static lookup_info _lookup_info = {
-  US"sqlite",                    /* lookup name */
-  lookup_absfilequery,           /* query-style lookup, starts with file name */
-  sqlite_open,                   /* open function */
-  NULL,                          /* no check function */
-  sqlite_find,                   /* find function */
-  sqlite_close,                  /* close function */
-  NULL,                          /* no tidy function */
-  sqlite_quote,                  /* quoting function */
-  sqlite_version_report          /* version reporting */
+  .name = US"sqlite",			/* lookup name */
+  .type = lookup_absfilequery,		/* query-style lookup, starts with file name */
+  .open = sqlite_open,			/* open function */
+  .check = NULL,			/* no check function */
+  .find = sqlite_find,			/* find function */
+  .close = sqlite_close,		/* close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = sqlite_quote,		/* quoting function */
+  .version_report = sqlite_version_report          /* version reporting */
 };
 
 #ifdef DYNLOOKUP

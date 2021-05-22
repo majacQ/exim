@@ -7,7 +7,7 @@
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "rcpt"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 18)
 >>> check verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing list1-request@lists.test.ex
@@ -24,8 +24,9 @@
 >>> routed by r5 router
 >>> ----------- end verify ------------
 >>> accept: condition test succeeded in ACL "rcpt"
+>>> end of ACL "rcpt": ACCEPT
 >>> using ACL "rcpt"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 18)
 >>> check verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing list1@lists.test.ex
@@ -35,9 +36,10 @@
 >>> routed by r2 router
 >>> ----------- end verify ------------
 >>> accept: condition test succeeded in ACL "rcpt"
+>>> end of ACL "rcpt": ACCEPT
 >>> host in smtp_accept_max_nonmail_hosts? yes (matched "*")
 >>> using ACL "rcpt"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 18)
 >>> check verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing list1@lists.test.ex
@@ -51,7 +53,7 @@
 >>> accept: endpass encountered - denying access
 LOG: H=[1.2.3.4] F=<anyone@anywhere> rejected RCPT <list1@lists.test.ex>: list1@lists.test.ex is a closed mailing list
 >>> using ACL "rcpt"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 18)
 >>> check verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing nonlist@lists.test.ex

@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2016 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -86,32 +87,36 @@ Arguments:
   format    sprintf format
   ap        va_list value for format arguments
 
-Returns:    nothing
+Returns:    pointer to header struct (last one, if multiple added)
 */
 
-static void
+static header_line *
 header_add_backend(BOOL after, uschar *name, BOOL topnot, int type,
   const char *format, va_list ap)
 {
-header_line *h, *new;
+header_line *h, *new = NULL;
 header_line **hptr;
 
 uschar *p, *q;
-uschar buffer[HEADER_ADD_BUFFER_SIZE];
+uschar * buf = store_get(HEADER_ADD_BUFFER_SIZE, FALSE);
+gstring gs = { .size = HEADER_ADD_BUFFER_SIZE, .ptr = 0, .s = buf };
 
-if (header_last == NULL) return;
+if (!header_last) return NULL;
 
-if (!string_vformat(buffer, sizeof(buffer), format, ap))
+if (!string_vformat(&gs, SVFMT_REBUFFER, format, ap))
   log_write(0, LOG_MAIN|LOG_PANIC_DIE, "string too long in header_add: "
-    "%.100s ...", buffer);
+    "%.100s ...", string_from_gstring(&gs));
+
+if (gs.s != buf) store_release_above(buf);
+gstring_release_unused(&gs);
+string_from_gstring(&gs);
 
 /* Find where to insert this header */
 
-if (name == NULL)
-  {
+if (!name)
   if (after)
     {
-    hptr = &(header_last->next);
+    hptr = &header_last->next;
     h = NULL;
     }
   else
@@ -119,30 +124,28 @@ if (name == NULL)
     hptr = &header_list;
 
     /* header_list->text can be NULL if we get here between when the new
-    received header is allocated and when it is acutally filled in. We want
+    received header is allocated and when it is actually filled in. We want
     that header to be first, so skip it for now. */
 
-    if (header_list->text == NULL)
+    if (!header_list->text)
       hptr = &header_list->next;
     h = *hptr;
     }
-  }
 
 else
   {
   int len = Ustrlen(name);
 
-  /* Find the first non-deleted header witht the correct name. */
+  /* Find the first non-deleted header with the correct name. */
 
-  for (hptr = &header_list; (h = *hptr) != NULL; hptr = &(h->next))
-    {
-    if (header_testname(h, name, len, TRUE)) break;
-    }
+  for (hptr = &header_list; (h = *hptr); hptr = &h->next)
+    if (header_testname(h, name, len, TRUE))
+      break;
 
   /* Handle the case where no header is found. To insert at the bottom, nothing
   needs to be done. */
 
-  if (h == NULL)
+  if (!h)
     {
     if (topnot)
       {
@@ -155,41 +158,39 @@ else
   true. In this case, we want to include deleted headers in the block. */
 
   else if (after)
-    {
     for (;;)
       {
-      if (h->next == NULL || !header_testname(h, name, len, FALSE)) break;
-      hptr = &(h->next);
+      if (!h->next || !header_testname(h, name, len, FALSE)) break;
+      hptr = &h->next;
       h = h->next;
       }
-    }
   }
 
 /* Loop for multiple header lines, taking care about continuations. At this
 point, we have hptr pointing to the link field that will point to the new
 header, and h containing the following header, or NULL. */
 
-for (p = q = buffer; *p != 0; )
+for (p = q = gs.s; *p; p = q)
   {
   for (;;)
     {
     q = Ustrchr(q, '\n');
-    if (q == NULL) q = p + Ustrlen(p);
+    if (!q) q = p + Ustrlen(p);
     if (*(++q) != ' ' && *q != '\t') break;
     }
 
-  new = store_get(sizeof(header_line));
+  new = store_get(sizeof(header_line), FALSE);
   new->text = string_copyn(p, q - p);
   new->slen = q - p;
   new->type = type;
   new->next = h;
 
   *hptr = new;
-  hptr = &(new->next);
+  hptr = &new->next;
 
-  if (h == NULL) header_last = new;
-  p = q;
+  if (!h) header_last = new;
   }
+return new;
 }
 
 
@@ -207,20 +208,32 @@ Arguments:
   format    sprintf format
   ...       format arguments
 
-Returns:    nothing
+Returns:    pointer to header struct added
 */
 
+header_line *
+header_add_at_position_internal(BOOL after, uschar *name, BOOL topnot, int type,
+  const char *format, ...)
+{
+header_line * h;
+va_list ap;
+va_start(ap, format);
+h = header_add_backend(after, name, topnot, type, format, ap);
+va_end(ap);
+return h;
+}
+
+
+/* Documented external i/f for local_scan */
 void
 header_add_at_position(BOOL after, uschar *name, BOOL topnot, int type,
   const char *format, ...)
 {
 va_list ap;
 va_start(ap, format);
-header_add_backend(after, name, topnot, type, format, ap);
+(void) header_add_backend(after, name, topnot, type, format, ap);
 va_end(ap);
 }
-
-
 
 /*************************************************
 *            Add new header on end of chain      *
@@ -241,7 +254,7 @@ header_add(int type, const char *format, ...)
 {
 va_list ap;
 va_start(ap, format);
-header_add_backend(TRUE, NULL, FALSE, type, format, ap);
+(void) header_add_backend(TRUE, NULL, FALSE, type, format, ap);
 va_end(ap);
 }
 
@@ -265,17 +278,14 @@ Returns:        nothing
 void
 header_remove(int occ, const uschar *name)
 {
-header_line *h;
 int hcount = 0;
 int len = Ustrlen(name);
-for (h = header_list; h != NULL; h = h->next)
-  {
+for (header_line * h = header_list; h; h = h->next)
   if (header_testname(h, name, len, TRUE) && (occ <= 0 || ++hcount == occ))
     {
     h->type = htype_old;
     if (occ > 0) return;
     }
-  }
 }
 
 
@@ -312,9 +322,8 @@ while (bot < top)
 
   if (c == 0)
     {
-    uschar *s = text + mid->len;
-    while (isspace(*s)) s++;
-    if (*s == ':')
+    uschar * s = text + mid->len;
+    if (Uskip_whitespace(&s) == ':')
       return (!is_resent || mid->allow_resent)? mid->htype : htype_other;
     c = 1;
     }
@@ -359,7 +368,6 @@ static BOOL
 one_pattern_match(uschar *name, int slen, BOOL has_addresses, uschar *pattern)
 {
 BOOL yield = FALSE;
-header_line *h;
 const pcre *re = NULL;
 
 /* If the pattern is a regex, compile it. Bomb out if compiling fails; these
@@ -369,7 +377,7 @@ if (*pattern == '^') re = regex_must_compile(pattern, TRUE, FALSE);
 
 /* Scan for the required header(s) and scan each one */
 
-for (h = header_list; !yield && h != NULL; h = h->next)
+for (header_line * h = header_list; !yield && h; h = h->next)
   {
   if (h->type == htype_old || slen > h->slen ||
       strncmpic(name, h->text, slen) != 0)
@@ -382,7 +390,7 @@ for (h = header_list; !yield && h != NULL; h = h->next)
     {
     uschar *s = h->text + slen;
 
-    while (!yield && *s != 0)
+    while (!yield && *s)
       {
       uschar *error, *next;
       uschar *e = parse_find_address_end(s, FALSE);
@@ -404,14 +412,13 @@ for (h = header_list; !yield && h != NULL; h = h->next)
       /* If there is some kind of syntax error, just give up on this header
       line. */
 
-      if (next == NULL) break;
+      if (!next) break;
 
       /* Otherwise, test for the pattern; a non-regex must be an exact match */
 
-      yield = (re == NULL)?
-        (strcmpic(next, pattern) == 0)
-        :
-        (pcre_exec(re, NULL, CS next, Ustrlen(next), 0, PCRE_EOPT, NULL, 0)
+      yield = !re
+        ? (strcmpic(next, pattern) == 0)
+        : (pcre_exec(re, NULL, CS next, Ustrlen(next), 0, PCRE_EOPT, NULL, 0)
           >= 0);
       }
     }
@@ -439,21 +446,19 @@ header_match(uschar *name, BOOL has_addresses, BOOL cond, string_item *strings,
   int count, ...)
 {
 va_list ap;
-string_item *s;
-int i;
 int slen = Ustrlen(name);
 
-for (s = strings; s != NULL; s = s->next)
-  {
-  if (one_pattern_match(name, slen, has_addresses, s->text)) return cond;
-  }
+for (string_item * s = strings; s; s = s->next)
+  if (one_pattern_match(name, slen, has_addresses, s->text))
+    return cond;
 
 va_start(ap, count);
-for (i = 0; i < count; i++)
-  {
+for (int i = 0; i < count; i++)
   if (one_pattern_match(name, slen, has_addresses, va_arg(ap, uschar *)))
+    {
+    va_end(ap);
     return cond;
-  }
+    }
 va_end(ap);
 
 return !cond;

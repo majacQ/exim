@@ -1,12 +1,16 @@
 # This file is the basis of the main makefile for Exim and friends. The
 # makefile at the top level arranges to build the main makefile by calling
 # scripts/Configure-Makefile from within the build directory. This
-# concatentates the configuration settings from Local/Makefile and other,
+# concatenates the configuration settings from Local/Makefile and other,
 # optional, Local/* files at the front of this file, to create Makefile in the
 # build directory.
+#
+# Copyright (c) The Exim Maintainers 1995 - 2018
+# Copyright (c) The Exim Maintainers 2020
 
 SHELL      = $(MAKE_SHELL)
 SCRIPTS    = ../scripts
+O          = ../OS
 EDITME     = ../Local/Makefile
 EXIMON_EDITME = ../Local/eximon.conf
 
@@ -32,7 +36,8 @@ FE       = $(FULLECHO)
 # up-to-date. Then the os-specific source files and the C configuration file
 # are set up, and finally it goes to the main Exim target.
 
-all:    $(EDITME) checklocalmake Makefile os.h os.c config.h version.h allexim
+all:       utils exim
+config:    $(EDITME) checklocalmake Makefile os.c config.h version.h version.sh macro.c
 
 checklocalmake:
 	@if $(SHELL) $(SCRIPTS)/newer $(EDITME)-$(OSTYPE) $(EDITME) || \
@@ -75,12 +80,23 @@ Makefile: ../OS/Makefile-Base ../OS/Makefile-Default \
 
 # Build (link) the os.h file
 
-os.h:
+os.h:	$(SCRIPTS)/Configure-os.h \
+	$(O)/os.h-Darwin	\
+	$(O)/os.h-FreeBSD	\
+	$(O)/os.h-GNU		\
+	$(O)/os.h-Linux		\
+	$(O)/os.h-OpenBSD	\
+	$(O)/os.h-SunOS5
 	$(SHELL) $(SCRIPTS)/Configure-os.h
 
 # Build the os.c file
 
-os.c:   ../src/os.c
+os.c:   ../src/os.c \
+	$(SCRIPTS)/Configure-os.c \
+	$(O)/os.c-FreeBSD	\
+	$(O)/os.c-GNU		\
+	$(O)/os.c-Linux		\
+	$(O)/os.c-SunOS5
 	$(SHELL) $(SCRIPTS)/Configure-os.c
 
 # Build the config.h file.
@@ -88,26 +104,147 @@ os.c:   ../src/os.c
 config.h: Makefile buildconfig ../src/config.h.defaults $(EDITME)
 	$(SHELL) $(SCRIPTS)/Configure-config.h "$(MAKE)"
 
+# Build the builtin-macros data struct
+
+MACRO_HSRC = macro_predef.h os.h globals.h config.h macros.h \
+	routers/accept.h routers/dnslookup.h routers/ipliteral.h \
+	routers/iplookup.h routers/manualroute.h routers/queryprogram.h \
+	routers/redirect.h
+
+OBJ_MACRO = macro_predef.o \
+	macro-globals.o macro-readconf.o macro-route.o macro-transport.o macro-drtables.o \
+	macro-tls.o \
+	macro-appendfile.o macro-autoreply.o macro-lmtp.o macro-pipe.o macro-queuefile.o \
+	macro-smtp.o macro-accept.o macro-dnslookup.o macro-ipliteral.o macro-iplookup.o \
+	macro-manualroute.o macro-queryprogram.o macro-redirect.o \
+	macro-auth-spa.o macro-cram_md5.o macro-cyrus_sasl.o macro-dovecot.o macro-gsasl_exim.o \
+	macro-heimdal_gssapi.o macro-plaintext.o macro-spa.o macro-authtls.o macro-external.o \
+	macro-dkim.o macro-malware.o macro-signing.o
+
+$(OBJ_MACRO):	$(MACRO_HSRC)
+
+macro_predef.o :	macro_predef.c
+	@echo "$(CC) -DMACRO_PREDEF macro_predef.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ macro_predef.c
+macro-globals.o :	globals.c
+	@echo "$(CC) -DMACRO_PREDEF globals.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ globals.c
+macro-readconf.o :	readconf.c
+	@echo "$(CC) -DMACRO_PREDEF readconf.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ readconf.c
+macro-route.o :		route.c
+	@echo "$(CC) -DMACRO_PREDEF route.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ route.c
+macro-transport.o:	transport.c
+	@echo "$(CC) -DMACRO_PREDEF transport.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transport.c
+macro-drtables.o :	drtables.c
+	@echo "$(CC) -DMACRO_PREDEF drtables.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ drtables.c
+macro-tls.o:	tls.c tls-gnu.c tls-openssl.c
+	@echo "$(CC) -DMACRO_PREDEF tls.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ tls.c
+macro-appendfile.o :	transports/appendfile.c
+	@echo "$(CC) -DMACRO_PREDEF transports/appendfile.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transports/appendfile.c
+macro-autoreply.o :	transports/autoreply.c
+	@echo "$(CC) -DMACRO_PREDEF transports/autoreply.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transports/autoreply.c
+macro-lmtp.o:		transports/lmtp.c
+	@echo "$(CC) -DMACRO_PREDEF transports/lmtp.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transports/lmtp.c
+macro-pipe.o :		transports/pipe.c
+	@echo "$(CC) -DMACRO_PREDEF transports/pipe.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transports/pipe.c
+macro-queuefile.o :	transports/queuefile.c
+	@echo "$(CC) -DMACRO_PREDEF transports/queuefile.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transports/queuefile.c
+macro-smtp.o :		transports/smtp.c
+	@echo "$(CC) -DMACRO_PREDEF transports/smtp.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ transports/smtp.c
+macro-accept.o :	routers/accept.c
+	@echo "$(CC) -DMACRO_PREDEF routers/accept.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/accept.c
+macro-dnslookup.o :	routers/dnslookup.c
+	@echo "$(CC) -DMACRO_PREDEF routers/dnslookup.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/dnslookup.c
+macro-ipliteral.o :	routers/ipliteral.c
+	@echo "$(CC) -DMACRO_PREDEF routers/ipliteral.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/ipliteral.c
+macro-iplookup.o :	routers/iplookup.c
+	@echo "$(CC) -DMACRO_PREDEF routers/iplookup.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/iplookup.c
+macro-manualroute.o :	routers/manualroute.c
+	@echo "$(CC) -DMACRO_PREDEF routers/manualroute.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/manualroute.c
+macro-queryprogram.o :	routers/queryprogram.c
+	@echo "$(CC) -DMACRO_PREDEF routers/queryprogram.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/queryprogram.c
+macro-redirect.o :	routers/redirect.c
+	@echo "$(CC) -DMACRO_PREDEF routers/redirect.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ routers/redirect.c
+macro-auth-spa.o :	auths/auth-spa.c
+	@echo "$(CC) -DMACRO_PREDEF auths/auth-spa.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/auth-spa.c
+macro-cram_md5.o :	auths/cram_md5.c
+	@echo "$(CC) -DMACRO_PREDEF auths/cram_md5.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/cram_md5.c
+macro-cyrus_sasl.o :	auths/cyrus_sasl.c
+	@echo "$(CC) -DMACRO_PREDEF auths/cyrus_sasl.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/cyrus_sasl.c
+macro-dovecot.o:	auths/dovecot.c
+	@echo "$(CC) -DMACRO_PREDEF auths/dovecot.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/dovecot.c
+macro-external.o:	auths/external.c
+	@echo "$(CC) -DMACRO_PREDEF auths/external.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/external.c
+macro-gsasl_exim.o :	auths/gsasl_exim.c
+	@echo "$(CC) -DMACRO_PREDEF auths/gsasl_exim.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/gsasl_exim.c
+macro-heimdal_gssapi.o:	auths/heimdal_gssapi.c
+	@echo "$(CC) -DMACRO_PREDEF auths/heimdal_gssapi.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/heimdal_gssapi.c
+macro-plaintext.o :	auths/plaintext.c
+	@echo "$(CC) -DMACRO_PREDEF auths/plaintext.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/plaintext.c
+macro-spa.o :		auths/spa.c
+	@echo "$(CC) -DMACRO_PREDEF auths/spa.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/spa.c
+macro-authtls.o:	auths/tls.c
+	@echo "$(CC) -DMACRO_PREDEF auths/tls.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ auths/tls.c
+macro-dkim.o:		dkim.c
+	@echo "$(CC) -DMACRO_PREDEF dkim.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ dkim.c
+macro-malware.o:	malware.c
+	@echo "$(CC) -DMACRO_PREDEF malware.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ malware.c
+macro-signing.o:	pdkim/signing.c
+	@echo "$(CC) -DMACRO_PREDEF pdkim/signing.c"
+	$(FE)$(CC) -c $(CFLAGS) -DMACRO_PREDEF $(INCLUDE) -o $@ pdkim/signing.c
+
+macro_predef: $(OBJ_MACRO)
+	@echo "$(LNCC) -o $@"
+	$(FE)$(LNCC) -o $@ $(LFLAGS) $(OBJ_MACRO)
+
+macro.c: macro_predef
+	./macro_predef > macro.c
 
 # This target is recognized specially by GNU make. It records those targets
 # that do not correspond to files that are being built and which should
 # therefore always be run, even if the files exist. This shouldn't in fact be a
 # problem, but it does no harm. Other make programs will just ignore this.
 
-.PHONY: all allexim buildauths buildlookups buildpdkim buildrouters \
+.PHONY: all config utils \
+	buildauths buildlookups buildpdkim buildrouters \
         buildtransports checklocalmake clean
 
 
-# This is the real default target for all the various exim binaries and
-# scripts, once the configuring stuff is done.
-
-allexim: config.h $(EXIM_MONITOR) exicyclog exinext exiwhat \
+utils: $(EXIM_MONITOR) exicyclog exinext exiwhat \
         exigrep eximstats exipick exiqgrep exiqsumm \
         transport-filter.pl convert4r3 convert4r4 \
         exim_checkaccess \
-        exim_dbmbuild exim_dumpdb exim_fixdb exim_tidydb exim_lock \
-        buildlookups buildrouters buildtransports \
-        buildauths buildpdkim exim
+        exim_dbmbuild exim_dumpdb exim_fixdb exim_tidydb exim_lock
 
 
 # Targets for special-purpose configuration header builders
@@ -117,9 +254,9 @@ buildconfig: buildconfig.c
 
 
 # Target for the exicyclog utility script
-exicyclog: Makefile config.h ../src/exicyclog.src
+exicyclog: config ../src/exicyclog.src
 	@rm -f exicyclog
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
@@ -136,30 +273,34 @@ exicyclog: Makefile config.h ../src/exicyclog.src
 	  -e "s?MV_COMMAND?$(MV_COMMAND)?" \
 	  -e "s?RM_COMMAND?$(RM_COMMAND)?" \
 	  -e "s?TOUCH_COMMAND?$(TOUCH_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exicyclog.src > exicyclog-t
 	@mv exicyclog-t exicyclog
 	@chmod a+x exicyclog
 	@echo ">>> exicyclog script built"
 
 # Target for the exinext utility script
-exinext: Makefile config.h ../src/exinext.src
+exinext: config ../src/exinext.src
 	@rm -f exinext
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
 	  -e "s?CONFIGURE_FILE_USE_NODE?$(CONFIGURE_FILE_USE_NODE)?" \
 	  -e "s?CONFIGURE_FILE?$(CONFIGURE_FILE)?" \
 	  -e "s?BIN_DIRECTORY?$(BIN_DIRECTORY)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exinext.src > exinext-t
 	@mv exinext-t exinext
 	@chmod a+x exinext
 	@echo ">>> exinext script built"
 
 # Target for the exiwhat utility script
-exiwhat: Makefile config.h ../src/exiwhat.src
+exiwhat: config ../src/exiwhat.src
 	@rm -f exiwhat
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
@@ -172,15 +313,18 @@ exiwhat: Makefile config.h ../src/exiwhat.src
 	  -e "s?EXIWHAT_EGREP_ARG?$(EXIWHAT_EGREP_ARG)?" \
 	  -e "s?EXIWHAT_MULTIKILL_CMD?$(EXIWHAT_MULTIKILL_CMD)?" \
 	  -e "s?EXIWHAT_MULTIKILL_ARG?$(EXIWHAT_MULTIKILL_ARG)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
+	  -e "s?RM_COMMAND?$(RM_COMMAND)?" \
 	  ../src/exiwhat.src > exiwhat-t
 	@mv exiwhat-t exiwhat
 	@chmod a+x exiwhat
 	@echo ">>> exiwhat script built"
 
 # Target for the exim_checkaccess utility script
-exim_checkaccess: Makefile config.h ../src/exim_checkaccess.src
+exim_checkaccess: config ../src/exim_checkaccess.src
 	@rm -f exim_checkaccess
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
@@ -188,17 +332,19 @@ exim_checkaccess: Makefile config.h ../src/exim_checkaccess.src
 	  -e "s?CONFIGURE_FILE?$(CONFIGURE_FILE)?" \
 	  -e "s?BIN_DIRECTORY?$(BIN_DIRECTORY)?" \
 	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exim_checkaccess.src > exim_checkaccess-t
 	@mv exim_checkaccess-t exim_checkaccess
 	@chmod a+x exim_checkaccess
 	@echo ">>> exim_checkaccess script built"; echo ""
 
 # Target for the Exim monitor start-up script
-eximon: Makefile config.h ../src/eximon.src ../OS/eximon.conf-Default \
+eximon: config ../src/eximon.src ../OS/eximon.conf-Default \
           ../Local/eximon.conf
 	@rm -f eximon
 	$(SHELL) $(SCRIPTS)/Configure-eximon
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
@@ -208,84 +354,108 @@ eximon: Makefile config.h ../src/eximon.src ../OS/eximon.conf-Default \
 	  -e "s?BASENAME_COMMAND?$(BASENAME_COMMAND)?" \
 	  -e "s?HOSTNAME_COMMAND?$(HOSTNAME_COMMAND)?" \
 	  -e "s?X11_LD_LIBRARY?$(X11_LD_LIB)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/eximon.src >> eximon
 	@echo ">>> eximon script built"; echo ""
 
 # Targets for utilities; these are all Perl scripts that have to get the
 # location of Perl put in them. A few need other things as well.
 
-exigrep: Makefile ../src/exigrep.src
+exigrep: config ../src/exigrep.src
 	@rm -f exigrep
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
 	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
 	  -e "s?ZCAT_COMMAND?$(ZCAT_COMMAND)?" \
           -e "s?COMPRESS_SUFFIX?$(COMPRESS_SUFFIX)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exigrep.src > exigrep-t
 	@mv exigrep-t exigrep
 	@chmod a+x exigrep
 	@echo ">>> exigrep script built"
 
-eximstats: Makefile ../src/eximstats.src
+eximstats: config ../src/eximstats.src
 	@rm -f eximstats
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/eximstats.src > eximstats-t
 	@mv eximstats-t eximstats
 	@chmod a+x eximstats
 	@echo ">>> eximstats script built"
 
-exiqgrep: Makefile ../src/exiqgrep.src
+exiqgrep: config ../src/exiqgrep.src
 	@rm -f exiqgrep
-	@sed \
+	@. ./version.sh && sed \
 	  -e "s?PROCESSED_FLAG?This file has been so processed.?"\
 	  -e "/^# /p" \
 	  -e "/^# /d" \
 	  -e "s?BIN_DIRECTORY?$(BIN_DIRECTORY)?" \
 	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exiqgrep.src > exiqgrep-t
 	@mv exiqgrep-t exiqgrep
 	@chmod a+x exiqgrep
 	@echo ">>> exiqgrep script built"
 
-exiqsumm: Makefile ../src/exiqsumm.src
+exiqsumm: config ../src/exiqsumm.src
 	@rm -f exiqsumm
-	@sed -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	@. ./version.sh && sed \
+	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exiqsumm.src > exiqsumm-t
 	@mv exiqsumm-t exiqsumm
 	@chmod a+x exiqsumm
 	@echo ">>> exiqsumm script built"
 
-exipick: Makefile ../src/exipick.src
+exipick: config ../src/exipick.src
 	@rm -f exipick
-	@sed -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	@. ./version.sh && sed \
+	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
 	  -e "s?SPOOL_DIRECTORY?$(SPOOL_DIRECTORY)?" \
+	  -e "s?BIN_DIRECTORY?$(BIN_DIRECTORY)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/exipick.src > exipick-t
 	@mv exipick-t exipick
 	@chmod a+x exipick
 	@echo ">>> exipick script built"
 
-transport-filter.pl: Makefile ../src/transport-filter.src
+transport-filter.pl: config ../src/transport-filter.src
 	@rm -f transport-filter.pl
-	@sed -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	@. ./version.sh && sed \
+	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/transport-filter.src > transport-filter.pl-t
 	@mv transport-filter.pl-t transport-filter.pl
 	@chmod a+x transport-filter.pl
 	@echo ">>> transport-filter.pl script built"
 
-convert4r3: Makefile ../src/convert4r3.src
+convert4r3: config ../src/convert4r3.src
 	@rm -f convert4r3
-	@sed -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	@. ./version.sh && sed \
+	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/convert4r3.src > convert4r3-t
 	@mv convert4r3-t convert4r3
 	@chmod a+x convert4r3
 	@echo ">>> convert4r3 script built"
 
-convert4r4: Makefile ../src/convert4r4.src
+convert4r4: config ../src/convert4r4.src
 	@rm -f convert4r4
-	@sed -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	@. ./version.sh && sed \
+	  -e "s?PERL_COMMAND?$(PERL_COMMAND)?" \
+	  -e "s?EXIM_RELEASE_VERSION?$${EXIM_RELEASE_VERSION}?" \
+	  -e "s?EXIM_VARIANT_VERSION?$${EXIM_VARIANT_VERSION}?" \
 	  ../src/convert4r4.src > convert4r4-t
 	@mv convert4r4-t convert4r4
 	@chmod a+x convert4r4
@@ -297,28 +467,36 @@ convert4r4: Makefile ../src/convert4r4.src
 # are thrown away by the linker.
 
 OBJ_WITH_CONTENT_SCAN = malware.o mime.o regex.o spam.o spool_mbox.o
-OBJ_WITH_OLD_DEMIME = demime.o
-OBJ_EXPERIMENTAL = bmi_spam.o spf.o srs.o dcc.o
+OBJ_EXPERIMENTAL =	arc.o \
+			bmi_spam.o \
+			dane.o \
+			dcc.o \
+			dmarc.o \
+			imap_utf7.o \
+			spf.o \
+			srs.o \
+			utf8.o
 
 # Targets for final binaries; the main one has a build number which is
 # updated each time. We don't bother with that for the auxiliaries.
 
 OBJ_LOOKUPS = lookups/lf_quote.o lookups/lf_check_file.o lookups/lf_sqlperform.o
 
-OBJ_EXIM = acl.o child.o crypt16.o daemon.o dbfn.o debug.o deliver.o \
+OBJ_EXIM = acl.o base64.o child.o crypt16.o daemon.o dbfn.o debug.o deliver.o \
         directory.o dns.o drtables.o enq.o exim.o expand.o filter.o \
-        filtertest.o globals.o dkim.o \
-        header.o host.o ip.o log.o lss.o match.o moan.o \
-        os.o parse.o queue.o \
+        filtertest.o globals.o dkim.o dkim_transport.o hash.o \
+        header.o host.o ip.o log.o lss.o match.o md5.o moan.o \
+        os.o parse.o priv.o queue.o \
         rda.o readconf.o receive.o retry.o rewrite.o rfc2047.o \
         route.o search.o sieve.o smtp_in.o smtp_out.o spool_in.o spool_out.o \
         std-crypto.o store.o string.o tls.o tod.o transport.o tree.o verify.o \
+        environment.o macro.o \
         $(OBJ_LOOKUPS) \
         local_scan.o $(EXIM_PERL) $(OBJ_WITH_CONTENT_SCAN) \
-        $(OBJ_WITH_OLD_DEMIME) $(OBJ_EXPERIMENTAL)
+        $(OBJ_EXPERIMENTAL)
 
-exim:   lookups/lookups.a auths/auths.a pdkim/pdkim.a \
-        routers/routers.a transports/transports.a \
+exim:   buildlookups buildauths pdkim/pdkim.a \
+        buildrouters buildtransports \
         $(OBJ_EXIM) version.o
 	@echo "$(LNCC) -o exim"
 	$(FE)$(PURIFY) $(LNCC) -o exim $(LFLAGS) $(OBJ_EXIM) version.o \
@@ -353,12 +531,12 @@ exim_dumpdb: $(OBJ_DUMPDB)
 
 # The utility for interrogating/fixing the contents of an exim database
 
-OBJ_FIXDB = exim_fixdb.o util-os.o util-store.o
+OBJ_FIXDB = exim_fixdb.o util-os.o util-store.o util-md5.o
 
-exim_fixdb:  $(OBJ_FIXDB) auths/auths.a
+exim_fixdb:  $(OBJ_FIXDB)
 	@echo "$(LNCC) -o exim_fixdb"
 	$(FE)$(LNCC) $(CFLAGS) $(INCLUDE) -o exim_fixdb $(LFLAGS) $(OBJ_FIXDB) \
-	  auths/auths.a $(LIBS) $(EXTRALIBS) $(DBMLIB)
+	  $(LIBS) $(EXTRALIBS) $(DBMLIB)
 	@if [ x"$(STRIP_COMMAND)" != x"" ]; then \
 	  echo $(STRIP_COMMAND) exim_fixdb; \
 	  $(STRIP_COMMAND) exim_fixdb; \
@@ -385,7 +563,7 @@ exim_tidydb: $(OBJ_TIDYDB)
 
 exim_dbmbuild: exim_dbmbuild.o
 	@echo "$(LNCC) -o exim_dbmbuild"
-	$(FE)$(LNCC) -o exim_dbmbuild $(LFLAGS) exim_dbmbuild.o \
+	$(FE)$(LNCC) $(CFLAGS) $(INCLUDE) -o exim_dbmbuild $(LFLAGS) exim_dbmbuild.o \
 	  $(LIBS) $(EXTRALIBS) $(DBMLIB)
 	@if [ x"$(STRIP_COMMAND)" != x"" ]; then \
 	  echo $(STRIP_COMMAND) exim_dbmbuild; \
@@ -396,7 +574,7 @@ exim_dbmbuild: exim_dbmbuild.o
 
 # The utility for locking a mailbox while messing around with it
 
-exim_lock: exim_lock.c
+exim_lock: exim_lock.c os.h
 	@echo "$(CC) exim_lock.c"
 	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) exim_lock.c
 	@echo "$(LNCC) -o exim_lock"
@@ -423,16 +601,22 @@ MONBIN = em_StripChart.o $(EXIMON_TEXTPOP) em_globals.o em_init.o \
 # The complete modules list also includes some specially compiled versions of
 # code from the main Exim source tree.
 
-OBJ_MONBIN = util-spool_in.o util-store.o util-string.o tod.o tree.o $(MONBIN)
+OBJ_MONBIN = util-spool_in.o \
+	     util-store.o \
+	     util-string.o \
+	     util-queue.o \
+	     util-tod.o \
+	     util-tree.o \
+	     $(MONBIN)
 
-eximon.bin: $(EXIMON_EDITME) eximon $(OBJ_MONBIN) \
-            ../exim_monitor/em_version.c
+eximon.bin: $(EXIMON_EDITME) eximon $(OBJ_MONBIN) ../exim_monitor/em_version.c \
+		mytypes.h store.h macros.h
 	@echo "$(CC) exim_monitor/em_version.c"
 	$(FE)$(CC) -o em_version.o -c \
 	  $(CFLAGS) $(XINCLUDE) -I. ../exim_monitor/em_version.c
 	@echo "$(LNCC) -o eximon.bin"
 	$(FE)$(PURIFY) $(LNCC) -o eximon.bin em_version.o $(LFLAGS) $(XLFLAGS) \
-	$(OBJ_MONBIN) -lXaw -lXmu -lXt -lXext -lX11 $(PCRE_LIBS) \
+	  $(OBJ_MONBIN) -lXaw -lXmu -lXt -lXext -lX11 $(PCRE_LIBS) \
 	  $(LIBS) $(LIBS_EXIMON) $(EXTRALIBS) $(EXTRALIBS_EXIMON) -lc
 	@if [ x"$(STRIP_COMMAND)" != x"" ]; then \
 	  echo $(STRIP_COMMAND) eximon.bin; \
@@ -443,22 +627,48 @@ eximon.bin: $(EXIMON_EDITME) eximon $(OBJ_MONBIN) \
 
 
 # Compile step for most of the exim modules. HDRS is a list of headers
-# which cause everthing to be rebuilt. PHDRS is the same, for the use
+# which cause everything to be rebuilt. PHDRS is the same, for the use
 # of routers, transports, and authenticators. I can't find a way of doing this
 # in one. This list is overkill, but it doesn't really take much time to
 # rebuild Exim on a modern computer.
 
-HDRS  =    config.h    dbfunctions.h    dbstuff.h    exim.h    functions.h    globals.h    local_scan.h    macros.h    mytypes.h    structs.h
-PHDRS = ../config.h ../dbfunctions.h ../dbstuff.h ../exim.h ../functions.h ../globals.h ../local_scan.h ../macros.h ../mytypes.h ../structs.h
+HDRS  =	blob.h \
+	config.h \
+	dbfunctions.h \
+	dbstuff.h \
+	exim.h \
+	functions.h \
+	globals.h \
+	hash.h \
+	local_scan.h \
+	macros.h \
+	mytypes.h \
+	sha_ver.h \
+	structs.h \
+	os.h
+PHDRS = ../config.h \
+	../dbfunctions.h \
+	../dbstuff.h \
+	../exim.h \
+	../functions.h \
+	../globals.h \
+	../local_scan.h \
+	../macros.h \
+	../mytypes.h \
+	../structs.h \
+	../os.h
 
 .SUFFIXES: .o .c
 .c.o:;  @echo "$(CC) $*.c"
 	$(FE)$(CC) -c $(CFLAGS) -I. $(INCLUDE) $(IPV6_INCLUDE) $(TLS_INCLUDE) $*.c
 
-# Update Exim's version information and build the version object.
+# Update Exim's version information and build the version object.  The dependency
+# chain here avoids problems under parallel-make.
 
-version.h::
+version.sh:
 	@../scripts/reversion
+
+version.h: version.sh
 
 cnumber.h: version.h
 
@@ -503,7 +713,8 @@ exim_tidydb.o:   $(HDRS) exim_dbutil.c
 
 exim_dbmbuild.o: $(HDRS) exim_dbmbuild.c
 	@echo "$(CC) exim_dbmbuild.c"
-	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -o exim_dbmbuild.o exim_dbmbuild.c
+	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY \
+		-o exim_dbmbuild.o exim_dbmbuild.c
 
 # Utilities use special versions of some modules - typically with debugging
 # calls cut out.
@@ -520,6 +731,22 @@ util-string.o:   $(HDRS) string.c
 	@echo "$(CC) -DCOMPILE_UTILITY string.c"
 	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY -o util-string.o string.c
 
+util-md5.o:   $(HDRS) md5.c
+	@echo "$(CC) -DCOMPILE_UTILITY queue.c"
+	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY -o util-md5.o md5.c
+
+util-queue.o:   $(HDRS) queue.c
+	@echo "$(CC) -DCOMPILE_UTILITY queue.c"
+	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY -o util-queue.o queue.c
+
+util-tod.o:   $(HDRS) tod.c
+	@echo "$(CC) -DCOMPILE_UTILITY tod.c"
+	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY -o util-tod.o tod.c
+
+util-tree.o:   $(HDRS) tree.c
+	@echo "$(CC) -DCOMPILE_UTILITY tree.c"
+	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY -o util-tree.o tree.c
+
 util-os.o:       $(HDRS) os.c
 	@echo "$(CC) -DCOMPILE_UTILITY os.c"
 	$(FE)$(CC) -c $(CFLAGS) $(INCLUDE) \
@@ -531,36 +758,41 @@ util-os.o:       $(HDRS) os.c
 # The local scan module depends only on its own special header, and is compiled
 # from a source whose location is set by configuration.
 
-local_scan.o:    Makefile config.h local_scan.h ../$(LOCAL_SCAN_SOURCE)
+local_scan.o:    config local_scan.h ../$(LOCAL_SCAN_SOURCE)
 	@echo "$(CC) local_scan.c"
-	$(FE)$(CC) -c $(CFLAGS) -I. $(INCLUDE) -o local_scan.o ../$(LOCAL_SCAN_SOURCE)
+	$(FE)$(CC) -DLOCAL_SCAN -c $(CFLAGS) -I. $(INCLUDE) -o local_scan.o ../$(LOCAL_SCAN_SOURCE)
 
 # Dependencies for the "ordinary" exim modules
 
 acl.o:           $(HDRS) acl.c
+base64.o:        $(HDRS) mime.h base64.c
 child.o:         $(HDRS) child.c
 crypt16.o:       $(HDRS) crypt16.c
 daemon.o:        $(HDRS) daemon.c
 dbfn.o:          $(HDRS) dbfn.c
 debug.o:         $(HDRS) debug.c
-deliver.o:       $(HDRS) deliver.c
+deliver.o:       $(HDRS) transports/smtp.h deliver.c
 directory.o:     $(HDRS) directory.c
 dns.o:           $(HDRS) dns.c
 enq.o:           $(HDRS) enq.c
 exim.o:          $(HDRS) exim.c
 expand.o:        $(HDRS) expand.c
+environment.o:   $(HDRS) environment.c
 filter.o:        $(HDRS) filter.c
 filtertest.o:    $(HDRS) filtertest.c
 globals.o:       $(HDRS) globals.c
+hash.o:          $(HDRS) hash.c
 header.o:        $(HDRS) header.c
 host.o:          $(HDRS) host.c
 ip.o:            $(HDRS) ip.c
 log.o:           $(HDRS) log.c
 lss.o:           $(HDRS) lss.c
 match.o:         $(HDRS) match.c
+md5.o:           $(HDRS) md5.c
 moan.o:          $(HDRS) moan.c
-os.o:            $(HDRS) os.c
+os.o:            $(HDRS) $(OS_C_INCLUDES) os.c
 parse.o:         $(HDRS) parse.c
+priv.o:          $(HDRS) priv.c
 queue.o:         $(HDRS) queue.c
 rda.o:           $(HDRS) rda.c
 readconf.o:      $(HDRS) readconf.c
@@ -578,33 +810,37 @@ spool_out.o:     $(HDRS) spool_out.c
 std-crypto.o:    $(HDRS) std-crypto.c
 store.o:         $(HDRS) store.c
 string.o:        $(HDRS) string.c
-tls.o:           $(HDRS) tls.c tls-gnu.c tls-openssl.c
+tls.o:           $(HDRS) tls.c \
+		 tls-gnu.c tlscert-gnu.c \
+		 tls-openssl.c tlscert-openssl.c \
+		 tls-cipher-stdname.c
 tod.o:           $(HDRS) tod.c
 transport.o:     $(HDRS) transport.c
 tree.o:          $(HDRS) tree.c
-verify.o:        $(HDRS) verify.c
-dkim.o:          $(HDRS) dkim.c
+verify.o:        $(HDRS) transports/smtp.h verify.c
+dkim.o:          $(HDRS) pdkim/pdkim.h dkim.c
+dkim_transport.o: $(HDRS) dkim_transport.c
 
 # Dependencies for WITH_CONTENT_SCAN modules
 
 malware.o:       $(HDRS) malware.c
-mime.o:          $(HDRS) mime.c
+mime.o:          $(HDRS) mime.h mime.c
 regex.o:         $(HDRS) regex.c
 spam.o:          $(HDRS) spam.c
 spool_mbox.o:    $(HDRS) spool_mbox.c
 
 
-# Dependencies for WITH_OLD_DEMIME modules
-
-demime.o:        $(HDRS) demime.c
-
-
 # Dependencies for EXPERIMENTAL_* modules
 
-bmi_spam.o:      $(HDRS) bmi_spam.c
-spf.o:           $(HDRS) spf.h spf.c
-srs.o:           $(HDRS) srs.h srs.c
-dcc.o:           $(HDRS) dcc.h dcc.c
+arc.o:		$(HDRS) pdkim/pdkim.h arc.c
+bmi_spam.o:	$(HDRS) bmi_spam.c
+dane.o:		$(HDRS) dane.c dane-openssl.c
+dcc.o:		$(HDRS) dcc.h dcc.c
+dmarc.o:	$(HDRS) pdkim/pdkim.h dmarc.h dmarc.c
+imap_utf7.o:	$(HDRS) imap_utf7.c
+spf.o:		$(HDRS) spf.h spf.c
+srs.o:		$(HDRS) srs.h srs.c
+utf8.o:		$(HDRS) utf8.c
 
 # The module containing tables of available lookups, routers, auths, and
 # transports must be rebuilt if any of them are. However, because the makefiles
@@ -620,7 +856,7 @@ drtables.o:      $(HDRS) drtables.c
 # When using parallel make, we don't have the dependency to force building
 # in the sub-directory unless we force that dependency:
 
-$(OBJ_LOOKUPS):  lookups/lookups.a
+$(OBJ_LOOKUPS):  buildlookups
 
 # The exim monitor's private modules - the sources live in a private
 # subdirectory. The final binary combines the private modules with some
@@ -639,16 +875,16 @@ em_text.o:       ../exim_monitor/em_text.c    ../exim_monitor/em_hdr.h
 em_xs.o:         ../exim_monitor/em_xs.c      ../exim_monitor/em_hdr.h
 em_version.o:    ../exim_monitor/em_version.c ../exim_monitor/em_hdr.h
 $(MONBIN): $(HDRS)
-		 @echo "$(CC) exim_monitor/`echo $@ | sed 's/o$$/c/'`"
-		 $(FE)$(CC) -o $@ -c $(CFLAGS) -I. -I../exim_monitor $(INCLUDE) $(XINCLUDE) \
-		   ../exim_monitor/`echo $@ | sed 's/o$$/c/'`
+		 @echo "$(CC) exim_monitor/$(@:.o=.c)"
+		 $(FE)$(CC) -o $@ -c $(CFLAGS) -DCOMPILE_UTILITY -I. -I../exim_monitor $(INCLUDE) $(XINCLUDE) \
+		   ../exim_monitor/$(@:.o=.c)
 
 
 # Targets for the various libraries that Exim uses.
 
 # The lookups library.
 
-buildlookups lookups/lookups.a: config.h version.h
+buildlookups: config
 	 @cd lookups && $(MAKE) SHELL=$(SHELL) AR="$(AR)" $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
 	   CFLAGS_DYNAMIC="$(CFLAGS_DYNAMIC)" HDRS="../version.h $(PHDRS)" \
 	   FE="$(FE)" RANLIB="$(RANLIB)" RM_COMMAND="$(RM_COMMAND)" \
@@ -657,7 +893,7 @@ buildlookups lookups/lookups.a: config.h version.h
 
 # The routers library.
 
-buildrouters routers/routers.a: config.h
+buildrouters: config
 	 @cd routers && $(MAKE) SHELL=$(SHELL) AR="$(AR)" $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
 	   FE="$(FE)" RANLIB="$(RANLIB)" RM_COMMAND="$(RM_COMMAND)" HDRS="$(PHDRS)" \
 	   INCLUDE="$(INCLUDE) $(IPV6_INCLUDE) $(TLS_INCLUDE)"
@@ -665,7 +901,7 @@ buildrouters routers/routers.a: config.h
 
 # The transports library.
 
-buildtransports transports/transports.a: config.h
+buildtransports: config
 	 @cd transports && $(MAKE) SHELL=$(SHELL) AR="$(AR)" $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
 	   FE="$(FE)" RANLIB="$(RANLIB)" RM_COMMAND="$(RM_COMMAND)" HDRS="$(PHDRS)" \
 	   INCLUDE="$(INCLUDE) $(IPV6_INCLUDE) $(TLS_INCLUDE)"
@@ -673,7 +909,7 @@ buildtransports transports/transports.a: config.h
 
 # The library of authorization modules
 
-buildauths auths/auths.a: config.h
+buildauths: config
 	 @cd auths && $(MAKE) SHELL=$(SHELL) AR="$(AR)" $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
 	   FE="$(FE)" RANLIB="$(RANLIB)" RM_COMMAND="$(RM_COMMAND)" HDRS="$(PHDRS)" \
 	   INCLUDE="$(INCLUDE) $(IPV6_INCLUDE) $(TLS_INCLUDE)"
@@ -681,7 +917,8 @@ buildauths auths/auths.a: config.h
 
 # The PDKIM library
 
-buildpdkim pdkim/pdkim.a: config.h
+buildpdkim: pdkim/pdkim.a
+pdkim/pdkim.a: config
 	 @cd pdkim && $(MAKE) SHELL=$(SHELL) AR="$(AR)" $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
 	   FE="$(FE)" RANLIB="$(RANLIB)" RM_COMMAND="$(RM_COMMAND)" HDRS="$(PHDRS)" \
 	   INCLUDE="$(INCLUDE) $(IPV6_INCLUDE) $(TLS_INCLUDE)"
@@ -714,12 +951,13 @@ sa-os.o:         $(HDRS) os.c
 # These are the test targets themselves
 
 test_dbfn:   config.h dbfn.c dummies.o sa-globals.o sa-os.o store.o \
-	       string.o tod.o version.o
+	       string.o tod.o version.o utf8.o
 	$(CC) -c $(CFLAGS) $(INCLUDE) -DSTAND_ALONE dbfn.c
+	$(CC) -c $(CFLAGS) $(INCLUDE) -DCOMPILE_UTILITY store.c
 	$(LNCC) -o test_dbfn $(LFLAGS) dbfn.o \
 	  dummies.o sa-globals.o sa-os.o store.o string.o \
-	  tod.o version.o $(LIBS) $(DBMLIB)
-	rm -f dbfn.o
+	  tod.o version.o utf8.o $(LIBS) $(DBMLIB) $(LDFLAGS)
+	rm -f dbfn.o store.o
 
 test_host:   config.h child.c host.c dns.c dummies.c sa-globals.o os.o \
 	       store.o string.o tod.o tree.o
@@ -732,23 +970,24 @@ test_host:   config.h child.c host.c dns.c dummies.c sa-globals.o os.o \
 	  tod.o tree.o $(LIBS) $(LIBRESOLV)
 	rm -f child.o dummies.o host.o dns.o
 
-test_os:     os.h os.c dummies.o sa-globals.o store.o string.o tod.o
+test_os:     os.h os.c dummies.o sa-globals.o store.o string.o tod.o utf8.o
 	$(CC) -c $(CFLAGS) $(INCLUDE) -DSTAND_ALONE os.c
 	$(LNCC) -o test_os $(LFLAGS) os.o dummies.o \
-	  sa-globals.o store.o string.o tod.o $(LIBS)
+	  sa-globals.o store.o string.o tod.o utf8.o $(LIBS) $(LDFLAGS)
 	rm -f os.o
 
 test_parse:  config.h parse.c dummies.o sa-globals.o \
-	     store.o string.o tod.o version.o
+	     store.o string.o tod.o version.o utf8.o
 	$(CC) -c $(CFLAGS) $(INCLUDE) -DSTAND_ALONE parse.c
 	$(LNCC) -o test_parse $(LFLAGS) parse.o \
-	  dummies.o sa-globals.o store.o string.o tod.o version.o
+	  dummies.o sa-globals.o store.o string.o tod.o version.o \
+	  utf8.o $(LDFLAGS)
 	rm -f parse.o
 
-test_string: config.h string.c dummies.o sa-globals.o store.o tod.o
+test_string: config.h string.c dummies.o sa-globals.o store.o tod.o utf8.o
 	$(CC) -c $(CFLAGS) $(INCLUDE) -DSTAND_ALONE string.c
 	$(LNCC) -o test_string $(LFLAGS) -DSTAND_ALONE string.o \
-	  dummies.o sa-globals.o store.o tod.o $(LIBS)
+	  dummies.o sa-globals.o store.o tod.o utf8.o $(LIBS) $(LDFLAGS)
 	rm -f string.o
 
 # End

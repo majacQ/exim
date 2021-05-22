@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -21,17 +22,17 @@ instance block so as to be publicly visible; these are flagged with opt_public.
 
 optionlist lmtp_transport_options[] = {
   { "batch_id",          opt_stringptr | opt_public,
-      (void *)offsetof(transport_instance, batch_id) },
+      OPT_OFF(transport_instance, batch_id) },
   { "batch_max",         opt_int | opt_public,
-      (void *)offsetof(transport_instance, batch_max) },
+      OPT_OFF(transport_instance, batch_max) },
   { "command",           opt_stringptr,
-      (void *)offsetof(lmtp_transport_options_block, cmd) },
+      OPT_OFF(lmtp_transport_options_block, cmd) },
   { "ignore_quota",      opt_bool,
-      (void *)offsetof(lmtp_transport_options_block, ignore_quota) },
+      OPT_OFF(lmtp_transport_options_block, ignore_quota) },
   { "socket",            opt_stringptr,
-      (void *)offsetof(lmtp_transport_options_block, skt) },
+      OPT_OFF(lmtp_transport_options_block, skt) },
   { "timeout",           opt_time,
-      (void *)offsetof(lmtp_transport_options_block, timeout) }
+      OPT_OFF(lmtp_transport_options_block, timeout) }
 };
 
 /* Size of the options list. An extern variable has to be used so that its
@@ -39,6 +40,17 @@ address can appear in the tables drtables.c. */
 
 int lmtp_transport_options_count =
   sizeof(lmtp_transport_options)/sizeof(optionlist);
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+lmtp_transport_options_block lmtp_transport_option_defaults = {0};
+void lmtp_transport_init(transport_instance *tblock) {}
+BOOL lmtp_transport_entry(transport_instance *tblock, address_item *addr) {return FALSE;}
+
+#else   /*!MACRO_PREDEF*/
+
 
 /* Default private options block for the lmtp transport. */
 
@@ -106,12 +118,13 @@ Arguments:
   more_errno   from the top address for use with ERRNO_FILTER_FAIL
   buffer       the LMTP response buffer
   yield        where to put a one-digit LMTP response code
-  message      where to put an errror message
+  message      where to put an error message
 
 Returns:       TRUE if a "QUIT" command should be sent, else FALSE
 */
 
-static BOOL check_response(int *errno_value, int more_errno, uschar *buffer,
+static BOOL
+check_response(int *errno_value, int more_errno, uschar *buffer,
   int *yield, uschar **message)
 {
 *yield = '4';    /* Default setting is to give a temporary error */
@@ -163,7 +176,7 @@ if (*errno_value == ERRNO_CHHEADER_FAIL)
 
 if (*errno_value == ERRNO_WRITEINCOMPLETE)
   {
-  *message = string_sprintf("failed to write a data block");
+  *message = US"failed to write a data block";
   return FALSE;
   }
 
@@ -171,7 +184,7 @@ if (*errno_value == ERRNO_WRITEINCOMPLETE)
 
 if (buffer[0] != 0)
   {
-  uschar *s = string_printing(buffer);
+  const uschar *s = string_printing(buffer);
   *message = string_sprintf("LMTP error after %s: %s", big_buffer, s);
   *yield = buffer[0];
   return TRUE;
@@ -212,19 +225,24 @@ Returns:     TRUE if successful, FALSE if not, with errno set
 static BOOL
 lmtp_write_command(int fd, const char *format, ...)
 {
-int count, rc;
+gstring gs = { .size = big_buffer_size, .ptr = 0, .s = big_buffer };
+int rc;
 va_list ap;
+
+/*XXX see comment in smtp_write_command() regarding leaving stuff in
+big_buffer */
+
 va_start(ap, format);
-if (!string_vformat(big_buffer, big_buffer_size, CS format, ap))
+if (!string_vformat(&gs, SVFMT_TAINT_NOCHK, CS format, ap))
   {
+  va_end(ap);
   errno = ERRNO_SMTPFORMAT;
   return FALSE;
   }
 va_end(ap);
-count = Ustrlen(big_buffer);
-DEBUG(D_transport|D_v) debug_printf("  LMTP>> %s", big_buffer);
-rc = write(fd, big_buffer, count);
-big_buffer[count-2] = 0;     /* remove \r\n for debug and error message */
+DEBUG(D_transport|D_v) debug_printf("  LMTP>> %s", string_from_gstring(&gs));
+rc = write(fd, gs.s, gs.ptr);
+gs.ptr -= 2; string_from_gstring(&gs); /* remove \r\n for debug and error message */
 if (rc > 0) return TRUE;
 DEBUG(D_transport) debug_printf("write failed: %s\n", strerror(errno));
 return FALSE;
@@ -287,10 +305,10 @@ for (;;)
 
     *readptr = 0;           /* In case nothing gets read */
     sigalrm_seen = FALSE;
-    alarm(timeout);
+    ALARM(timeout);
     rc = Ufgets(readptr, size-1, f);
     save_errno = errno;
-    alarm(0);
+    ALARM_CLR(0);
     errno = save_errno;
 
     if (rc != NULL) break;  /* A line has been read */
@@ -330,9 +348,8 @@ for (;;)
     {
     DEBUG(D_transport)
       {
-      int i;
       debug_printf("LMTP input line incomplete in one buffer:\n  ");
-      for (i = 0; i < count; i++)
+      for (int i = 0; i < count; i++)
         {
         int c = (ptr[i]);
         if (mac_isprint(c)) debug_printf("%c", c); else debug_printf("<%d>", c);
@@ -457,10 +474,9 @@ int fd_in = -1, fd_out = -1;
 int code, save_errno;
 BOOL send_data;
 BOOL yield = FALSE;
-address_item *addr;
 uschar *igquotstr = US"";
 uschar *sockname = NULL;
-uschar **argv;
+const uschar **argv;
 uschar buffer[256];
 
 DEBUG(D_transport) debug_printf("%s transport entered\n", tblock->name);
@@ -469,13 +485,30 @@ DEBUG(D_transport) debug_printf("%s transport entered\n", tblock->name);
 not both. When a command is specified, call the common function for creating an
 argument list and expanding the items. */
 
-if (ob->cmd != NULL)
+if (ob->cmd)
   {
   DEBUG(D_transport) debug_printf("using command %s\n", ob->cmd);
   sprintf(CS buffer, "%.50s transport", tblock->name);
   if (!transport_set_up_command(&argv, ob->cmd, TRUE, PANIC, addrlist, buffer,
        NULL))
     return FALSE;
+
+  /* If the -N option is set, can't do any more. Presume all has gone well. */
+  if (f.dont_deliver)
+    goto MINUS_N;
+
+/* As this is a local transport, we are already running with the required
+uid/gid and current directory. Request that the new process be a process group
+leader, so we can kill it and all its children on an error. */
+
+  if ((pid = child_open(USS argv, NULL, 0, &fd_in, &fd_out, TRUE,
+			US"lmtp-tpt-cmd")) < 0)
+    {
+    addrlist->message = string_sprintf(
+      "Failed to create child process for %s transport: %s", tblock->name,
+        strerror(errno));
+    return FALSE;
+    }
   }
 
 /* When a socket is specified, expand the string and create a socket. */
@@ -483,8 +516,7 @@ if (ob->cmd != NULL)
 else
   {
   DEBUG(D_transport) debug_printf("using socket %s\n", ob->skt);
-  sockname = expand_string(ob->skt);
-  if (sockname == NULL)
+  if (!(sockname = expand_string(ob->skt)))
     {
     addrlist->message = string_sprintf("Expansion of \"%s\" (socket setting "
       "for %s transport) failed: %s", ob->skt, tblock->name,
@@ -498,38 +530,11 @@ else
         ob->skt, tblock->name, strerror(errno));
     return FALSE;
     }
-  }
 
-/* If the -N option is set, can't do any more. Presume all has gone well. */
+  /* If the -N option is set, can't do any more. Presume all has gone well. */
+  if (f.dont_deliver)
+    goto MINUS_N;
 
-if (dont_deliver)
-  {
-  DEBUG(D_transport)
-    debug_printf("*** delivery by %s transport bypassed by -N option",
-      tblock->name);
-  addrlist->transport_return = OK;
-  return FALSE;
-  }
-
-/* As this is a local transport, we are already running with the required
-uid/gid and current directory. Request that the new process be a process group
-leader, so we can kill it and all its children on an error. */
-
-if (ob->cmd != NULL)
-  {
-  if ((pid = child_open(argv, NULL, 0, &fd_in, &fd_out, TRUE)) < 0)
-    {
-    addrlist->message = string_sprintf(
-      "Failed to create child process for %s transport: %s", tblock->name,
-        strerror(errno));
-    return FALSE;
-    }
-  }
-
-/* For a socket, try to make the connection */
-
-else
-  {
   sockun.sun_family = AF_UNIX;
   sprintf(sockun.sun_path, "%.*s", (int)(sizeof(sockun.sun_path)-1), sockname);
   if(connect(fd_out, (struct sockaddr *)(&sockun), sizeof(sockun)) == -1)
@@ -541,6 +546,7 @@ else
     }
   }
 
+
 /* Make the output we are going to read into a file. */
 
 out = fdopen(fd_out, "rb");
@@ -551,7 +557,7 @@ allows for message+recipient checks after the message has been received. */
 
 /* First thing is to wait for an initial greeting. */
 
-Ustrcpy(big_buffer, "initial connection");
+Ustrcpy(big_buffer, US"initial connection");
 if (!lmtp_read_response(out, buffer, sizeof(buffer), '2',
   timeout)) goto RESPONSE_FAILED;
 
@@ -589,7 +595,7 @@ if (!lmtp_read_response(out, buffer, sizeof(buffer), '2', timeout))
 temporarily rejected; others may be accepted, for now. */
 
 send_data = FALSE;
-for (addr = addrlist; addr != NULL; addr = addr->next)
+for (address_item * addr = addrlist; addr; addr = addr->next)
   {
   if (!lmtp_write_command(fd_in, "RCPT TO:<%s>%s\r\n",
        transport_rcpt_address(addr, tblock->rcpt_include_affixes), igquotstr))
@@ -618,6 +624,13 @@ for (addr = addrlist; addr != NULL; addr = addr->next)
 if (send_data)
   {
   BOOL ok;
+  transport_ctx tctx = {
+    {fd_in},
+    tblock,
+    addrlist,
+    US".", US"..",
+    ob->options
+  };
 
   if (!lmtp_write_command(fd_in, "DATA\r\n")) goto WRITE_FAILED;
   if (!lmtp_read_response(out, buffer, sizeof(buffer), '3', timeout))
@@ -632,14 +645,12 @@ if (send_data)
 
   sigalrm_seen = FALSE;
   transport_write_timeout = timeout;
-  Ustrcpy(big_buffer, "sending data block");   /* For error messages */
+  Ustrcpy(big_buffer, US"sending data block");   /* For error messages */
   DEBUG(D_transport|D_v)
     debug_printf("  LMTP>> writing message and terminating \".\"\n");
 
   transport_count = 0;
-  ok = transport_write_message(addrlist, fd_in, ob->options, 0,
-        tblock->add_headers, tblock->remove_headers, US".", US"..",
-        tblock->rewrite_rules, tblock->rewrite_existflags);
+  ok = transport_write_message(&tctx, 0);
 
   /* Failure can either be some kind of I/O disaster (including timeout),
   or the failure of a transport filter or the expansion of added headers. */
@@ -650,31 +661,37 @@ if (send_data)
     goto RESPONSE_FAILED;
     }
 
-  Ustrcpy(big_buffer, "end of data");   /* For error messages */
+  Ustrcpy(big_buffer, US"end of data");   /* For error messages */
 
   /* We now expect a response for every address that was accepted above,
   in the same order. For those that get a response, their status is fixed;
   any that are accepted have been handed over, even if later responses crash -
   at least, that's how I read RFC 2033. */
 
-  for (addr = addrlist; addr != NULL; addr = addr->next)
+  for (address_item * addr = addrlist; addr; addr = addr->next)
     {
     if (addr->transport_return != PENDING_OK) continue;
 
     if (lmtp_read_response(out, buffer, sizeof(buffer), '2', timeout))
+      {
       addr->transport_return = OK;
-
+      if (LOGGING(smtp_confirmation))
+        {
+        const uschar *s = string_printing(buffer);
+	/* de-const safe here as string_printing known to have alloc'n'copied */
+        addr->message = (s == buffer)? US string_copy(s) : US s;
+        }
+      }
     /* If the response has failed badly, use it for all the remaining pending
     addresses and give up. */
 
     else if (errno != 0 || buffer[0] == 0)
       {
-      address_item *a;
       save_errno = errno;
       check_response(&save_errno, addr->more_errno, buffer, &code,
         &(addr->message));
       addr->transport_return = (code == '5')? FAIL : DEFER;
-      for (a = addr->next; a != NULL; a = a->next)
+      for (address_item * a = addr->next; a; a = a->next)
         {
         if (a->transport_return != PENDING_OK) continue;
         a->basic_errno = addr->basic_errno;
@@ -750,9 +767,9 @@ if (errno == ERRNO_CHHEADER_FAIL)
     string_sprintf("Failed to expand headers_add or headers_remove: %s",
       expand_string_message);
 else if (errno == ERRNO_FILTER_FAIL)
-  addrlist->message = string_sprintf("Filter process failure");
+  addrlist->message = US"Filter process failure";
 else if (errno == ERRNO_WRITEINCOMPLETE)
-  addrlist->message = string_sprintf("Failed repeatedly to write data");
+  addrlist->message = US"Failed repeatedly to write data";
 else if (errno == ERRNO_SMTPFORMAT)
   addrlist->message = US"overlong LMTP command generated";
 else
@@ -778,6 +795,15 @@ DEBUG(D_transport)
   debug_printf("%s transport yields %d\n", tblock->name, yield);
 
 return yield;
+
+
+MINUS_N:
+  DEBUG(D_transport)
+    debug_printf("*** delivery by %s transport bypassed by -N option",
+      tblock->name);
+  addrlist->transport_return = OK;
+  return FALSE;
 }
 
+#endif	/*!MACRO_PREDEF*/
 /* End of transport/lmtp.c */

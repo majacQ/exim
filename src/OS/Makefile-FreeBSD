@@ -1,17 +1,21 @@
 # Exim: OS-specific make file for FreeBSD
-# There's no setting of CFLAGS here, to allow the system default
-# for "make" to be the default.
+# Copyright (c) The Exim Maintainers 2020
 
 CHOWN_COMMAND=/usr/sbin/chown
 STRIP_COMMAND=/usr/bin/strip
 CHMOD_COMMAND=/bin/chmod
+
+
+# FreeBSD Ports no longer insert compatibility symlinks into /usr/bin for
+# scripting languages which traditionally have had them.
+PERL_COMMAND=/usr/local/bin/perl
 
 HAVE_SA_LEN=YES
 
 # crypt() is in a separate library
 LIBS=-lcrypt -lm -lutil
 
-# Dynamicly loaded modules need to be built with -fPIC
+# Dynamically loaded modules need to be built with -fPIC
 CFLAGS_DYNAMIC=-shared -rdynamic -fPIC
 
 # FreeBSD always ships with Berkeley DB

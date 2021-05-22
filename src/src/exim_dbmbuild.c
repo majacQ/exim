@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -29,6 +30,47 @@ characters. */
 
 
 #include "exim.h"
+
+uschar * spool_directory = NULL;	/* dummy for dbstuff.h */
+
+/******************************************************************************/
+					/* dummies needed by Solaris build */
+void
+millisleep(int msec)
+{}
+uschar *
+readconf_printtime(int t)
+{ return NULL; }
+void *
+store_get_3(int size, BOOL tainted, const char *filename, int linenumber)
+{ return NULL; }
+void **
+store_reset_3(void **ptr, int pool, const char *filename, int linenumber)
+{ return NULL; }
+void
+store_release_above_3(void *ptr, const char *func, int linenumber)
+{ }
+gstring *
+string_vformat_trc(gstring * g, const uschar * func, unsigned line,
+  unsigned size_limit, unsigned flags, const char *format, va_list ap)
+{ return NULL; }
+uschar *
+string_sprintf_trc(const char * a, const uschar * b, unsigned c, ...)
+{ return NULL; }
+BOOL
+string_format_trc(uschar * buf, int len, const uschar * func, unsigned line,
+  const char * fmt, ...)
+{ return FALSE; }
+void
+log_write(unsigned int selector, int flags, const char *format, ...)
+{ }
+
+
+struct global_flags	f;
+unsigned int		log_selector[1];
+uschar *		queue_name;
+BOOL			split_spool_directory;
+/******************************************************************************/
 
 
 #define max_insize   20000
@@ -60,14 +102,14 @@ exists" when you try to open a db file. The API changed at release 4.3. */
 
 #if defined(USE_DB) && defined(DB_VERSION_STRING)
 void
-#if DB_VERSION_MAJOR > 4 || (DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 3)
+# if DB_VERSION_MAJOR > 4 || (DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 3)
 dbfn_bdb_error_callback(const DB_ENV *dbenv, const char *pfx, const char *msg)
 {
 dbenv = dbenv;
-#else
+# else
 dbfn_bdb_error_callback(const char *pfx, char *msg)
 {
-#endif
+# endif
 pfx = pfx;
 printf("Berkeley DB error: %s\n", msg);
 }
@@ -88,11 +130,12 @@ Returns:   the value of the character escape
 */
 
 int
-string_interpret_escape(uschar **pp)
+string_interpret_escape(const uschar **pp)
 {
 int ch;
-uschar *p = *pp;
+const uschar *p = *pp;
 ch = *(++p);
+if (ch == '\0') return **pp;
 if (isdigit(ch) && ch != '8' && ch != '9')
   {
   ch -= '0';
@@ -151,6 +194,7 @@ uschar *bptr;
 uschar  keybuffer[256];
 uschar  temp_dbmname[512];
 uschar  real_dbmname[512];
+uschar  dirname[512];
 uschar *buffer = malloc(max_outsize);
 uschar *line = malloc(max_insize);
 
@@ -172,14 +216,12 @@ if (argc != 3)
   exit(1);
   }
 
-if (Ustrcmp(argv[arg], "-") == 0) f = stdin; else
+if (Ustrcmp(argv[arg], "-") == 0)
+  f = stdin;
+else if (!(f = fopen(argv[arg], "rb")))
   {
-  f = fopen(argv[arg], "rb");
-  if (f == NULL)
-    {
-    printf("exim_dbmbuild: unable to open %s: %s\n", argv[arg], strerror(errno));
-    exit(1);
-    }
+  printf("exim_dbmbuild: unable to open %s: %s\n", argv[arg], strerror(errno));
+  exit(1);
   }
 
 /* By default Berkeley db does not put extensions on... which
@@ -202,13 +244,19 @@ if (strlen(argv[arg+1]) > sizeof(temp_dbmname) - 20)
   exit(1);
   }
 
-Ustrcpy(temp_dbmname, argv[arg+1]);
-Ustrcat(temp_dbmname, ".dbmbuild_temp");
+Ustrcpy(temp_dbmname, US argv[arg+1]);
+Ustrcat(temp_dbmname, US".dbmbuild_temp");
+
+Ustrcpy(dirname, temp_dbmname);
+if ((bptr = Ustrrchr(dirname, '/')))
+  *bptr = '\0';
+else
+  Ustrcpy(dirname, US".");
 
 /* It is apparently necessary to open with O_RDWR for this to work
 with gdbm-1.7.3, though no reading is actually going to be done. */
 
-EXIM_DBOPEN(temp_dbmname, O_RDWR|O_CREAT|O_EXCL, 0644, &d);
+EXIM_DBOPEN(temp_dbmname, dirname, O_RDWR|O_CREAT|O_EXCL, 0644, &d);
 
 if (d == NULL)
   {
@@ -296,22 +344,21 @@ while (Ufgets(line, max_insize, f) != NULL)
       switch(rc = EXIM_DBPUTB(d, key, content))
         {
         case EXIM_DBPUTB_OK:
-        count++;
-        break;
+	  count++;
+	  break;
 
         case EXIM_DBPUTB_DUP:
-        if (warn) fprintf(stderr, "** Duplicate key \"%s\"\n",
-          keybuffer);
-        dupcount++;
-        if(duperr) yield = 1;
-        if (lastdup) EXIM_DBPUT(d, key, content);
-        break;
+	  if (warn) fprintf(stderr, "** Duplicate key \"%s\"\n", keybuffer);
+	  dupcount++;
+	  if(duperr) yield = 1;
+	  if (lastdup) EXIM_DBPUT(d, key, content);
+	  break;
 
         default:
-        fprintf(stderr, "Error %d while writing key %s: errno=%d\n", rc,
-          keybuffer, errno);
-        yield = 2;
-        goto TIDYUP;
+	  fprintf(stderr, "Error %d while writing key %s: errno=%d\n", rc,
+	    keybuffer, errno);
+	  yield = 2;
+	  goto TIDYUP;
         }
 
       bptr = buffer;
@@ -329,8 +376,9 @@ while (Ufgets(line, max_insize, f) != NULL)
       keystart = t;
       while (*s != 0 && *s != '\"')
         {
-        if (*s == '\\') *t++ = string_interpret_escape(&s);
-          else *t++ = *s;
+	*t++ = *s == '\\'
+	? string_interpret_escape((const uschar **)&s)
+	: *s;
         s++;
         }
       if (*s != 0) s++;               /* Past terminating " */
@@ -352,15 +400,11 @@ while (Ufgets(line, max_insize, f) != NULL)
       }
 
     if (lowercase)
-      {
       for (i = 0; i < EXIM_DATUM_SIZE(key) - add_zero; i++)
         keybuffer[i] = tolower(keystart[i]);
-      }
     else
-      {
       for (i = 0; i < EXIM_DATUM_SIZE(key) - add_zero; i++)
         keybuffer[i] = keystart[i];
-      }
 
     keybuffer[i] = 0;
     started = 1;
@@ -428,7 +472,7 @@ if (yield == 0 || yield == 1)
 
   #if defined(USE_DB) || defined(USE_TDB) || defined(USE_GDBM)
   Ustrcpy(real_dbmname, temp_dbmname);
-  Ustrcpy(buffer, argv[arg+1]);
+  Ustrcpy(buffer, US argv[arg+1]);
   if (Urename(real_dbmname, buffer) != 0)
     {
     printf("Unable to rename %s as %s\n", real_dbmname, buffer);
@@ -478,9 +522,11 @@ if (yield == 0 || yield == 1)
 else
   {
   printf("dbmbuild abandoned\n");
-  #if defined(USE_DB) || defined(USE_TDB) || defined(USE_GDBM)
+#if defined(USE_DB) || defined(USE_TDB) || defined(USE_GDBM)
+  /* We created it, so safe to delete despite the name coming from outside */
+  /* coverity[tainted_string] */
   Uunlink(temp_dbmname);
-  #else
+#else
   if (is_db)
     {
     sprintf(CS real_dbmname, "%s.db", temp_dbmname);
@@ -493,7 +539,7 @@ else
     sprintf(CS real_dbmname, "%s.pag", temp_dbmname);
     Uunlink(real_dbmname);
     }
-  #endif /* USE_DB || USE_TDB */
+#endif /* USE_DB || USE_TDB */
   }
 
 return yield;

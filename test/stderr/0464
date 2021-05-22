@@ -14,24 +14,26 @@ LOG: smtp_connection MAIN
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<abc@domain1>
 using ACL "rcpt"
-processing "require"
+processing "require" (TESTSUITE/test-config 20)
 check domains = +special_domains
 search_open: lsearch "TESTSUITE/aux-fixed/0464.domains"
 search_find: file="TESTSUITE/aux-fixed/0464.domains"
-  key="domain1" partial=-1 affix=NULL starflags=0
+  key="domain1" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0464.domains
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0464.domains"
-  type=lsearch key="domain1"
+  type=lsearch key="domain1" opts=NULL
 file lookup required for domain1
   in TESTSUITE/aux-fixed/0464.domains
 lookup yielded: data for domain1
 domain1 in "lsearch;TESTSUITE/aux-fixed/0464.domains"? yes (matched "lsearch;TESTSUITE/aux-fixed/0464.domains")
-data from lookup saved for cache for +special_domains: data for domain1
+data from lookup saved for cache for +special_domains: key 'domain1' value 'data for domain1'
 domain1 in "+special_domains"? yes (matched "+special_domains")
 check verify = recipient
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -47,8 +49,8 @@ cached yes match for +special_domains
 cached lookup data = data for domain1
 domain1 in "+special_domains"? yes (matched "+special_domains" - cached)
 calling r1 router
-rda_interpret (string): $local_part@xxx.$domain
-expanded: abc@xxx.domain1
+rda_interpret (string): '$local_part@xxx.$domain'
+expanded: 'abc@xxx.domain1' (tainted)
 file is not a filter file
 parse_forward_list: abc@xxx.domain1
 extract item: abc@xxx.domain1
@@ -68,12 +70,12 @@ checking domains
 search_open: lsearch "TESTSUITE/aux-fixed/0464.domains"
   cached open
 search_find: file="TESTSUITE/aux-fixed/0464.domains"
-  key="xxx.domain1" partial=-1 affix=NULL starflags=0
+  key="xxx.domain1" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0464.domains
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0464.domains"
-  type=lsearch key="xxx.domain1"
+  type=lsearch key="xxx.domain1" opts=NULL
 file lookup required for xxx.domain1
   in TESTSUITE/aux-fixed/0464.domains
 lookup failed
@@ -89,13 +91,13 @@ set transport smtp
 queued for smtp transport: local_part = abc
 domain = xxx.domain1
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by r2 router
   envelope to: abc@xxx.domain1
   transport: smtp
 ----------- end verify ------------
 require: condition test succeeded in ACL "rcpt"
-processing "require"
+processing "require" (TESTSUITE/test-config 23)
 check domains = +special_domains
 cached yes match for +special_domains
 cached lookup data = data for domain1
@@ -114,8 +116,8 @@ cached yes match for +special_domains
 cached lookup data = data for domain1
 domain1 in "+special_domains"? yes (matched "+special_domains" - cached)
 calling r1 router
-rda_interpret (string): $local_part@xxx.$domain
-expanded: abc@xxx.domain1
+rda_interpret (string): '$local_part@xxx.$domain'
+expanded: 'abc@xxx.domain1' (tainted)
 file is not a filter file
 parse_forward_list: abc@xxx.domain1
 extract item: abc@xxx.domain1
@@ -135,12 +137,12 @@ checking domains
 search_open: lsearch "TESTSUITE/aux-fixed/0464.domains"
   cached open
 search_find: file="TESTSUITE/aux-fixed/0464.domains"
-  key="xxx.domain1" partial=-1 affix=NULL starflags=0
+  key="xxx.domain1" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0464.domains
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0464.domains"
-  type=lsearch key="xxx.domain1"
+  type=lsearch key="xxx.domain1" opts=NULL
 cached data used for lookup of xxx.domain1
   in TESTSUITE/aux-fixed/0464.domains
 lookup failed
@@ -155,18 +157,19 @@ r2 router called for abc@xxx.domain1
 queued for smtp transport: local_part = abc
 domain = xxx.domain1
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by r2 router
   envelope to: abc@xxx.domain1
   transport: smtp
 ----------- end verify ------------
 require: condition test succeeded in ACL "rcpt"
-processing "accept"
+processing "accept" (TESTSUITE/test-config 25)
 accept: condition test succeeded in ACL "rcpt"
+end of ACL "rcpt": ACCEPT
 SMTP>> 250 Accepted
 SMTP<< quit
 SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from CALLER closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

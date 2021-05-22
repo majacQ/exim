@@ -6,15 +6,10 @@ x#xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ABCD_XYZ = abcdxyz
 ABCD=abcd + ABCD_XYZ
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-primary_hostname = myhost.test.ex
+.include DIR/aux-var/std_conf_prefix
+
 qualify_domain = test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+primary_hostname = myhost.test.ex
 
 # ----- Main settings -----
 
@@ -65,6 +60,7 @@ begin transports
 
 T1:
   driver = smtp
+  hosts_try_fastopen =	:
 
 
 #----- ACL -----

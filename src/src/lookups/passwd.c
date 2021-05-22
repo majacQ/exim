@@ -2,7 +2,8 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) The Exim Maintainers 2020 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -16,7 +17,7 @@
 /* See local README for interface description */
 
 static void *
-passwd_open(uschar *filename, uschar **errmsg)
+passwd_open(const uschar * filename, uschar ** errmsg)
 {
 filename = filename;     /* Keep picky compilers happy */
 errmsg = errmsg;
@@ -33,8 +34,9 @@ return (void *)(-1);     /* Just return something non-null */
 /* See local README for interface description */
 
 static int
-passwd_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+passwd_find(void * handle, const uschar * filename, const uschar * keystring,
+  int length, uschar ** result, uschar ** errmsg, uint * do_cache,
+  const uschar * opts)
 {
 struct passwd *pw;
 
@@ -69,15 +71,15 @@ fprintf(f, "Library version: passwd: Exim version %s\n", EXIM_VERSION_STR);
 }
 
 static lookup_info _lookup_info = {
-  US"passwd",                    /* lookup name */
-  lookup_querystyle,             /* query-style lookup */
-  passwd_open,                   /* open function */
-  NULL,                          /* no check function */
-  passwd_find,                   /* find function */
-  NULL,                          /* no close function */
-  NULL,                          /* no tidy function */
-  NULL,                          /* no quoting function */
-  passwd_version_report          /* version reporting */
+  .name = US"passwd",			/* lookup name */
+  .type = lookup_querystyle,		/* query-style lookup */
+  .open = passwd_open,			/* open function */
+  .check = NULL,			/* no check function */
+  .find = passwd_find,			/* find function */
+  .close = NULL,			/* no close function */
+  .tidy = NULL,				/* no tidy function */
+  .quote = NULL,			/* no quoting function */
+  .version_report = passwd_version_report          /* version reporting */
 };
 
 #ifdef DYNLOOKUP

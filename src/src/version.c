@@ -3,6 +3,7 @@
 *************************************************/
 
 /* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) The Exim Maintainers 2010 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Function for setting up the version string. */
@@ -40,7 +41,17 @@ version_cnumber_format = US"%d\0<<eximcnumber>>";
 sprintf(CS version_cnumber, CS version_cnumber_format, cnumber);
 version_string = US EXIM_VERSION_STR "\0<<eximversion>>";
 
-Ustrcpy(today, __DATE__);
+#ifdef EXIM_BUILD_DATE_OVERRIDE
+/* Reproducible build support; build tooling should have given us something looking like
+ * "25-Feb-2017 20:15:40" in EXIM_BUILD_DATE_OVERRIDE based on $SOURCE_DATE_EPOCH in environ
+ * per <https://reproducible-builds.org/specs/source-date-epoch/>
+ */
+version_date = date_buffer;
+version_date[0] = 0;
+Ustrncat(version_date, EXIM_BUILD_DATE_OVERRIDE, sizeof(date_buffer));
+
+#else
+Ustrcpy(today, US __DATE__);
 if (today[4] == ' ') today[4] = '0';
 today[3] = today[6] = '-';
 
@@ -49,8 +60,9 @@ version_date[0] = 0;
 Ustrncat(version_date, today+4, 3);
 Ustrncat(version_date, today, 4);
 Ustrncat(version_date, today+7, 4);
-Ustrcat(version_date, " ");
-Ustrcat(version_date, __TIME__);
+Ustrcat(version_date, US" ");
+Ustrcat(version_date, US __TIME__);
+#endif
 }
 
 /* End of version.c */

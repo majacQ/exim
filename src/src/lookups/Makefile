@@ -34,6 +34,8 @@ dnsdb.o:         $(PHDRS) dnsdb.c
 dsearch.o:       $(PHDRS) dsearch.c
 ibase.o:         $(PHDRS) ibase.c
 ldap.o:          $(PHDRS) ldap.c
+lmdb.o:          $(PHDRS) lmdb.c
+json.o:          $(PHDRS) json.c
 lsearch.o:       $(PHDRS) lsearch.c
 mysql.o:         $(PHDRS) mysql.c
 nis.o:           $(PHDRS) nis.c
@@ -41,6 +43,8 @@ nisplus.o:       $(PHDRS) nisplus.c
 oracle.o:        $(PHDRS) oracle.c
 passwd.o:        $(PHDRS) passwd.c
 pgsql.o:         $(PHDRS) pgsql.c
+readsock.o:      $(PHDRS) readsock.c
+redis.o:         $(PHDRS) redis.c
 spf.o:           $(PHDRS) spf.c
 sqlite.o:        $(PHDRS) sqlite.c
 testdb.o:        $(PHDRS) testdb.c
@@ -51,7 +55,9 @@ dbmdb.so:         $(PHDRS) dbmdb.c
 dnsdb.so:         $(PHDRS) dnsdb.c
 dsearch.so:       $(PHDRS) dsearch.c
 ibase.so:         $(PHDRS) ibase.c
+json.so:          $(PHDRS) json.c
 ldap.so:          $(PHDRS) ldap.c
+lmdb.so:          $(PHDRS) lmdb.c
 lsearch.so:       $(PHDRS) lsearch.c
 mysql.so:         $(PHDRS) mysql.c
 nis.so:           $(PHDRS) nis.c
@@ -59,6 +65,7 @@ nisplus.so:       $(PHDRS) nisplus.c
 oracle.so:        $(PHDRS) oracle.c
 passwd.so:        $(PHDRS) passwd.c
 pgsql.so:         $(PHDRS) pgsql.c
+redis.so:         $(PHDRS) redis.c
 spf.so:           $(PHDRS) spf.c
 sqlite.so:        $(PHDRS) sqlite.c
 testdb.so:        $(PHDRS) testdb.c

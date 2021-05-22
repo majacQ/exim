@@ -8,6 +8,7 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 delivering 10HmaX-0005vi-00
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
@@ -27,8 +28,8 @@ r1 router skipped: domains mismatch
 --------> r2 router <--------
 local_part=cms domain=test.ex
 calling r2 router
-rda_interpret (string): ${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}
-expanded: unknown@recurse.test.ex, defer
+rda_interpret (string): '${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}'
+expanded: 'unknown@recurse.test.ex, defer'
 file is not a filter file
 parse_forward_list: unknown@recurse.test.ex, defer
 extract item: unknown@recurse.test.ex
@@ -45,7 +46,7 @@ v0 router called for postmaster@test.ex
 queued for <unset> transport: local_part = postmaster
 domain = test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=postmaster
 routed by v0 router
   envelope to: postmaster@test.ex
   transport: <none>
@@ -82,8 +83,8 @@ r1 router skipped: domains mismatch
 --------> r2 router <--------
 local_part=defer domain=test.ex
 calling r2 router
-rda_interpret (string): ${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}
-expanded: :defer: Forcibly deferred
+rda_interpret (string): '${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}'
+expanded: ':defer: Forcibly deferred'
 file is not a filter file
 parse_forward_list: :defer: Forcibly deferred
 extract item: :defer: Forcibly deferred
@@ -127,7 +128,7 @@ set transport t1
 queued for t1 transport: local_part = unknown
 domain = recurse.test.ex.test.ex
   errors_to=postmaster@test.ex
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by r1 router
   envelope to: unknown@recurse.test.ex.test.ex
   transport: t1
@@ -144,11 +145,12 @@ After routing:
 locking TESTSUITE/spool/db/retry.lockfile
 LOG: MAIN
   *> unknown@recurse.test.ex.test.ex <cms@test.ex> R=r1 T=t1 H=recurse.test.ex.test.ex [V4NET.99.0.2] C="delivery bypassed by -N option"
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
+dropping to exim gid; retaining priv uid
 LOG: queue_run MAIN
   Start queue run: pid=pppp -qf
 locking TESTSUITE/spool/db/retry.lockfile
@@ -169,8 +171,8 @@ r1 router skipped: domains mismatch
 --------> r2 router <--------
 local_part=cms domain=test.ex
 calling r2 router
-rda_interpret (string): ${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}
-expanded: unknown@recurse.test.ex, defer
+rda_interpret (string): '${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}'
+expanded: 'unknown@recurse.test.ex, defer'
 file is not a filter file
 parse_forward_list: unknown@recurse.test.ex, defer
 extract item: unknown@recurse.test.ex
@@ -187,7 +189,7 @@ v0 router called for postmaster@test.ex
 queued for <unset> transport: local_part = postmaster
 domain = test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=postmaster
 routed by v0 router
   envelope to: postmaster@test.ex
   transport: <none>
@@ -224,8 +226,8 @@ r1 router skipped: domains mismatch
 --------> r2 router <--------
 local_part=defer domain=test.ex
 calling r2 router
-rda_interpret (string): ${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}
-expanded: :defer: Forcibly deferred
+rda_interpret (string): '${lookup{$local_part}lsearch{TESTSUITE/aux-fixed/0360.aliases}}'
+expanded: ':defer: Forcibly deferred'
 file is not a filter file
 parse_forward_list: :defer: Forcibly deferred
 extract item: :defer: Forcibly deferred
@@ -240,6 +242,7 @@ After routing:
   Failed addresses:
   Deferred addresses:
     defer@test.ex
+>>>>>>>>>>>>>>>> Exim pid=pppp (qrun-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
 LOG: queue_run MAIN
   End queue run: pid=pppp -qf
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

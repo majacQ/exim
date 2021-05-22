@@ -8,6 +8,7 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
+dropping to exim gid; retaining priv uid
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -28,8 +29,8 @@ defer router skipped: local_parts mismatch
 local_part=aaaa domain=myhost.test.ex
 checking local_parts
 calling aaaa_redirect router
-rda_interpret (string): bbbb@$domain, cccc@$domain
-expanded: bbbb@myhost.test.ex, cccc@myhost.test.ex
+rda_interpret (string): 'bbbb@$domain, cccc@$domain'
+expanded: 'bbbb@myhost.test.ex, cccc@myhost.test.ex' (tainted)
 file is not a filter file
 parse_forward_list: bbbb@myhost.test.ex, cccc@myhost.test.ex
 extract item: bbbb@myhost.test.ex
@@ -49,8 +50,8 @@ routing defer@myhost.test.ex
 local_part=defer domain=myhost.test.ex
 checking local_parts
 calling defer router
-rda_interpret (string): :defer: forced defer
-expanded: :defer: forced defer
+rda_interpret (string): ':defer: forced defer'
+expanded: ':defer: forced defer'
 file is not a filter file
 parse_forward_list: :defer: forced defer
 extract item: :defer: forced defer
@@ -88,7 +89,7 @@ set transport t1
 queued for t1 transport: local_part = cccc
 domain = myhost.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=cccc
 routed by bc router
   envelope to: cccc@myhost.test.ex
   transport: t1
@@ -111,7 +112,7 @@ bc router called for bbbb@myhost.test.ex
 queued for t1 transport: local_part = bbbb
 domain = myhost.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=bbbb
 routed by bc router
   envelope to: bbbb@myhost.test.ex
   transport: t1
@@ -131,11 +132,12 @@ locking TESTSUITE/spool/db/retry.lockfile
 LOG: MAIN
   => cccc <aaaa@myhost.test.ex> R=bc T=t1
 locking TESTSUITE/spool/db/retry.lockfile
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (local-accept-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
+dropping to exim gid; retaining priv uid
 LOG: queue_run MAIN
   Start queue run: pid=pppp -qf
 locking TESTSUITE/spool/db/retry.lockfile
@@ -149,8 +151,8 @@ routing defer@myhost.test.ex
 local_part=defer domain=myhost.test.ex
 checking local_parts
 calling defer router
-rda_interpret (string): :defer: forced defer
-expanded: :defer: forced defer
+rda_interpret (string): ':defer: forced defer'
+expanded: ':defer: forced defer'
 file is not a filter file
 parse_forward_list: :defer: forced defer
 extract item: :defer: forced defer
@@ -166,6 +168,7 @@ After routing:
   Deferred addresses:
     defer@myhost.test.ex
 locking TESTSUITE/spool/db/retry.lockfile
+>>>>>>>>>>>>>>>> Exim pid=pppp (qrun-delivery) terminating with rc=0 >>>>>>>>>>>>>>>>
 LOG: queue_run MAIN
   End queue run: pid=pppp -qf
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

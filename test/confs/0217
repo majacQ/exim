@@ -2,14 +2,10 @@
 
 HAP=
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+log_selector = +pipelining
 
 # ----- Main settings -----
 
@@ -45,14 +41,16 @@ send_to_server:
   command_timeout = 1s
   hosts = 127.0.0.1
   port = PORT_S
+  hosts_try_fastopen = :
   HAP
+  max_rcpt = 1000
 
 # ----- Retry -----
 
 
 begin retry
 
-* * F,5d,10s
+* *		F,5d,10s
 
 
 # End

@@ -1,17 +1,14 @@
 # Exim test configuration 0137
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
+log_selector = +subject
 domainlist local_domains = test.ex
 qualify_domain = test.ex
+untrusted_set_sender = *
 
 
 # ----- Routers -----
@@ -21,7 +18,10 @@ begin routers
 smart:
   driver = accept
   retry_use_local_part
-  transport = $h_transport:
+  transport = ${if eq {t1}{$sender_address_local_part} {local_delivery} \
+		{${if eq {t2}{$sender_address_local_part} {local_delivery_fcntl} \
+		{${if eq {t3}{$sender_address_local_part} {local_delivery_fcntl_blocking} \
+		{} }}}}}
 
 
 # ----- Transports -----
@@ -30,14 +30,14 @@ begin transports
 
 local_delivery:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   lock_interval = 1s
   lock_retries = 2
   user = CALLER
 
 local_delivery_fcntl:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   lock_interval = 1s
   lock_retries = 2
   no_use_lockfile
@@ -45,7 +45,7 @@ local_delivery_fcntl:
 
 local_delivery_fcntl_blocking:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   lock_fcntl_timeout = 2s
   lock_interval = 1s
   lock_retries = 2

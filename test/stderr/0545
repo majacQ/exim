@@ -3,6 +3,7 @@ changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
+dropping to exim gid; retaining priv uid
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@the.local.host.name
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -17,12 +18,16 @@ local_part=userx domain=alias-eximtesthost
 calling dns router
 dns router called for userx@alias-eximtesthost
   domain = alias-eximtesthost
+alias-eximtesthost in "*"? yes (matched "*")
 DNS lookup of alias-eximtesthost (MX) using fakens
 DNS lookup of alias-eximtesthost (MX) succeeded
 CNAME found: change to eximtesthost.test.ex
 DNS lookup of eximtesthost.test.ex (MX) using fakens
 DNS lookup of eximtesthost.test.ex (MX) gave NO_DATA
 returning DNS_NODATA
+faking res_search(MX) response length as 65535
+ writing neg-cache entry for eximtesthost.test.ex-MX-xxxx, ttl 3000
+alias-eximtesthost (MX resp) DNSSEC
 DNS lookup of alias-eximtesthost (A) using fakens
 DNS lookup of alias-eximtesthost (A) succeeded
 CNAME found: change to eximtesthost.test.ex
@@ -43,6 +48,7 @@ local_part=userx domain=alias-eximtesthost.test.ex
 calling dns router
 dns router called for userx@alias-eximtesthost.test.ex
   domain = alias-eximtesthost.test.ex
+alias-eximtesthost.test.ex in "*"? yes (matched "*")
 DNS lookup of alias-eximtesthost.test.ex (MX) using fakens
 DNS lookup of alias-eximtesthost.test.ex (MX) succeeded
 CNAME found: change to eximtesthost.test.ex
@@ -60,18 +66,19 @@ set transport smtp
 queued for smtp transport: local_part = userx
 domain = alias-eximtesthost.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by dns router
   envelope to: userx@alias-eximtesthost.test.ex
   transport: smtp
   host eximtesthost.test.ex [ip4.ip4.ip4.ip4]
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
+dropping to exim gid; retaining priv uid
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@the.local.host.name
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -86,12 +93,16 @@ local_part=userx domain=alias-eximtesthost.test.ex
 calling dns router
 dns router called for userx@alias-eximtesthost.test.ex
   domain = alias-eximtesthost.test.ex
+alias-eximtesthost.test.ex in "*"? yes (matched "*")
 DNS lookup of alias-eximtesthost.test.ex (MX) using fakens
 DNS lookup of alias-eximtesthost.test.ex (MX) succeeded
 CNAME found: change to eximtesthost.test.ex
 DNS lookup of eximtesthost.test.ex (MX) using fakens
 DNS lookup of eximtesthost.test.ex (MX) gave NO_DATA
 returning DNS_NODATA
+faking res_search(MX) response length as 65535
+ writing neg-cache entry for eximtesthost.test.ex-MX-xxxx, ttl 3000
+alias-eximtesthost.test.ex (MX resp) DNSSEC
 DNS lookup of alias-eximtesthost.test.ex (A) using fakens
 DNS lookup of alias-eximtesthost.test.ex (A) succeeded
 CNAME found: change to eximtesthost.test.ex
@@ -105,10 +116,10 @@ set transport smtp
 queued for smtp transport: local_part = userx
 domain = alias-eximtesthost.test.ex
   errors_to=NULL
-  domain_data=NULL localpart_data=NULL
+  domain_data=NULL local_part_data=NULL
 routed by dns router
   envelope to: userx@alias-eximtesthost.test.ex
   transport: smtp
   host eximtesthost.test.ex [ip4.ip4.ip4.ip4]
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

@@ -1,0 +1,3 @@
+support PIPE_CONNECT
+support OpenSSL
+authenticator plaintext

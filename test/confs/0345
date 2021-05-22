@@ -1,12 +1,7 @@
 # Exim test configuration 0345
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -14,7 +9,7 @@ domainlist local_domains = test.ex
 
 qualify_domain = test.ex
 ignore_bounce_errors_after = 0s
-admin_groups = CALLER
+admin_groups = CALLERGROUP
 
 
 # ----- Routers -----
@@ -33,7 +28,7 @@ begin transports
 
 local_delivery:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   quota = 20
   user = CALLER
 

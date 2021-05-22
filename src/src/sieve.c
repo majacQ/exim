@@ -2,8 +2,10 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Michael Haardt 2003-2008 */
-/* See the file NOTICE for conditions of use and distribution. */
+/* Copyright (c) Michael Haardt 2003 - 2015
+ * Copyright (c) The Exim Maintainers 2016 - 2020
+ * See the file NOTICE for conditions of use and distribution.
+ */
 
 /* This code was contributed by Michael Haardt. */
 
@@ -19,7 +21,7 @@
 #include "exim.h"
 
 #if HAVE_ICONV
-#include <iconv.h>
+# include <iconv.h>
 #endif
 
 /* Define this for RFC compliant \r\n end-of-line terminators.      */
@@ -151,8 +153,10 @@ static uschar str_cc_c[]="Cc";
 static const struct String str_cc={ str_cc_c, 2 };
 static uschar str_bcc_c[]="Bcc";
 static const struct String str_bcc={ str_bcc_c, 3 };
+#ifdef ENVELOPE_AUTH
 static uschar str_auth_c[]="auth";
 static const struct String str_auth={ str_auth_c, 4 };
+#endif
 static uschar str_sender_c[]="Sender";
 static const struct String str_sender={ str_sender_c, 6 };
 static uschar str_resent_from_c[]="Resent-From";
@@ -224,76 +228,71 @@ Returns
   dst
 */
 
-static struct String *quoted_printable_encode(const struct String *src, struct String *dst)
+static struct String *
+quoted_printable_encode(const struct String *src, struct String *dst)
 {
-int pass;
-const uschar *start,*end;
 uschar *new = NULL;
 uschar ch;
 size_t line;
 
-for (pass=0; pass<=1; ++pass)
+/* Two passes: one to count output allocation size, second
+to do the encoding */
+
+for (int pass = 0; pass <= 1; pass++)
   {
   line=0;
   if (pass==0)
     dst->length=0;
   else
     {
-    dst->character=store_get(dst->length+1); /* plus one for \0 */
+    dst->character = store_get(dst->length+1, is_tainted(src->character)); /* plus one for \0 */
     new=dst->character;
     }
-  for (start=src->character,end=start+src->length; start<end; ++start)
+  for (const uschar * start = src->character, * end = start + src->length;
+       start < end; ++start)
     {
     ch=*start;
-    if (line>=73)
+    if (line>=73)	/* line length limit */
       {
       if (pass==0)
         dst->length+=2;
       else
         {
-        *new++='=';
+        *new++='=';	/* line split */
         *new++='\n';
         }
       line=0;
       }
-    if
-      (
-      (ch>=33 && ch<=60)
-      || (ch>=62 && ch<=126)
-      ||
-        (
-        (ch==9 || ch==32)
-        && start+2<end
-        && (*(start+1)!='\r' || *(start+2)!='\n')
-        )
-      )
+    if (  (ch>='!' && ch<='<')
+       || (ch>='>' && ch<='~')
+       || (  (ch=='\t' || ch==' ')
+          && start+2<end
+          && (*(start+1)!='\r' || *(start+2)!='\n')	/* CRLF */
+          )
+       )
       {
       if (pass==0)
         ++dst->length;
       else
-        *new++=*start;
+        *new++=*start;	/* copy char */
       ++line;
       }
-    else if (ch=='\r' && start+1<end && *(start+1)=='\n')
+    else if (ch=='\r' && start+1<end && *(start+1)=='\n') /* CRLF */
       {
       if (pass==0)
-        {
         ++dst->length;
-        line=0;
-        }
       else
-        *new++='\n';
-        line=0;
-      ++start;
+        *new++='\n';					/* NL */
+      line=0;
+      ++start;	/* consume extra input char */
       }
     else
       {
       if (pass==0)
         dst->length+=3;
       else
-        {
-        sprintf(CS new,"=%02X",ch);
-        new+=3;
+        {		/* encoded char */
+        new += sprintf(CS new,"=%02X",ch);
         }
       line+=3;
       }
@@ -329,7 +328,7 @@ if (address->length>0)
   {
   ss = parse_extract_address(address->character, &error, &start, &end, &domain,
     FALSE);
-  if (ss == NULL)
+  if (!ss)
     {
     filter->errmsg=string_sprintf("malformed address \"%s\" (%s)",
       address->character, error);
@@ -360,13 +359,13 @@ Returns
 */
 
 #ifdef ENOTIFY
-static int uri_decode(struct String *str)
+static int
+uri_decode(struct String *str)
 {
 uschar *s,*t,*e;
 
 if (str->length==0) return 0;
 for (s=str->character,t=s,e=s+str->length; s<e; )
-  {
   if (*s=='%')
     {
     if (s+2<e && isxdigit(*(s+1)) && isxdigit(*(s+2)))
@@ -379,7 +378,7 @@ for (s=str->character,t=s,e=s+str->length; s<e; )
     }
   else
     *t++=*s++;
-  }
+
 *t='\0';
 str->length=t-str->character;
 return 0;
@@ -412,11 +411,14 @@ Returns
  -1           syntax error
 */
 
-static int parse_mailto_uri(struct Sieve *filter, const uschar *uri, string_item **recipient, struct String *header, struct String *subject, struct String *body)
+static int
+parse_mailto_uri(struct Sieve *filter, const uschar *uri,
+  string_item **recipient, struct String *header, struct String *subject,
+  struct String *body)
 {
 const uschar *start;
-struct String to,hname,hvalue;
-int capacity;
+struct String to, hname;
+struct String hvalue = {.character = NULL, .length = 0};
 string_item *new;
 
 if (Ustrncmp(uri,"mailto:",7))
@@ -424,6 +426,7 @@ if (Ustrncmp(uri,"mailto:",7))
   filter->errmsg=US "Unknown URI scheme";
   return 0;
   }
+
 uri+=7;
 if (*uri && *uri!='?')
   for (;;)
@@ -432,22 +435,21 @@ if (*uri && *uri!='?')
     for (start=uri; *uri && *uri!='?' && (*uri!='%' || *(uri+1)!='2' || tolower(*(uri+2))!='c'); ++uri);
     if (uri>start)
       {
-      capacity=0;
-      to.character=(uschar*)0;
-      to.length=0;
-      to.character=string_cat(to.character,&capacity,&to.length,start,uri-start);
-      to.character[to.length]='\0';
+      gstring * g = string_catn(NULL, start, uri-start);
+
+      to.character = string_from_gstring(g);
+      to.length = g->ptr;
       if (uri_decode(&to)==-1)
         {
         filter->errmsg=US"Invalid URI encoding";
         return -1;
         }
-        new=store_get(sizeof(string_item));
-        new->text=store_get(to.length+1);
-        if (to.length) memcpy(new->text,to.character,to.length);
-        new->text[to.length]='\0';
-        new->next=*recipient;
-        *recipient=new;
+      new=store_get(sizeof(string_item), FALSE);
+      new->text = store_get(to.length+1, is_tainted(to.character));
+      if (to.length) memcpy(new->text, to.character, to.length);
+      new->text[to.length]='\0';
+      new->next=*recipient;
+      *recipient=new;
       }
     else
       {
@@ -466,11 +468,10 @@ if (*uri=='?')
     for (start=uri; *uri && (isalnum(*uri) || strchr("$-_.+!*'(),%",*uri)); ++uri);
     if (uri>start)
       {
-      capacity=0;
-      hname.character=(uschar*)0;
-      hname.length=0;
-      hname.character=string_cat(hname.character,&capacity,&hname.length,start,uri-start);
-      hname.character[hname.length]='\0';
+      gstring * g = string_catn(NULL, start, uri-start);
+
+      hname.character = string_from_gstring(g);
+      hname.length = g->ptr;
       if (uri_decode(&hname)==-1)
         {
         filter->errmsg=US"Invalid URI encoding";
@@ -489,11 +490,10 @@ if (*uri=='?')
     for (start=uri; *uri && (isalnum(*uri) || strchr("$-_.+!*'(),%",*uri)); ++uri);
     if (uri>start)
       {
-      capacity=0;
-      hvalue.character=(uschar*)0;
-      hvalue.length=0;
-      hvalue.character=string_cat(hvalue.character,&capacity,&hvalue.length,start,uri-start);
-      hvalue.character[hvalue.length]='\0';
+      gstring * g = string_catn(NULL, start, uri-start);
+
+      hname.character = string_from_gstring(g);
+      hname.length = g->ptr;
       if (uri_decode(&hvalue)==-1)
         {
         filter->errmsg=US"Invalid URI encoding";
@@ -502,9 +502,9 @@ if (*uri=='?')
       }
     if (hname.length==2 && strcmpic(hname.character, US"to")==0)
       {
-      new=store_get(sizeof(string_item));
-      new->text=store_get(hvalue.length+1);
-      if (hvalue.length) memcpy(new->text,hvalue.character,hvalue.length);
+      new=store_get(sizeof(string_item), FALSE);
+      new->text = store_get(hvalue.length+1, is_tainted(hvalue.character));
+      if (hvalue.length) memcpy(new->text, hvalue.character, hvalue.length);
       new->text[hvalue.length]='\0';
       new->next=*recipient;
       *recipient=new;
@@ -529,13 +529,18 @@ if (*uri=='?')
       for (i=ignore; i<end && !eq_asciicase(&hname,i,0); ++i);
       if (i==end)
         {
-        if (header->length==-1) header->length=0;
-        capacity=header->length;
-        header->character=string_cat(header->character,&capacity,&header->length,hname.character,hname.length);
-        header->character=string_cat(header->character,&capacity,&header->length,CUS ": ",2);
-        header->character=string_cat(header->character,&capacity,&header->length,hvalue.character,hvalue.length);
-        header->character=string_cat(header->character,&capacity,&header->length,CUS "\n",1);
-        header->character[header->length]='\0';
+	gstring * g;
+
+        if (header->length==-1) header->length = 0;
+
+	g = string_catn(NULL, header->character, header->length);
+        g = string_catn(g, hname.character, hname.length);
+        g = string_catn(g, CUS ": ", 2);
+        g = string_catn(g, hvalue.character, hvalue.length);
+        g = string_catn(g, CUS "\n", 1);
+
+	header->character = string_from_gstring(g);
+	header->length = g->ptr;
         }
       }
     if (*uri=='&') ++uri;
@@ -849,21 +854,15 @@ if ((filter_test != FTEST_NONE && debug_selector != 0) ||
 switch (mt)
   {
   case MATCH_IS:
-    {
     switch (co)
       {
       case COMP_OCTET:
-        {
         if (eq_octet(needle,haystack,0)) r=1;
         break;
-        }
       case COMP_EN_ASCII_CASEMAP:
-        {
         if (eq_asciicase(needle,haystack,0)) r=1;
         break;
-        }
       case COMP_ASCII_NUMERIC:
-        {
         if (!filter->require_iascii_numeric)
           {
           filter->errmsg=CUS "missing previous require \"comparator-i;ascii-numeric\";";
@@ -871,10 +870,9 @@ switch (mt)
           }
         if (eq_asciinumeric(needle,haystack,EQ)) r=1;
         break;
-        }
       }
     break;
-    }
+
   case MATCH_CONTAINS:
     {
     struct String h;
@@ -882,53 +880,42 @@ switch (mt)
     switch (co)
       {
       case COMP_OCTET:
-        {
-        for (h=*haystack; h.length; ++h.character,--h.length) if (eq_octet(needle,&h,1)) { r=1; break; }
+        for (h = *haystack; h.length; ++h.character,--h.length)
+	 if (eq_octet(needle,&h,1)) { r=1; break; }
         break;
-        }
       case COMP_EN_ASCII_CASEMAP:
-        {
-        for (h=*haystack; h.length; ++h.character,--h.length) if (eq_asciicase(needle,&h,1)) { r=1; break; }
+        for (h = *haystack; h.length; ++h.character, --h.length)
+	  if (eq_asciicase(needle,&h,1)) { r=1; break; }
         break;
-        }
       default:
-        {
         filter->errmsg=CUS "comparator does not offer specified matchtype";
         return -1;
-        }
       }
     break;
     }
+
   case MATCH_MATCHES:
-    {
     switch (co)
       {
       case COMP_OCTET:
-        {
         if ((r=eq_glob(needle,haystack,0,1))==-1)
           {
           filter->errmsg=CUS "syntactically invalid pattern";
           return -1;
           }
         break;
-        }
       case COMP_EN_ASCII_CASEMAP:
-        {
         if ((r=eq_glob(needle,haystack,1,1))==-1)
           {
           filter->errmsg=CUS "syntactically invalid pattern";
           return -1;
           }
         break;
-        }
       default:
-        {
         filter->errmsg=CUS "comparator does not offer specified matchtype";
         return -1;
-        }
       }
     break;
-    }
   }
 if ((filter_test != FTEST_NONE && debug_selector != 0) ||
   (debug_selector & D_filter) != 0)
@@ -993,10 +980,10 @@ Arguments:
 Returns:      quoted string
 */
 
-static const uschar *quote(const struct String *header)
+static const uschar *
+quote(const struct String *header)
 {
-uschar *quoted=NULL;
-int size=0,ptr=0;
+gstring * quoted = NULL;
 size_t l;
 const uschar *h;
 
@@ -1007,26 +994,20 @@ while (l)
   switch (*h)
     {
     case '\0':
-      {
-      quoted=string_cat(quoted,&size,&ptr,CUS "\\0",2);
+      quoted = string_catn(quoted, CUS "\\0", 2);
       break;
-      }
     case '$':
     case '{':
     case '}':
-      {
-      quoted=string_cat(quoted,&size,&ptr,CUS "\\",1);
-      }
+      quoted = string_catn(quoted, CUS "\\", 1);
     default:
-      {
-      quoted=string_cat(quoted,&size,&ptr,h,1);
-      }
+      quoted = string_catn(quoted, h, 1);
     }
   ++h;
   --l;
   }
-quoted=string_cat(quoted,&size,&ptr,CUS "",1);
-return quoted;
+quoted = string_catn(quoted, CUS "", 1);
+return string_from_gstring(quoted);
 }
 
 
@@ -1046,33 +1027,36 @@ Arguments:
 Returns:      nothing
 */
 
-static void add_addr(address_item **generated, uschar *addr, int file, int maxage, int maxmessages, int maxstorage)
+static void
+add_addr(address_item **generated, uschar *addr, int file, int maxage, int maxmessages, int maxstorage)
 {
 address_item *new_addr;
 
-for (new_addr=*generated; new_addr; new_addr=new_addr->next)
-  {
-  if (Ustrcmp(new_addr->address,addr)==0 && (file ? testflag(new_addr, af_pfr|af_file) : 1))
+for (new_addr = *generated; new_addr; new_addr = new_addr->next)
+  if (  Ustrcmp(new_addr->address,addr) == 0
+     && (  !file
+	|| testflag(new_addr, af_pfr)
+	|| testflag(new_addr, af_file)
+	)
+     )
     {
     if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-      {
       debug_printf("Repeated %s `%s' ignored.\n",file ? "fileinto" : "redirect", addr);
-      }
+
     return;
     }
-  }
 
 if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-  {
   debug_printf("%s `%s'\n",file ? "fileinto" : "redirect", addr);
-  }
-new_addr=deliver_make_addr(addr,TRUE);
+
+new_addr = deliver_make_addr(addr,TRUE);
 if (file)
   {
-  setflag(new_addr, af_pfr|af_file);
+  setflag(new_addr, af_pfr);
+  setflag(new_addr, af_file);
   new_addr->mode = 0;
   }
-new_addr->p.errors_address = NULL;
+new_addr->prop.errors_address = NULL;
 new_addr->next = *generated;
 *generated = new_addr;
 }
@@ -1103,7 +1087,8 @@ uschar *errmsg;
 value->length=0;
 value->character=(uschar*)0;
 
-t=r=s=expand_string(string_sprintf("$rheader_%s",quote(header)));
+t = r = s = expand_string(string_sprintf("$rheader_%s",quote(header)));
+if (!t) return;
 while (*r==' ' || *r=='\t') ++r;
 while (*r)
   {
@@ -1268,7 +1253,9 @@ do
   {
   int x,d,n;
 
-  for (x=0,d=0; d<2 && src<end && isxdigit(n=tolower(*src)); x=(x<<4)|(n>='0' && n<='9' ? n-'0' : 10+(n-'a')),++d,++src);
+  for (x = 0, d = 0;
+      d<2 && src<end && isxdigit(n=tolower(*src));
+      x=(x<<4)|(n>='0' && n<='9' ? n-'0' : 10+(n-'a')) ,++d, ++src) ;
   if (d==0) return -1;
   if (dst) *dst++=x;
   ++decoded;
@@ -1310,7 +1297,8 @@ Returns:      >=0              number of decoded octets
               -2               semantic error (character range violation)
 */
 
-static int unicode_decode(uschar *src, uschar *end, uschar *dst)
+static int
+unicode_decode(uschar *src, uschar *end, uschar *dst)
 {
 int decoded=0;
 
@@ -1321,9 +1309,11 @@ do
   int c,d,n;
 
   unicode_hex:
-  for (hex_seq=src; src<end && *src=='0'; ++src);
-  for (c=0,d=0; d<7 && src<end && isxdigit(n=tolower(*src)); c=(c<<4)|(n>='0' && n<='9' ? n-'0' : 10+(n-'a')),++d,++src);
-  if (src==hex_seq) return -1;
+  for (hex_seq = src; src < end && *src=='0'; ) src++;
+  for (c = 0, d = 0;
+       d < 7 && src < end && isxdigit(n=tolower(*src));
+       c=(c<<4)|(n>='0' && n<='9' ? n-'0' : 10+(n-'a')), ++d, ++src) ;
+  if (src == hex_seq) return -1;
   if (d==7 || (!((c>=0 && c<=0xd7ff) || (c>=0xe000 && c<=0x10ffff)))) return -2;
   if (c<128)
     {
@@ -1472,12 +1462,14 @@ Returns:      1                success
               0                identifier not matched
 */
 
-static int parse_string(struct Sieve *filter, struct String *data)
+static int
+parse_string(struct Sieve *filter, struct String *data)
 {
-int dataCapacity=0;
+gstring * g = NULL;
 
-data->length=0;
-data->character=(uschar*)0;
+data->length = 0;
+data->character = NULL;
+
 if (*filter->pc=='"') /* quoted string */
   {
   ++filter->pc;
@@ -1485,11 +1477,17 @@ if (*filter->pc=='"') /* quoted string */
     {
     if (*filter->pc=='"') /* end of string */
       {
-      int foo=data->length;
-
       ++filter->pc;
+
+      if (g)
+	{
+	data->character = string_from_gstring(g);
+	data->length = g->ptr;
+	}
+      else
+	data->character = US"\0";
       /* that way, there will be at least one character allocated */
-      data->character=string_cat(data->character,&dataCapacity,&foo,CUS "",1);
+
 #ifdef ENCODED_CHARACTER
       if (filter->require_encoded_character
           && string_decode(filter,data)==-1)
@@ -1499,7 +1497,7 @@ if (*filter->pc=='"') /* quoted string */
       }
     else if (*filter->pc=='\\' && *(filter->pc+1)) /* quoted character */
       {
-      data->character=string_cat(data->character,&dataCapacity,&data->length,filter->pc+1,1);
+      g = string_catn(g, filter->pc+1, 1);
       filter->pc+=2;
       }
     else /* regular character */
@@ -1509,11 +1507,11 @@ if (*filter->pc=='"') /* quoted string */
 #else
       if (*filter->pc=='\n')
         {
-        data->character=string_cat(data->character,&dataCapacity,&data->length,US"\r",1);
+        g = string_catn(g, US"\r", 1);
         ++filter->line;
         }
 #endif
-      data->character=string_cat(data->character,&dataCapacity,&data->length,filter->pc,1);
+      g = string_catn(g, filter->pc, 1);
       filter->pc++;
       }
     }
@@ -1555,7 +1553,7 @@ else if (Ustrncmp(filter->pc,CUS "text:",5)==0) /* multiline string */
     if (*filter->pc=='\n') /* end of line */
 #endif
       {
-      data->character=string_cat(data->character,&dataCapacity,&data->length,CUS "\r\n",2);
+      g = string_catn(g, CUS "\r\n", 2);
 #ifdef RFC_EOL
       filter->pc+=2;
 #else
@@ -1568,10 +1566,15 @@ else if (Ustrncmp(filter->pc,CUS "text:",5)==0) /* multiline string */
       if (*filter->pc=='.' && *(filter->pc+1)=='\n') /* end of string */
 #endif
         {
-        int foo=data->length;
+	if (g)
+	  {
+	  data->character = string_from_gstring(g);
+	  data->length = g->ptr;
+	  }
+	else
+	  data->character = US"\0";
+	/* that way, there will be at least one character allocated */
 
-        /* that way, there will be at least one character allocated */
-        data->character=string_cat(data->character,&dataCapacity,&foo,CUS "",1);
 #ifdef RFC_EOL
         filter->pc+=3;
 #else
@@ -1587,13 +1590,13 @@ else if (Ustrncmp(filter->pc,CUS "text:",5)==0) /* multiline string */
         }
       else if (*filter->pc=='.' && *(filter->pc+1)=='.') /* remove dot stuffing */
         {
-        data->character=string_cat(data->character,&dataCapacity,&data->length,CUS ".",1);
+        g = string_catn(g, CUS ".", 1);
         filter->pc+=2;
         }
       }
     else /* regular character */
       {
-      data->character=string_cat(data->character,&dataCapacity,&data->length,filter->pc,1);
+      g = string_catn(g, filter->pc, 1);
       filter->pc++;
       }
     }
@@ -1706,12 +1709,13 @@ Returns:      1                success
               -1               no string list found
 */
 
-static int parse_stringlist(struct Sieve *filter, struct String **data)
+static int
+parse_stringlist(struct Sieve *filter, struct String **data)
 {
 const uschar *orig=filter->pc;
-int dataCapacity=0;
-int dataLength=0;
-struct String *d=(struct String*)0;
+int dataCapacity = 0;
+int dataLength = 0;
+struct String *d = NULL;
 int m;
 
 if (*filter->pc=='[') /* string list */
@@ -1720,20 +1724,17 @@ if (*filter->pc=='[') /* string list */
   for (;;)
     {
     if (parse_white(filter)==-1) goto error;
-    if ((dataLength+1)>=dataCapacity) /* increase buffer */
+    if (dataLength+1 >= dataCapacity) /* increase buffer */
       {
       struct String *new;
-      int newCapacity;          /* Don't amalgamate with next line; some compilers grumble */
-      newCapacity=dataCapacity?(dataCapacity*=2):(dataCapacity=4);
-      if ((new=(struct String*)store_get(sizeof(struct String)*newCapacity))==(struct String*)0)
-        {
-        filter->errmsg=CUstrerror(errno);
-        goto error;
-        }
+
+      dataCapacity = dataCapacity ? dataCapacity * 2 : 4;
+      new = store_get(sizeof(struct String) * dataCapacity, FALSE);
+
       if (d) memcpy(new,d,sizeof(struct String)*dataLength);
-      d=new;
-      dataCapacity=newCapacity;
+      d = new;
       }
+
     m=parse_string(filter,&d[dataLength]);
     if (m==0)
       {
@@ -1766,15 +1767,13 @@ if (*filter->pc=='[') /* string list */
   }
 else /* single string */
   {
-  if ((d=store_get(sizeof(struct String)*2))==(struct String*)0)
-    {
+  if (!(d=store_get(sizeof(struct String)*2, FALSE)))
     return -1;
-    }
+
   m=parse_string(filter,&d[0]);
   if (m==-1)
-    {
     return -1;
-    }
+
   else if (m==0)
     {
     filter->pc=orig;
@@ -2030,7 +2029,8 @@ Returns:      1                success
               -1               syntax or execution error
 */
 
-static int parse_test(struct Sieve *filter, int *cond, int exec)
+static int
+parse_test(struct Sieve *filter, int *cond, int exec)
 {
 if (parse_white(filter)==-1) return -1;
 if (parse_identifier(filter,CUS "address"))
@@ -2045,7 +2045,7 @@ if (parse_identifier(filter,CUS "address"))
   enum AddressPart addressPart=ADDRPART_ALL;
   enum Comparator comparator=COMP_EN_ASCII_CASEMAP;
   enum MatchType matchType=MATCH_IS;
-  struct String *hdr,*h,*key,*k;
+  struct String *hdr,*key;
   int m;
   int ap=0,co=0,mt=0;
 
@@ -2097,7 +2097,7 @@ if (parse_identifier(filter,CUS "address"))
     return -1;
     }
   *cond=0;
-  for (h=hdr; h->length!=-1 && !*cond; ++h)
+  for (struct String * h = hdr; h->length!=-1 && !*cond; ++h)
     {
     uschar *header_value=(uschar*)0,*extracted_addr,*end_addr;
 
@@ -2118,13 +2118,12 @@ if (parse_identifier(filter,CUS "address"))
     if (exec)
       {
       /* We are only interested in addresses below, so no MIME decoding */
-      header_value=expand_string(string_sprintf("$rheader_%s",quote(h)));
-      if (header_value == NULL)
+      if (!(header_value = expand_string(string_sprintf("$rheader_%s",quote(h)))))
         {
         filter->errmsg=CUS "header string expansion failed";
         return -1;
         }
-      parse_allow_group = TRUE;
+      f.parse_allow_group = TRUE;
       while (*header_value && !*cond)
         {
         uschar *error;
@@ -2153,12 +2152,10 @@ if (parse_identifier(filter,CUS "address"))
         *end_addr = saveend;
         if (part)
           {
-          for (k=key; k->length!=-1; ++k)
+          for (struct String * k = key; k->length !=- 1; ++k)
             {
-            struct String partStr;
+            struct String partStr = {.character = part, .length = Ustrlen(part)};
 
-            partStr.character=part;
-            partStr.length=Ustrlen(part);
             if (extracted_addr)
               {
               *cond=compare(filter,k,&partStr,comparator,matchType);
@@ -2170,8 +2167,8 @@ if (parse_identifier(filter,CUS "address"))
         if (saveend == 0) break;
         header_value = end_addr + 1;
         }
-      parse_allow_group = FALSE;
-      parse_found_group = FALSE;
+      f.parse_allow_group = FALSE;
+      f.parse_found_group = FALSE;
       }
     }
   return 1;
@@ -2212,7 +2209,7 @@ else if (parse_identifier(filter,CUS "exists"))
   exists-test = "exists" <header-names: string-list>
   */
 
-  struct String *hdr,*h;
+  struct String *hdr;
   int m;
 
   if (parse_white(filter)==-1) return -1;
@@ -2224,12 +2221,12 @@ else if (parse_identifier(filter,CUS "exists"))
   if (exec)
     {
     *cond=1;
-    for (h=hdr; h->length!=-1 && *cond; ++h)
+    for (struct String * h = hdr; h->length != -1 && *cond; ++h)
       {
       uschar *header_def;
 
-      header_def=expand_string(string_sprintf("${if def:header_%s {true}{false}}",quote(h)));
-      if (header_def == NULL)
+      header_def = expand_string(string_sprintf("${if def:header_%s {true}{false}}",quote(h)));
+      if (!header_def)
         {
         filter->errmsg=CUS "header string expansion failed";
         return -1;
@@ -2257,7 +2254,7 @@ else if (parse_identifier(filter,CUS "header"))
 
   enum Comparator comparator=COMP_EN_ASCII_CASEMAP;
   enum MatchType matchType=MATCH_IS;
-  struct String *hdr,*h,*key,*k;
+  struct String *hdr,*key;
   int m;
   int co=0,mt=0;
 
@@ -2299,7 +2296,7 @@ else if (parse_identifier(filter,CUS "header"))
     return -1;
     }
   *cond=0;
-  for (h=hdr; h->length!=-1 && !*cond; ++h)
+  for (struct String * h = hdr; h->length != -1 && !*cond; ++h)
     {
     if (!is_header(h))
       {
@@ -2312,21 +2309,19 @@ else if (parse_identifier(filter,CUS "header"))
       uschar *header_def;
 
       expand_header(&header_value,h);
-      header_def=expand_string(string_sprintf("${if def:header_%s {true}{false}}",quote(h)));
-      if (header_value.character == NULL || header_def == NULL)
+      header_def = expand_string(string_sprintf("${if def:header_%s {true}{false}}",quote(h)));
+      if (!header_value.character || !header_def)
         {
         filter->errmsg=CUS "header string expansion failed";
         return -1;
         }
-      for (k=key; k->length!=-1; ++k)
-        {
+      for (struct String * k = key; k->length != -1; ++k)
         if (Ustrcmp(header_def,"true")==0)
           {
           *cond=compare(filter,k,&header_value,comparator,matchType);
           if (*cond==-1) return -1;
           if (*cond) break;
           }
-        }
       }
     }
   return 1;
@@ -2384,7 +2379,7 @@ else if (parse_identifier(filter,CUS "envelope"))
   enum Comparator comparator=COMP_EN_ASCII_CASEMAP;
   enum AddressPart addressPart=ADDRPART_ALL;
   enum MatchType matchType=MATCH_IS;
-  struct String *env,*e,*key,*k;
+  struct String *env,*key;
   int m;
   int co=0,ap=0,mt=0;
 
@@ -2441,7 +2436,7 @@ else if (parse_identifier(filter,CUS "envelope"))
     return -1;
     }
   *cond=0;
-  for (e=env; e->length!=-1 && !*cond; ++e)
+  for (struct String * e = env; e->length != -1 && !*cond; ++e)
     {
     const uschar *envelopeExpr=CUS 0;
     uschar *envelope=US 0;
@@ -2498,17 +2493,15 @@ else if (parse_identifier(filter,CUS "envelope"))
       }
     if (exec && envelopeExpr)
       {
-      if ((envelope=expand_string(US envelopeExpr)) == NULL)
+      if (!(envelope=expand_string(US envelopeExpr)))
         {
         filter->errmsg=CUS "header string expansion failed";
         return -1;
         }
-      for (k=key; k->length!=-1; ++k)
+      for (struct String * k = key; k->length != -1; ++k)
         {
-        struct String envelopeStr;
+        struct String envelopeStr = {.character = envelope, .length = Ustrlen(envelope)};
 
-        envelopeStr.character=envelope;
-        envelopeStr.length=Ustrlen(envelope);
         *cond=compare(filter,k,&envelopeStr,comparator,matchType);
         if (*cond==-1) return -1;
         if (*cond) break;
@@ -2525,7 +2518,7 @@ else if (parse_identifier(filter,CUS "valid_notify_method"))
                         <notification-uris: string-list>
   */
 
-  struct String *uris,*u;
+  struct String *uris;
   int m;
 
   if (!filter->require_enotify)
@@ -2542,7 +2535,7 @@ else if (parse_identifier(filter,CUS "valid_notify_method"))
   if (exec)
     {
     *cond=1;
-    for (u=uris; u->length!=-1 && *cond; ++u)
+    for (struct String * u = uris; u->length != -1 && *cond; ++u)
       {
         string_item *recipient;
         struct String header,subject,body;
@@ -2574,7 +2567,7 @@ else if (parse_identifier(filter,CUS "notify_method_capability"))
 
   enum Comparator comparator=COMP_EN_ASCII_CASEMAP;
   enum MatchType matchType=MATCH_IS;
-  struct String uri,capa,*keys,*k;
+  struct String uri,capa,*keys;
 
   if (!filter->require_enotify)
     {
@@ -2637,15 +2630,13 @@ else if (parse_identifier(filter,CUS "notify_method_capability"))
       body.length=-1;
       body.character=(uschar*)0;
       if (parse_mailto_uri(filter,uri.character,&recipient,&header,&subject,&body)==1)
-        {
         if (eq_asciicase(&capa,&str_online,0)==1)
-          for (k=keys; k->length!=-1; ++k)
+          for (struct String * k = keys; k->length != -1; ++k)
             {
             *cond=compare(filter,k,&str_maybe,comparator,matchType);
             if (*cond==-1) return -1;
             if (*cond) break;
             }
-        }
       }
     return 1;
   }
@@ -2737,8 +2728,8 @@ Returns:      2                success by stop
               1                other success
               -1               syntax or execution error
 */
-static int parse_commands(struct Sieve *filter, int exec,
-  address_item **generated)
+static int
+parse_commands(struct Sieve *filter, int exec, address_item **generated)
 {
 while (*filter->pc)
   {
@@ -2970,7 +2961,6 @@ while (*filter->pc)
     int m;
     struct String from;
     struct String importance;
-    struct String *options;
     struct String message;
     struct String method;
     struct Notification *already;
@@ -2991,7 +2981,6 @@ while (*filter->pc)
     from.length=-1;
     importance.character=(uschar*)0;
     importance.length=-1;
-    options=(struct String*)0;
     message.character=(uschar*)0;
     message.length=-1;
     recipient=NULL;
@@ -3001,7 +2990,13 @@ while (*filter->pc)
     subject.character=(uschar*)0;
     body.length=-1;
     body.character=(uschar*)0;
-    envelope_from=(sender_address && sender_address[0]) ? expand_string(US"$local_part_prefix$local_part$local_part_suffix@$domain") : US "";
+    envelope_from = sender_address && sender_address[0]
+     ? expand_string(US"$local_part_prefix$local_part$local_part_suffix@$domain") : US "";
+    if (!envelope_from)
+      {
+      filter->errmsg=CUS "expansion failure for envelope from";
+      return -1;
+      }
     for (;;)
       {
       if (parse_white(filter)==-1) return -1;
@@ -3057,8 +3052,8 @@ while (*filter->pc)
       if (message.length==-1) message=subject;
       if (message.length==-1) expand_header(&message,&str_subject);
       expand_header(&auto_submitted_value,&str_auto_submitted);
-      auto_submitted_def=expand_string(string_sprintf("${if def:header_auto-submitted {true}{false}}"));
-      if (auto_submitted_value.character == NULL || auto_submitted_def == NULL)
+      auto_submitted_def=expand_string(US"${if def:header_auto-submitted {true}{false}}");
+      if (!auto_submitted_value.character || !auto_submitted_def)
         {
         filter->errmsg=CUS "header string expansion failed";
         return -1;
@@ -3075,11 +3070,10 @@ while (*filter->pc)
               && (message.length==-1 || Ustrcmp(already->message.character,message.character)==0))
             break;
           }
-        if (already==(struct Notification*)0)
+        if (!already)
           /* New notification, process it */
           {
-          struct Notification *sent;
-          sent=store_get(sizeof(struct Notification));
+          struct Notification * sent = store_get(sizeof(struct Notification), FALSE);
           sent->method=method;
           sent->importance=importance;
           sent->message=message;
@@ -3088,18 +3082,18 @@ while (*filter->pc)
   #ifndef COMPILE_SYNTAX_CHECKER
           if (filter_test == FTEST_NONE)
             {
-            string_item *p;
-            int pid,fd;
+            int pid, fd;
 
-            if ((pid = child_open_exim2(&fd,envelope_from,envelope_from))>=1)
+            if ((pid = child_open_exim2(&fd, envelope_from, envelope_from,
+			US"sieve-notify")) >= 1)
               {
-              FILE *f;
-              uschar *buffer;
-              int buffer_capacity;
+              FILE * f = fdopen(fd, "wb");
 
-              f = fdopen(fd, "wb");
-              fprintf(f,"From: %s\n",from.length==-1 ? expand_string(US"$local_part_prefix$local_part$local_part_suffix@$domain") : from.character);
-              for (p=recipient; p; p=p->next) fprintf(f,"To: %s\n",p->text);
+              fprintf(f,"From: %s\n", from.length == -1
+		? expand_string(US"$local_part_prefix$local_part$local_part_suffix@$domain")
+		: from.character);
+              for (string_item * p = recipient; p; p=p->next)
+	       	fprintf(f,"To: %s\n",p->text);
               fprintf(f,"Auto-Submitted: auto-notified; %s\n",filter->enotify_mailto_owner);
               if (header.length>0) fprintf(f,"%s",header.character);
               if (message.length==-1)
@@ -3107,10 +3101,9 @@ while (*filter->pc)
                 message.character=US"Notification";
                 message.length=Ustrlen(message.character);
                 }
-              /* Allocation is larger than neccessary, but enough even for split MIME words */
-              buffer_capacity=32+4*message.length;
-              buffer=store_get(buffer_capacity);
-              if (message.length!=-1) fprintf(f,"Subject: %s\n",parse_quote_2047(message.character, message.length, US"utf-8", buffer, buffer_capacity, TRUE));
+              if (message.length != -1)
+		fprintf(f, "Subject: %s\n", parse_quote_2047(message.character,
+		  message.length, US"utf-8", TRUE));
               fprintf(f,"\n");
               if (body.length>0) fprintf(f,"%s\n",body.character);
               fflush(f);
@@ -3118,27 +3111,17 @@ while (*filter->pc)
               (void)child_close(pid, 0);
               }
             }
-          if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-            {
+          if ((filter_test != FTEST_NONE && debug_selector != 0) || debug_selector & D_filter)
             debug_printf("Notification to `%s': '%s'.\n",method.character,message.length!=-1 ? message.character : CUS "");
-            }
 #endif
           }
         else
-          {
-          if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-            {
+          if ((filter_test != FTEST_NONE && debug_selector != 0) || debug_selector & D_filter)
             debug_printf("Repeated notification to `%s' ignored.\n",method.character);
-            }
-          }
         }
       else
-        {
-        if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-          {
+        if ((filter_test != FTEST_NONE && debug_selector != 0) || debug_selector & D_filter)
           debug_printf("Ignoring notification, triggering message contains Auto-submitted: field.\n");
-          }
-        }
       }
     }
 #endif
@@ -3221,20 +3204,17 @@ while (*filter->pc)
         }
       else if (parse_identifier(filter,CUS ":addresses")==1)
         {
-        struct String *a;
-
         if (parse_white(filter)==-1) return -1;
         if ((m=parse_stringlist(filter,&addresses))!=1)
           {
           if (m==0) filter->errmsg=CUS "addresses string list expected";
           return -1;
           }
-        for (a=addresses; a->length!=-1; ++a)
+        for (struct String * a = addresses; a->length != -1; ++a)
           {
-          string_item *new;
+          string_item * new = store_get(sizeof(string_item), FALSE);
 
-          new=store_get(sizeof(string_item));
-          new->text=store_get(a->length+1);
+          new->text = store_get(a->length+1, is_tainted(a->character));
           if (a->length) memcpy(new->text,a->character,a->length);
           new->text[a->length]='\0';
           new->next=aliases;
@@ -3264,7 +3244,8 @@ while (*filter->pc)
       {
       uschar *s,*end;
 
-      for (s=reason.character,end=reason.character+reason.length; s<end && (*s&0x80)==0; ++s);
+      for (s = reason.character, end = reason.character + reason.length;
+	  s<end && (*s&0x80)==0; ) s++;
       if (s<end)
         {
         filter->errmsg=CUS "MIME reason string contains 8bit text";
@@ -3276,15 +3257,10 @@ while (*filter->pc)
     if (exec)
       {
       address_item *addr;
-      int capacity,start;
-      uschar *buffer;
-      int buffer_capacity;
-      struct String key;
       md5 base;
       uschar digest[16];
       uschar hexdigest[33];
-      int i;
-      uschar *once;
+      gstring * once;
 
       if (filter_personal(aliases,TRUE))
         {
@@ -3296,32 +3272,30 @@ while (*filter->pc)
           }
         /* build oncelog filename */
 
-        key.character=(uschar*)0;
-        key.length=0;
-        capacity=0;
+        md5_start(&base);
+
         if (handle.length==-1)
           {
-          if (subject.length!=-1) key.character=string_cat(key.character,&capacity,&key.length,subject.character,subject.length);
-          if (from.length!=-1) key.character=string_cat(key.character,&capacity,&key.length,from.character,from.length);
-          key.character=string_cat(key.character,&capacity,&key.length,reason_is_mime?US"1":US"0",1);
-          key.character=string_cat(key.character,&capacity,&key.length,reason.character,reason.length);
+	  gstring * key = NULL;
+          if (subject.length!=-1) key =string_catn(key, subject.character, subject.length);
+          if (from.length!=-1) key = string_catn(key, from.character, from.length);
+          key = string_catn(key, reason_is_mime?US"1":US"0", 1);
+          key = string_catn(key, reason.character, reason.length);
+	  md5_end(&base, key->s, key->ptr, digest);
           }
         else
-          key=handle;
-        md5_start(&base);
-        md5_end(&base, key.character, key.length, digest);
-        for (i = 0; i < 16; i++) sprintf(CS (hexdigest+2*i), "%02X", digest[i]);
+	  md5_end(&base, handle.character, handle.length, digest);
+
+        for (int i = 0; i < 16; i++) sprintf(CS (hexdigest+2*i), "%02X", digest[i]);
+
         if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-          {
           debug_printf("Sieve: mail was personal, vacation file basename: %s\n", hexdigest);
-          }
+
         if (filter_test == FTEST_NONE)
           {
-          capacity=Ustrlen(filter->vacation_directory);
-          start=capacity;
-          once=string_cat(filter->vacation_directory,&capacity,&start,US"/",1);
-          once=string_cat(once,&capacity,&start,hexdigest,33);
-          once[start] = '\0';
+          once = string_cat (NULL, filter->vacation_directory);
+          once = string_catn(once, US"/", 1);
+          once = string_catn(once, hexdigest, 33);
 
           /* process subject */
 
@@ -3329,14 +3303,15 @@ while (*filter->pc)
             {
             uschar *subject_def;
 
-            subject_def=expand_string(US"${if def:header_subject {true}{false}}");
-            if (Ustrcmp(subject_def,"true")==0)
+            subject_def = expand_string(US"${if def:header_subject {true}{false}}");
+            if (subject_def && Ustrcmp(subject_def,"true")==0)
               {
+	      gstring * g = string_catn(NULL, US"Auto: ", 6);
+
               expand_header(&subject,&str_subject);
-              capacity=6;
-              start=6;
-              subject.character=string_cat(US"Auto: ",&capacity,&start,subject.character,subject.length);
-              subject.length=start;
+              g = string_catn(g, subject.character, subject.length);
+	      subject.character = string_from_gstring(g);
+              subject.length = g->ptr;
               }
             else
               {
@@ -3349,21 +3324,19 @@ while (*filter->pc)
 
           addr = deliver_make_addr(string_sprintf(">%.256s", sender_address), FALSE);
           setflag(addr, af_pfr);
-          setflag(addr, af_ignore_error);
+          addr->prop.ignore_error = TRUE;
           addr->next = *generated;
           *generated = addr;
-          addr->reply = store_get(sizeof(reply_item));
+          addr->reply = store_get(sizeof(reply_item), FALSE);
           memset(addr->reply,0,sizeof(reply_item)); /* XXX */
           addr->reply->to = string_copy(sender_address);
           if (from.length==-1)
             addr->reply->from = expand_string(US"$local_part@$domain");
           else
             addr->reply->from = from.character;
-          /* Allocation is larger than neccessary, but enough even for split MIME words */
-          buffer_capacity=32+4*subject.length;
-          buffer=store_get(buffer_capacity);
-          addr->reply->subject=parse_quote_2047(subject.character, subject.length, US"utf-8", buffer, buffer_capacity, TRUE);
-          addr->reply->oncelog=once;
+	  /* deconst cast safe as we pass in a non-const item */
+          addr->reply->subject = US parse_quote_2047(subject.character, subject.length, US"utf-8", TRUE);
+          addr->reply->oncelog = string_from_gstring(once);
           addr->reply->once_repeat=days*86400;
 
           /* build body and MIME headers */
@@ -3375,27 +3348,20 @@ while (*filter->pc)
 
             for
               (
-              mime_body=reason.character,reason_end=reason.character+reason.length;
-              mime_body<(reason_end-(sizeof(nlnl)-1)) && memcmp(mime_body,nlnl,(sizeof(nlnl)-1));
-              ++mime_body
-              );
-            capacity = 0;
-            start = 0;
-            addr->reply->headers = string_cat(NULL,&capacity,&start,reason.character,mime_body-reason.character);
-            addr->reply->headers[start] = '\0';
-            capacity = 0;
-            start = 0;
+              mime_body = reason.character, reason_end = reason.character + reason.length;
+              mime_body < (reason_end-(sizeof(nlnl)-1)) && memcmp(mime_body, nlnl, (sizeof(nlnl)-1));
+	      ) mime_body++;
+
+            addr->reply->headers = string_copyn(reason.character, mime_body-reason.character);
+
             if (mime_body+(sizeof(nlnl)-1)<reason_end) mime_body+=(sizeof(nlnl)-1);
             else mime_body=reason_end-1;
-            addr->reply->text = string_cat(NULL,&capacity,&start,mime_body,reason_end-mime_body);
-            addr->reply->text[start] = '\0';
+            addr->reply->text = string_copyn(mime_body, reason_end-mime_body);
             }
           else
             {
-            struct String qp = { NULL, 0 };  /* Keep compiler happy (PH) */
+            struct String qp = { .character = NULL, .length = 0 };  /* Keep compiler happy (PH) */
 
-            capacity = 0;
-            start = reason.length;
             addr->reply->headers = US"MIME-Version: 1.0\n"
                                    "Content-Type: text/plain;\n"
                                    "\tcharset=\"utf-8\"\n"
@@ -3405,9 +3371,7 @@ while (*filter->pc)
           }
         }
         else if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-          {
           debug_printf("Sieve: mail was not personal, vacation would ignore it\n");
-          }
       }
     }
     else break;
@@ -3431,8 +3395,8 @@ Returns:      1                success
               -1               syntax or execution error
 */
 
-static int parse_start(struct Sieve *filter, int exec,
-  address_item **generated)
+static int
+parse_start(struct Sieve *filter, int exec, address_item **generated)
 {
 filter->pc=filter->filter;
 filter->line=1;
@@ -3470,27 +3434,24 @@ if (exec && filter->vacation_directory != NULL && filter_test == FTEST_NONE)
 
   /* clean up old vacation log databases */
 
-  oncelogdir=opendir(CS filter->vacation_directory);
-
-  if (oncelogdir ==(DIR*)0 && errno != ENOENT)
+  if (  !(oncelogdir = exim_opendir(filter->vacation_directory))
+     && errno != ENOENT)
     {
-    filter->errmsg=CUS "unable to open vacation directory";
+    filter->errmsg = CUS "unable to open vacation directory";
     return -1;
     }
 
-  if (oncelogdir != NULL)
+  if (oncelogdir)
     {
     time(&now);
 
-    while ((oncelog=readdir(oncelogdir))!=(struct dirent*)0)
-      {
+    while ((oncelog = readdir(oncelogdir)))
       if (strlen(oncelog->d_name)==32)
         {
-        uschar *s=string_sprintf("%s/%s",filter->vacation_directory,oncelog->d_name);
+        uschar *s = string_sprintf("%s/%s",filter->vacation_directory,oncelog->d_name);
         if (Ustat(s,&properties)==0 && (properties.st_mtime+VACATION_MAX_DAYS*86400)<now)
           Uunlink(s);
         }
-      }
     closedir(oncelogdir);
     }
   }
@@ -3501,7 +3462,7 @@ while (parse_identifier(filter,CUS "require"))
   require-command = "require" <capabilities: string-list>
   */
 
-  struct String *cap,*check;
+  struct String *cap;
   int m;
 
   if (parse_white(filter)==-1) return -1;
@@ -3510,7 +3471,7 @@ while (parse_identifier(filter,CUS "require"))
     if (m==0) filter->errmsg=CUS "capability string list expected";
     return -1;
     }
-  for (check=cap; check->character; ++check)
+  for (struct String * check = cap; check->character; ++check)
     {
     if (eq_octet(check,&str_envelope,0)) filter->require_envelope=1;
     else if (eq_octet(check,&str_fileinto,0)) filter->require_fileinto=1;
@@ -3605,14 +3566,13 @@ options = options; /* Keep picky compilers happy */
 error = error;
 
 DEBUG(D_route) debug_printf("Sieve: start of processing\n");
-sieve.filter=filter;
+sieve.filter = filter;
 
-if (vacation_directory == NULL)
+if (!vacation_directory)
   sieve.vacation_directory = NULL;
 else
   {
-  sieve.vacation_directory=expand_string(vacation_directory);
-  if (sieve.vacation_directory == NULL)
+  if (!(sieve.vacation_directory = expand_string(vacation_directory)))
     {
     *error = string_sprintf("failed to expand \"%s\" "
       "(sieve_vacation_directory): %s", vacation_directory,
@@ -3621,12 +3581,11 @@ else
     }
   }
 
-if (enotify_mailto_owner == NULL)
+if (!enotify_mailto_owner)
   sieve.enotify_mailto_owner = NULL;
 else
   {
-  sieve.enotify_mailto_owner=expand_string(enotify_mailto_owner);
-  if (sieve.enotify_mailto_owner == NULL)
+  if (!(sieve.enotify_mailto_owner = expand_string(enotify_mailto_owner)))
     {
     *error = string_sprintf("failed to expand \"%s\" "
       "(sieve_enotify_mailto_owner): %s", enotify_mailto_owner,
@@ -3635,7 +3594,8 @@ else
     }
   }
 
-sieve.useraddress = useraddress == NULL ? CUS "$local_part_prefix$local_part$local_part_suffix" : useraddress;
+sieve.useraddress = useraddress
+  ? useraddress : CUS "$local_part_prefix$local_part$local_part_suffix";
 sieve.subaddress = subaddress;
 
 #ifdef COMPILE_SYNTAX_CHECKER
@@ -3647,12 +3607,12 @@ if (parse_start(&sieve,1,generated)==1)
   if (sieve.keep)
     {
     add_addr(generated,US"inbox",1,0,0,0);
-    msg = string_sprintf("Implicit keep");
+    msg = US"Implicit keep";
     r = FF_DELIVERED;
     }
   else
     {
-    msg = string_sprintf("No implicit keep");
+    msg = US"No implicit keep";
     r = FF_DELIVERED;
     }
   }

@@ -3,6 +3,7 @@ changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
+dropping to exim gid; retaining priv uid
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
@@ -19,32 +20,32 @@ local_part=x domain=b.domain
 checking domains
 search_open: lsearch "TESTSUITE/aux-fixed/0414.list1"
 search_find: file="TESTSUITE/aux-fixed/0414.list1"
-  key="b.domain" partial=-1 affix=NULL starflags=0
+  key="b.domain" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0414.list1
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0414.list1"
-  type=lsearch key="b.domain"
+  type=lsearch key="b.domain" opts=NULL
 file lookup required for b.domain
   in TESTSUITE/aux-fixed/0414.list1
 lookup failed
 b.domain in "lsearch;TESTSUITE/aux-fixed/0414.list1"? no (end of list)
 search_open: lsearch "TESTSUITE/aux-fixed/0414.list2"
 search_find: file="TESTSUITE/aux-fixed/0414.list2"
-  key="b.domain" partial=-1 affix=NULL starflags=0
+  key="b.domain" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0414.list2
   0TESTSUITE/aux-fixed/0414.list1
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0414.list2"
-  type=lsearch key="b.domain"
+  type=lsearch key="b.domain" opts=NULL
 file lookup required for b.domain
   in TESTSUITE/aux-fixed/0414.list2
 lookup yielded: b.domain-data
 b.domain in "lsearch;TESTSUITE/aux-fixed/0414.list2"? yes (matched "lsearch;TESTSUITE/aux-fixed/0414.list2")
-data from lookup saved for cache for +B: b.domain-data
+data from lookup saved for cache for +B: key 'b.domain' value 'b.domain-data'
 b.domain in "+A : +B"? yes (matched "+B")
-data from lookup saved for cache for +C: b.domain-data
+data from lookup saved for cache for +C: key 'b.domain' value 'b.domain-data'
 b.domain in "!+C"? no (matched "!+C")
 r1 router skipped: domains mismatch
 --------> r2 router <--------
@@ -61,7 +62,7 @@ set transport t1
 queued for t1 transport: local_part = x
 domain = b.domain
   errors_to=NULL
-  domain_data=b.domain-data localpart_data=NULL
+  domain_data=b.domain-data local_part_data=NULL
 routed by r2 router
   envelope to: x@b.domain
   transport: t1
@@ -77,20 +78,20 @@ checking domains
 search_open: lsearch "TESTSUITE/aux-fixed/0414.list1"
   cached open
 search_find: file="TESTSUITE/aux-fixed/0414.list1"
-  key="a.domain" partial=-1 affix=NULL starflags=0
+  key="a.domain" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0414.list1
   0TESTSUITE/aux-fixed/0414.list2
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0414.list1"
-  type=lsearch key="a.domain"
+  type=lsearch key="a.domain" opts=NULL
 file lookup required for a.domain
   in TESTSUITE/aux-fixed/0414.list1
 lookup yielded: a.domain-data
 a.domain in "lsearch;TESTSUITE/aux-fixed/0414.list1"? yes (matched "lsearch;TESTSUITE/aux-fixed/0414.list1")
-data from lookup saved for cache for +A: a.domain-data
+data from lookup saved for cache for +A: key 'a.domain' value 'a.domain-data'
 a.domain in "+A : +B"? yes (matched "+A")
-data from lookup saved for cache for +C: a.domain-data
+data from lookup saved for cache for +C: key 'a.domain' value 'a.domain-data'
 a.domain in "!+C"? no (matched "!+C")
 r1 router skipped: domains mismatch
 --------> r2 router <--------
@@ -99,13 +100,13 @@ checking domains
 search_open: lsearch "TESTSUITE/aux-fixed/0414.list2"
   cached open
 search_find: file="TESTSUITE/aux-fixed/0414.list2"
-  key="a.domain" partial=-1 affix=NULL starflags=0
+  key="a.domain" partial=-1 affix=NULL starflags=0 opts=NULL
 LRU list:
   0TESTSUITE/aux-fixed/0414.list2
   0TESTSUITE/aux-fixed/0414.list1
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0414.list2"
-  type=lsearch key="a.domain"
+  type=lsearch key="a.domain" opts=NULL
 file lookup required for a.domain
   in TESTSUITE/aux-fixed/0414.list2
 lookup failed
@@ -126,9 +127,9 @@ set transport t1
 queued for t1 transport: local_part = x
 domain = a.domain
   errors_to=NULL
-  domain_data=a.domain-data localpart_data=NULL
+  domain_data=a.domain-data local_part_data=NULL
 routed by r3 router
   envelope to: x@a.domain
   transport: t1
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (fresh-exec) terminating with rc=0 >>>>>>>>>>>>>>>>

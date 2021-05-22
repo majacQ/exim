@@ -1,13 +1,8 @@
 # Exim test configuration 0495
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -69,6 +64,7 @@ t1:
   driver = smtp
   hosts = 127.0.0.1 : HOSTIPV4
   port = PORT_S
+  hosts_try_fastopen = :
   allow_localhost
   command_timeout = 1s
 
@@ -76,15 +72,17 @@ t2:
   driver = smtp
   hosts = V4NET.9.8.7
   port = PORT_S
+  hosts_try_fastopen =	:
 
 t3:
   driver = appendfile
-  file = DIR/test-mail/$local_part
+  file = DIR/test-mail/${bless:$local_part}
   user = CALLER
 
 t4:
   driver = smtp
   hosts = V4NET.10.10.10
   port = nonexistent
+  hosts_try_fastopen =	:
 
 # End

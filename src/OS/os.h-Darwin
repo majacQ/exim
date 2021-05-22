@@ -7,8 +7,6 @@
 #define PAM_H_IN_PAM
 #define SIOCGIFCONF_GIVES_ADDR
 
-/* OSX 10.2 does not have poll.h, 10.3 does emulate it badly. */
-#define NO_POLL_H
 
 #define F_FREESP     O_TRUNC
 typedef struct flock flock_t;
@@ -17,7 +15,7 @@ typedef struct flock flock_t;
                                Consider reducing MAX_LOCALHOST_NUMBER */
 
 #ifndef        _BSD_SOCKLEN_T_
-#define _BSD_SOCKLEN_T_ int32_t                 /* socklen_t (duh) */
+# define _BSD_SOCKLEN_T_ int32_t                 /* socklen_t (duh) */
 #endif
 
 /* Settings for handling IP options. There's no netinet/ip_var.h. The IP
@@ -36,7 +34,25 @@ updating Exim to use the newer interface. */
 #define DYNLIB_FN_EXT "dylib"
 
 /* We currently need some assistance getting OFF_T_FMT correct on MacOS */
-#define OFF_T_FMT "%llu"
+#ifdef OFF_T_FMT
+# undef OFF_T_FMT
+#endif
+#define OFF_T_FMT "%lld"
 #define LONGLONG_T long int
+
+/* default is non-const */
+#define ICONV_ARG2_TYPE const char **
+
+/* seems arpa/nameser.h does not define this */
+#define NS_MAXMSG 65535
+
+/* There may be very many supplementary groups for the user. See notes
+in "man 2 getgroups". */
+#define _DARWIN_UNLIMITED_GETGROUPS
+#define EXIM_GROUPLIST_SIZE 64
+
+/* TCP Fast Open: Darwin uses a connectx() call
+rather than a modified sendto() */
+#define EXIM_TFO_CONNECTX
 
 /* End */

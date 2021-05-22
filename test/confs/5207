@@ -1,13 +1,8 @@
 # Exim test configuration 5207
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -19,7 +14,7 @@ begin transports
 
 t1:
   driver = appendfile
-  file = DIR/test-mail/${if eq{$address_data}{}{$local_part}{$address_data}}
+  file = DIR/test-mail/${if eq{$address_data}{}{${bless:$local_part}}{$address_data}}
   user = CALLER
 
 # ----- Routers -----

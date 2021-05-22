@@ -24,6 +24,22 @@ then
   _XPG=1
   export _XPG
 
+  # We need the _right_ tr, so must do that first; but if a shell which
+  # we're more confident is sane is available, let's try that.  Mostly,
+  # the problem is that "local" is not actually in "the" standard, it's
+  # just in every not-insane shell.  Though arguably, there are no shells
+  # with POSIX-ish syntax which qualify as "not insane".
+  for b in /bin/dash /bin/bash /usr/local/bin/bash
+  do
+    if [ -x "$b" ]
+    then
+      SHELL="$b"
+      break
+    fi
+  done
+  # if we get a report of a system with zsh but not bash, we can add that
+  # to the list, but be sure to enable sh_word_split in that case.
+
   exec "$SHELL" "$0" "$@"
 fi
 
@@ -40,6 +56,16 @@ tab='	'
 # with UTF8, so we should be safe doingthis:
 LC_ALL=C
 export LC_ALL
+
+if [ -f "$defs_source" ]
+then
+  :
+  # we are happy
+else
+  echo >&2 "$0: ERROR: MISSING FILE '${defs_source}'"
+  echo >&2 "$0: SHOULD HAVE BEEN CALLED FROM scripts/Configure-Makefile"
+  exit 1
+fi
 
 # nb: do not permit leading whitespace for this, as CFLAGS_DYNAMIC is exported
 # to the lookups subdir via a line with leading whitespace which otherwise
@@ -76,6 +102,15 @@ want_at_all() {
   grep -q "^[ $tab]*$re" "$defs_source"
 }
 
+# Adapted want_at_all above to work for EXPERIMENTAL features
+want_experimental() {
+  local want_name="$1"
+  local re="EXPERIMENTAL_${want_name}[ $tab]*=[ $tab]*."
+  env | grep -q "^$re"
+  if [ $? -eq 0 ]; then return 0; fi
+  grep -q "^[ $tab]*$re" "$defs_source"
+}
+
 # The values of these variables will be emitted into the Makefile.
 
 MODS=""
@@ -86,7 +121,10 @@ emit_module_rule() {
   local mod_name pkgconf
   if [ "${lookup_name%:*}" = "$lookup_name" ]
   then
-    mod_name=$(echo $lookup_name | tr A-Z a-z)
+    # Square brackets are redundant but benign for POSIX compliant tr,
+    # however Solaris /usr/bin/tr requires them. Sometimes Solaris
+    # gets installed without a complete set of xpg4 tools, sigh.
+    mod_name=$(echo $lookup_name | tr [A-Z] [a-z])
   else
     mod_name="${lookup_name#*:}"
     lookup_name="${lookup_name%:*}"
@@ -122,8 +160,8 @@ exec > "$target"
 sed -n "1,/$tag_marker/p" < "$input"
 
 for name_mod in \
-    CDB DBM:dbmdb DNSDB DSEARCH IBASE LSEARCH MYSQL NIS NISPLUS ORACLE \
-    PASSWD PGSQL SQLITE TESTDB WHOSON
+    CDB DBM:dbmdb DNSDB DSEARCH IBASE JSON LSEARCH MYSQL NIS NISPLUS ORACLE \
+    PASSWD PGSQL REDIS SQLITE TESTDB WHOSON
 do
   emit_module_rule $name_mod
 done
@@ -138,6 +176,14 @@ fi
 # defined.
 
 OBJ="${OBJ} spf.o"
+
+if want_experimental LMDB
+then
+  OBJ="${OBJ} lmdb.o"
+fi
+
+# readsock is always wanted as it implements the ${readsock } expansion
+OBJ="${OBJ} readsock.o"
 
 echo "MODS = $MODS"
 echo "OBJ = $OBJ"

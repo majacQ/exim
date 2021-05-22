@@ -7,7 +7,7 @@
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "check_recipient"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 17)
 >>> check verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing userx@test.again.dns
@@ -15,6 +15,7 @@
 >>> calling skipped router
 >>> skipped router declined for userx@test.again.dns
 >>> calling temp router
+>>> test.again.dns in "*"? yes (matched "*")
 >>> test.again.dns in dns_again_means_nonexist? no (option unset)
 >>> temp router: defer for userx@test.again.dns
 >>>   message: host lookup did not complete
@@ -30,12 +31,13 @@ LOG: H=[1.2.3.4] F=<userx@test.ex> temporarily rejected RCPT <userx@test.again.d
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "check_recipient"
->>> processing "accept"
+>>> processing "accept" (TESTSUITE/test-config 17)
 >>> check verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing r1-userx@test.again.dns
 >>> test.again.dns in "!testdb;fail"? yes (end of list)
 >>> calling r1 router
+>>> test.again.dns in "*"? yes (matched "*")
 >>> test.again.dns in dns_again_means_nonexist? no (option unset)
 >>> r1 router: defer for r1-userx@test.again.dns
 >>>   message: host lookup did not complete

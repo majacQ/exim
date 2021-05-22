@@ -1,13 +1,10 @@
 # Exim test configuration 5000
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
+OPT =
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -19,7 +16,7 @@ begin routers
 localuser:
   driver = accept
   local_parts = userx
-  transport = $h_maildir:appendfile
+  transport = VALUE
 
 
 # ----- Transports -----
@@ -38,7 +35,7 @@ maildir_tagged_appendfile:
   directory = DIR/test-mail
   envelope_to_add
   maildir_format
-  maildir_tag = ${expand:$h_tag:}
+  maildir_tag = OPT
   message_prefix =
   quota = 20K
   quota_size_regex = S=(\d+)$
@@ -50,7 +47,7 @@ maildir_taggedX_appendfile:
   directory = DIR/test-mail
   envelope_to_add
   maildir_format
-  maildir_tag = ${expand:$h_tag:}
+  maildir_tag = OPT
   message_prefix =
   quota = 20K
   quota_size_regex = ,S=(\d+):
