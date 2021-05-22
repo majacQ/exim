@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/auths/check_serv_cond.c,v 1.3 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2012 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -18,8 +16,8 @@ by all authenticators. */
 *************************************************/
 
 /* This function is called from the server code of all authenticators. For
-plaintext, it is always called: the argument cannot be empty, because for
-plaintext, setting server_condition is what enables it as a server
+plaintext and gsasl, it is always called: the argument cannot be empty, because
+for those, setting server_condition is what enables it as a server
 authenticator. For all the other authenticators, this function is called after
 they have authenticated, to enable additional authorization to be done.
 
@@ -34,12 +32,40 @@ Returns:
 int
 auth_check_serv_cond(auth_instance *ablock)
 {
+  return auth_check_some_cond(ablock,
+      US"server_condition", ablock->server_condition, OK);
+}
+
+
+/*************************************************
+*         Check some server condition            *
+*************************************************/
+
+/* This underlies server_condition, but is also used for some more generic
+ checks.
+
+Arguments:
+  ablock     the authenticator's instance block
+  label      debugging label naming the string checked
+  condition  the condition string to be expanded and checked
+  unset      value to return on NULL condition
+
+Returns:
+  OK          success (or unset=OK)
+  DEFER       couldn't complete the check
+  FAIL        authentication failed
+*/
+
+int
+auth_check_some_cond(auth_instance *ablock,
+    uschar *label, uschar *condition, int unset)
+{
 uschar *cond;
 
 HDEBUG(D_auth)
   {
   int i;
-  debug_printf("%s authenticator:\n", ablock->name);
+  debug_printf("%s authenticator %s:\n", ablock->name, label);
   for (i = 0; i < AUTH_VARS; i++)
     {
     if (auth_vars[i] != NULL)
@@ -53,8 +79,13 @@ HDEBUG(D_auth)
 /* For the plaintext authenticator, server_condition is never NULL. For the
 rest, an unset condition lets everything through. */
 
-if (ablock->server_condition == NULL) return OK;
-cond = expand_string(ablock->server_condition);
+/* For server_condition, an unset condition lets everything through.
+For plaintext/gsasl authenticators, it will have been pre-checked to prevent
+this.  We return the unset scenario value given to us, which for
+server_condition will be OK and otherwise will typically be FAIL. */
+
+if (condition == NULL) return unset;
+cond = expand_string(condition);
 
 HDEBUG(D_auth)
   {
@@ -71,7 +102,7 @@ again later. */
 
 if (cond == NULL)
   {
-  if (expand_string_forcedfail) return FAIL;
+  if (f.expand_string_forcedfail) return FAIL;
   auth_defer_msg = expand_string_message;
   return DEFER;
   }

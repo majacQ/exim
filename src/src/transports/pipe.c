@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/transports/pipe.c,v 1.15 2010/06/05 10:04:44 pdp Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -39,6 +37,8 @@ optionlist pipe_transport_options[] = {
       (void *)offsetof(pipe_transport_options_block, environment) },
   { "escape_string",     opt_stringptr,
       (void *)offsetof(pipe_transport_options_block, escape_string) },
+  { "force_command",         opt_bool,
+      (void *)offsetof(pipe_transport_options_block, force_command) },
   { "freeze_exec_fail",  opt_bool,
       (void *)offsetof(pipe_transport_options_block, freeze_exec_fail) },
   { "freeze_signal",     opt_bool,
@@ -95,6 +95,17 @@ address can appear in the tables drtables.c. */
 int pipe_transport_options_count =
   sizeof(pipe_transport_options)/sizeof(optionlist);
 
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+pipe_transport_options_block pipe_transport_option_defaults = {0};
+void pipe_transport_init(transport_instance *tblock) {}
+BOOL pipe_transport_entry(transport_instance *tblock, address_item *addr) {return FALSE;}
+
+#else   /*!MACRO_PREDEF*/
+
+
 /* Default private options block for the pipe transport. */
 
 pipe_transport_options_block pipe_transport_option_defaults = {
@@ -112,6 +123,7 @@ pipe_transport_options_block pipe_transport_option_defaults = {
   20480,          /* max_output */
   60*60,          /* timeout */
   0,              /* options */
+  FALSE,          /* force_command */
   FALSE,          /* freeze_exec_fail */
   FALSE,          /* freeze_signal */
   FALSE,          /* ignore_status */
@@ -188,7 +200,7 @@ if (ob->permit_coredump)
     if (errno != ENOSYS && errno != ENOTSUP)
 #endif
       log_write(0, LOG_MAIN,
-          "delivery setrlimit(RLIMIT_CORE, RLIMI_INFINITY) failed: %s",
+          "delivery setrlimit(RLIMIT_CORE, RLIM_INFINITY) failed: %s",
           strerror(errno));
     }
   }
@@ -325,22 +337,20 @@ Returns:             TRUE if all went well; otherwise an error will be
 */
 
 static BOOL
-set_up_direct_command(uschar ***argvptr, uschar *cmd, BOOL expand_arguments,
-  int expand_fail, address_item *addr, uschar *tname,
+set_up_direct_command(const uschar ***argvptr, uschar *cmd,
+  BOOL expand_arguments, int expand_fail, address_item *addr, uschar *tname,
   pipe_transport_options_block *ob)
 {
 BOOL permitted = FALSE;
-uschar **argv;
-uschar buffer[64];
+const uschar **argv;
 
 /* Set up "transport <name>" to be put in any error messages, and then
 call the common function for creating an argument list and expanding
 the items if necessary. If it fails, this function fails (error information
 is in the addresses). */
 
-sprintf(CS buffer, "%.50s transport", tname);
 if (!transport_set_up_command(argvptr, cmd, expand_arguments, expand_fail,
-      addr, buffer, NULL))
+      addr, string_sprintf("%.50s transport", tname), NULL))
   return FALSE;
 
 /* Point to the set-up arguments. */
@@ -349,14 +359,13 @@ argv = *argvptr;
 
 /* If allow_commands is set, see if the command is in the permitted list. */
 
-if (ob->allow_commands != NULL)
+if (ob->allow_commands)
   {
   int sep = 0;
-  uschar *s, *p;
-  uschar buffer[256];
+  const uschar *s;
+  uschar *p;
 
-  s = expand_string(ob->allow_commands);
-  if (s == NULL)
+  if (!(s = expand_string(ob->allow_commands)))
     {
     addr->transport_return = DEFER;
     addr->message = string_sprintf("failed to expand string \"%s\" "
@@ -364,10 +373,8 @@ if (ob->allow_commands != NULL)
     return FALSE;
     }
 
-  while ((p = string_nextinlist(&s, &sep, buffer, sizeof(buffer))) != NULL)
-    {
+  while ((p = string_nextinlist(&s, &sep, NULL, 0)))
     if (Ustrcmp(p, argv[0]) == 0) { permitted = TRUE; break; }
-    }
   }
 
 /* If permitted is TRUE it means the command was found in the allowed list, and
@@ -390,7 +397,7 @@ if (!permitted)
       }
     }
 
-  else if (ob->allow_commands != NULL)
+  else if (ob->allow_commands)
     {
     addr->transport_return = FAIL;
     addr->message = string_sprintf("\"%s\" command not permitted by %s "
@@ -406,10 +413,9 @@ if (argv[0][0] != '/')
   {
   int sep = 0;
   uschar *p;
-  uschar *listptr = ob->path;
-  uschar buffer[1024];
+  const uschar *listptr = expand_string(ob->path);
 
-  while ((p = string_nextinlist(&listptr, &sep, buffer, sizeof(buffer))) != NULL)
+  while ((p = string_nextinlist(&listptr, &sep, NULL, 0)))
     {
     struct stat statbuf;
     sprintf(CS big_buffer, "%.256s/%.256s", p, argv[0]);
@@ -419,7 +425,7 @@ if (argv[0][0] != '/')
       break;
       }
     }
-  if (p == NULL)
+  if (!p)
     {
     addr->transport_return = FAIL;
     addr->message = string_sprintf("\"%s\" command not found for %s transport",
@@ -452,10 +458,10 @@ Returns:             TRUE if all went well; otherwise an error will be
 */
 
 static BOOL
-set_up_shell_command(uschar ***argvptr, uschar *cmd, BOOL expand_arguments,
-  int expand_fail, address_item *addr, uschar *tname)
+set_up_shell_command(const uschar ***argvptr, uschar *cmd,
+  BOOL expand_arguments, int expand_fail, address_item *addr, uschar *tname)
 {
-uschar **argv;
+const uschar **argv;
 
 *argvptr = argv = store_get((4)*sizeof(uschar *));
 
@@ -465,13 +471,18 @@ argv[1] = US"-c";
 /* We have to take special action to handle the special "variable" called
 $pipe_addresses, which is not recognized by the normal expansion function. */
 
-DEBUG(D_transport)
-  debug_printf("shell pipe command before expansion:\n  %s\n", cmd);
-
 if (expand_arguments)
   {
-  uschar *s = cmd;
-  uschar *p = Ustrstr(cmd, "pipe_addresses");
+  uschar * p = Ustrstr(cmd, "pipe_addresses");
+  gstring * g = NULL;
+
+  DEBUG(D_transport)
+    debug_printf("shell pipe command before expansion:\n  %s\n", cmd);
+
+  /* Allow $recipients in the expansion iff it comes from a system filter */
+
+  f.enable_dollar_recipients = addr && addr->parent &&
+    Ustrcmp(addr->parent->address, "system-filter") == 0;
 
   if (p != NULL && (
          (p > cmd && p[-1] == '$') ||
@@ -479,36 +490,30 @@ if (expand_arguments)
     {
     address_item *ad;
     uschar *q = p + 14;
-    int size = Ustrlen(cmd) + 64;
-    int offset;
 
     if (p[-1] == '{') { q++; p--; }
 
-    s = store_get(size);
-    offset = p - cmd - 1;
-    Ustrncpy(s, cmd, offset);
+    g = string_get(Ustrlen(cmd) + 64);
+    g = string_catn(g, cmd, p - cmd - 1);
 
-    for (ad = addr; ad != NULL; ad = ad->next)
+    for (ad = addr; ad; ad = ad->next)
       {
-      if (ad != addr) string_cat(s, &size, &offset, US" ", 1);
-      string_cat(s, &size, &offset, ad->address, Ustrlen(ad->address));
+      /*XXX string_append_listele() ? */
+      if (ad != addr) g = string_catn(g, US" ", 1);
+      g = string_cat(g, ad->address);
       }
 
-    string_cat(s, &size, &offset, q, Ustrlen(q));
-    s[offset] = 0;
+    g = string_cat(g, q);
+    argv[2] = (cmd = string_from_gstring(g)) ? expand_string(cmd) : NULL;
     }
+  else
+    argv[2] = expand_string(cmd);
 
-  /* Allow $recipients in the expansion iff it comes from a system filter */
+  f.enable_dollar_recipients = FALSE;
 
-  enable_dollar_recipients = addr != NULL &&
-    addr->parent != NULL &&
-    Ustrcmp(addr->parent->address, "system-filter") == 0;
-  argv[2] = expand_string(s);
-  enable_dollar_recipients = FALSE;
-
-  if (argv[2] == NULL)
+  if (!argv[2])
     {
-    addr->transport_return = search_find_defer? DEFER : expand_fail;
+    addr->transport_return = f.search_find_defer ? DEFER : expand_fail;
     addr->message = string_sprintf("Expansion of command \"%s\" "
       "in %s transport failed: %s",
       cmd, tname, expand_string_message);
@@ -518,9 +523,14 @@ if (expand_arguments)
   DEBUG(D_transport)
     debug_printf("shell pipe command after expansion:\n  %s\n", argv[2]);
   }
-else argv[2] = cmd;
+else
+  {
+  DEBUG(D_transport)
+    debug_printf("shell pipe command (no expansion):\n  %s\n", cmd);
+  argv[2] = cmd;
+  }
 
-argv[3] = (uschar *)0;
+argv[3] = US 0;
 return TRUE;
 }
 
@@ -550,11 +560,18 @@ pipe_transport_options_block *ob =
 int timeout = ob->timeout;
 BOOL written_ok = FALSE;
 BOOL expand_arguments;
-uschar **argv;
+const uschar **argv;
 uschar *envp[50];
-uschar *envlist = ob->environment;
+const uschar *envlist = ob->environment;
 uschar *cmd, *ss;
-uschar *eol = (ob->use_crlf)? US"\r\n" : US"\n";
+uschar *eol = ob->use_crlf ? US"\r\n" : US"\n";
+transport_ctx tctx = {
+  .tblock = tblock,
+  .addr = addr,
+  .check_string = ob->check_string,
+  .escape_string = ob->escape_string,
+  ob->options | topt_not_socket /* set at initialization time */
+};
 
 DEBUG(D_transport) debug_printf("%s transport entered\n", tblock->name);
 
@@ -571,10 +588,21 @@ options. */
 
 if (testflag(addr, af_pfr) && addr->local_part[0] == '|')
   {
-  cmd = addr->local_part + 1;
-  while (isspace(*cmd)) cmd++;
-  expand_arguments = testflag(addr, af_expand_pipe);
-  expand_fail = FAIL;
+  if (ob->force_command)
+    {
+    /* Enables expansion of $address_pipe into separate arguments */
+    setflag(addr, af_force_command);
+    cmd = ob->cmd;
+    expand_arguments = TRUE;
+    expand_fail = PANIC;
+    }
+  else
+    {
+    cmd = addr->local_part + 1;
+    while (isspace(*cmd)) cmd++;
+    expand_arguments = testflag(addr, af_expand_pipe);
+    expand_fail = FAIL;
+    }
   }
 else
   {
@@ -583,9 +611,12 @@ else
   expand_fail = PANIC;
   }
 
-/* If no command has been supplied, we are in trouble. */
+/* If no command has been supplied, we are in trouble.
+ * We also check for an empty string since it may be
+ * coming from addr->local_part[0] == '|'
+ */
 
-if (cmd == NULL)
+if (cmd == NULL || *cmd == '\0')
   {
   addr->transport_return = DEFER;
   addr->message = string_sprintf("no command specified for %s transport",
@@ -597,7 +628,7 @@ if (cmd == NULL)
 and numerical the variables in existence. These are passed in
 addr->pipe_expandn for use here. */
 
-if (expand_arguments && addr->pipe_expandn != NULL)
+if (expand_arguments && addr->pipe_expandn)
   {
   uschar **ss = addr->pipe_expandn;
   expand_nmax = -1;
@@ -637,7 +668,7 @@ envp[envcount++] = string_sprintf("LOCAL_PART_SUFFIX=%#s",
 envp[envcount++] = string_sprintf("DOMAIN=%s", deliver_domain);
 envp[envcount++] = string_sprintf("HOME=%#s", deliver_home);
 envp[envcount++] = string_sprintf("MESSAGE_ID=%s", message_id);
-envp[envcount++] = string_sprintf("PATH=%s", ob->path);
+envp[envcount++] = string_sprintf("PATH=%s", expand_string(ob->path));
 envp[envcount++] = string_sprintf("RECIPIENT=%#s%#s%#s@%#s",
   deliver_localpart_prefix, deliver_localpart, deliver_localpart_suffix,
   deliver_domain);
@@ -648,15 +679,15 @@ envp[envcount++] = US"SHELL=/bin/sh";
 if (addr->host_list != NULL)
   envp[envcount++] = string_sprintf("HOST=%s", addr->host_list->name);
 
-if (timestamps_utc) envp[envcount++] = US"TZ=UTC";
+if (f.timestamps_utc) envp[envcount++] = US"TZ=UTC";
 else if (timezone_string != NULL && timezone_string[0] != 0)
   envp[envcount++] = string_sprintf("TZ=%s", timezone_string);
 
 /* Add any requested items */
 
-if (envlist != NULL)
+if (envlist)
   {
-  envlist = expand_string(envlist);
+  envlist = expand_cstring(envlist);
   if (envlist == NULL)
     {
     addr->transport_return = DEFER;
@@ -667,10 +698,9 @@ if (envlist != NULL)
     }
   }
 
-while ((ss = string_nextinlist(&envlist, &envsep, big_buffer, big_buffer_size))
-       != NULL)
+while ((ss = string_nextinlist(&envlist, &envsep, big_buffer, big_buffer_size)))
    {
-   if (envcount > sizeof(envp)/sizeof(uschar *) - 2)
+   if (envcount > nelem(envp) - 2)
      {
      addr->transport_return = DEFER;
      addr->message = string_sprintf("too many environment settings for "
@@ -684,7 +714,7 @@ envp[envcount] = NULL;
 
 /* If the -N option is set, can't do any more. */
 
-if (dont_deliver)
+if (f.dont_deliver)
   {
   DEBUG(D_transport)
     debug_printf("*** delivery by %s transport bypassed by -N option",
@@ -714,7 +744,7 @@ reading of the output pipe. */
 uid/gid and current directory. Request that the new process be a process group
 leader, so we can kill it and all its children on a timeout. */
 
-if ((pid = child_open(argv, envp, ob->umask, &fd_in, &fd_out, TRUE)) < 0)
+if ((pid = child_open(USS argv, envp, ob->umask, &fd_in, &fd_out, TRUE)) < 0)
   {
   addr->transport_return = DEFER;
   addr->message = string_sprintf(
@@ -722,6 +752,7 @@ if ((pid = child_open(argv, envp, ob->umask, &fd_in, &fd_out, TRUE)) < 0)
       strerror(errno));
   return FALSE;
   }
+tctx.u.fd = fd_in;
 
 /* Now fork a process to handle the output that comes down the pipe. */
 
@@ -751,14 +782,19 @@ if (outpid == 0)
   while ((rc = read(fd_out, big_buffer, big_buffer_size)) > 0)
     {
     if (addr->return_file >= 0)
-      write(addr->return_file, big_buffer, rc);
+      if(write(addr->return_file, big_buffer, rc) != rc)
+        DEBUG(D_transport) debug_printf("Problem writing to return_file\n");
     count += rc;
     if (count > ob->max_output)
       {
-      uschar *message = US"\n\n*** Too much output - remainder discarded ***\n";
       DEBUG(D_transport) debug_printf("Too much output from pipe - killed\n");
       if (addr->return_file >= 0)
-        write(addr->return_file, message, Ustrlen(message));
+	{
+        uschar *message = US"\n\n*** Too much output - remainder discarded ***\n";
+        rc = Ustrlen(message);
+        if(write(addr->return_file, message, rc) != rc)
+          DEBUG(D_transport) debug_printf("Problem writing to return_file\n");
+	}
       killpg(pid, SIGKILL);
       break;
       }
@@ -778,7 +814,7 @@ bit here to let the sub-process get going, but it may still not complete. So we
 ignore all writing errors. (When in the test harness, we do do a short sleep so
 any debugging output is likely to be in the same order.) */
 
-if (running_in_test_harness) millisleep(500);
+if (f.running_in_test_harness) millisleep(500);
 
 DEBUG(D_transport) debug_printf("Writing message to pipe\n");
 
@@ -801,13 +837,13 @@ if (ob->message_prefix != NULL)
   uschar *prefix = expand_string(ob->message_prefix);
   if (prefix == NULL)
     {
-    addr->transport_return = search_find_defer? DEFER : PANIC;
+    addr->transport_return = f.search_find_defer? DEFER : PANIC;
     addr->message = string_sprintf("Expansion of \"%s\" (prefix for %s "
       "transport) failed: %s", ob->message_prefix, tblock->name,
       expand_string_message);
     return FALSE;
     }
-  if (!transport_write_block(fd_in, prefix, Ustrlen(prefix)))
+  if (!transport_write_block(&tctx, prefix, Ustrlen(prefix), FALSE))
     goto END_WRITE;
   }
 
@@ -823,39 +859,35 @@ if (ob->use_bsmtp)
   if (!transport_write_string(fd_in, "MAIL FROM:<%s>%s", return_path, eol))
     goto END_WRITE;
 
-  for (a = addr; a != NULL; a = a->next)
-    {
+  for (a = addr; a; a = a->next)
     if (!transport_write_string(fd_in,
         "RCPT TO:<%s>%s",
         transport_rcpt_address(a, tblock->rcpt_include_affixes),
         eol))
       goto END_WRITE;
-    }
 
   if (!transport_write_string(fd_in, "DATA%s", eol)) goto END_WRITE;
   }
 
-/* Now the actual message - the options were set at initialization time */
+/* Now the actual message */
 
-if (!transport_write_message(addr, fd_in, ob->options, 0, tblock->add_headers,
-  tblock->remove_headers, ob->check_string, ob->escape_string,
-  tblock->rewrite_rules, tblock->rewrite_existflags))
+if (!transport_write_message(&tctx, 0))
     goto END_WRITE;
 
 /* Now any configured suffix */
 
-if (ob->message_suffix != NULL)
+if (ob->message_suffix)
   {
   uschar *suffix = expand_string(ob->message_suffix);
-  if (suffix == NULL)
+  if (!suffix)
     {
-    addr->transport_return = search_find_defer? DEFER : PANIC;
+    addr->transport_return = f.search_find_defer? DEFER : PANIC;
     addr->message = string_sprintf("Expansion of \"%s\" (suffix for %s "
       "transport) failed: %s", ob->message_suffix, tblock->name,
       expand_string_message);
     return FALSE;
     }
-  if (!transport_write_block(fd_in, suffix, Ustrlen(suffix)))
+  if (!transport_write_block(&tctx, suffix, Ustrlen(suffix), FALSE))
     goto END_WRITE;
   }
 
@@ -888,7 +920,7 @@ if (!written_ok)
   if (errno == ETIMEDOUT)
     {
     addr->message = string_sprintf("%stimeout while writing to pipe",
-      transport_filter_timed_out? "transport filter " : "");
+      f.transport_filter_timed_out ? "transport filter " : "");
     addr->transport_return = ob->timeout_defer? DEFER : FAIL;
     timeout = 1;
     }
@@ -954,7 +986,7 @@ if ((rc = child_close(pid, timeout)) != 0)
   This prevents the transport_filter timeout message from getting overwritten
   by the exit error which is not the cause of the problem. */
 
-  else if (transport_filter_timed_out)
+  else if (f.transport_filter_timed_out)
     {
     killpg(pid, SIGKILL);
     kill(outpid, SIGKILL);
@@ -1006,7 +1038,7 @@ if ((rc = child_close(pid, timeout)) != 0)
   the command that was given is a non-existent path). By default this is
   treated as just another failure, but if freeze_exec_fail is set, the reaction
   is to freeze the message rather than bounce the address. Exim used to signal
-  this failure with EX_UNAVAILABLE, which is definined in many systems as
+  this failure with EX_UNAVAILABLE, which is defined in many systems as
 
       #define EX_UNAVAILABLE  69
 
@@ -1042,9 +1074,10 @@ if ((rc = child_close(pid, timeout)) != 0)
     else if (!ob->ignore_status)
       {
       uschar *ss;
-      int size, ptr, i;
+      gstring * g;
+      int i;
 
-      /* If temp_errors is "*" all codes are temporary. Initializion checks
+      /* If temp_errors is "*" all codes are temporary. Initialization checks
       that it's either "*" or a list of numbers. If not "*", scan the list of
       temporary failure codes; if any match, the result is DEFER. */
 
@@ -1053,16 +1086,13 @@ if ((rc = child_close(pid, timeout)) != 0)
 
       else
         {
-        uschar *s = ob->temp_errors;
+        const uschar *s = ob->temp_errors;
         uschar *p;
-        uschar buffer[64];
         int sep = 0;
 
         addr->transport_return = FAIL;
-        while ((p = string_nextinlist(&s,&sep,buffer,sizeof(buffer))) != NULL)
-          {
+        while ((p = string_nextinlist(&s,&sep,NULL,0)))
           if (rc == Uatoi(p)) { addr->transport_return = DEFER; break; }
-          }
         }
 
       /* Ensure the message contains the expanded command and arguments. This
@@ -1070,9 +1100,7 @@ if ((rc = child_close(pid, timeout)) != 0)
 
       addr->message = string_sprintf("Child process of %s transport returned "
         "%d", tblock->name, rc);
-
-      ptr = Ustrlen(addr->message);
-      size = ptr + 1;
+      g = string_cat(NULL, addr->message);
 
       /* If the return code is > 128, it often means that a shell command
       was terminated by a signal. */
@@ -1084,38 +1112,34 @@ if ((rc = child_close(pid, timeout)) != 0)
 
       if (*ss != 0)
         {
-        addr->message = string_cat(addr->message, &size, &ptr, US" ", 1);
-        addr->message = string_cat(addr->message, &size, &ptr,
-          ss, Ustrlen(ss));
+        g = string_catn(g, US" ", 1);
+        g = string_cat (g, ss);
         }
 
       /* Now add the command and arguments */
 
-      addr->message = string_cat(addr->message, &size, &ptr,
-        US" from command:", 14);
+      g = string_catn(g, US" from command:", 14);
 
       for (i = 0; i < sizeof(argv)/sizeof(int *) && argv[i] != NULL; i++)
         {
         BOOL quote = FALSE;
-        addr->message = string_cat(addr->message, &size, &ptr, US" ", 1);
+        g = string_catn(g, US" ", 1);
         if (Ustrpbrk(argv[i], " \t") != NULL)
           {
           quote = TRUE;
-          addr->message = string_cat(addr->message, &size, &ptr, US"\"", 1);
+          g = string_catn(g, US"\"", 1);
           }
-        addr->message = string_cat(addr->message, &size, &ptr, argv[i],
-          Ustrlen(argv[i]));
+        g = string_cat(g, argv[i]);
         if (quote)
-          addr->message = string_cat(addr->message, &size, &ptr, US"\"", 1);
+          g = string_catn(g, US"\"", 1);
         }
 
       /* Add previous filter timeout message, if present. */
 
-      if (*tmsg != 0)
-        addr->message = string_cat(addr->message, &size, &ptr, tmsg,
-          Ustrlen(tmsg));
+      if (*tmsg)
+        g = string_cat(g, tmsg);
 
-      addr->message[ptr] = 0;  /* Ensure concatenated string terminated */
+      addr->message = string_from_gstring(g);
       }
     }
   }
@@ -1138,4 +1162,5 @@ if (addr->transport_return != OK)
 return FALSE;
 }
 
+#endif	/*!MACRO_PREDEF*/
 /* End of transport/pipe.c */

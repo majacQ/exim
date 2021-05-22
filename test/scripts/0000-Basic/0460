@@ -9,6 +9,7 @@ ehlo rhu.barb
 ??? 250-
 ??? 250-
 ??? 250-
+??? 250-
 ??? 250
 mail from:<userx@test.ex>
 ??? 250
@@ -44,3 +45,4 @@ QUIT
 killdaemon
 # Wait for delivery process
 sleep 1
+sortlog

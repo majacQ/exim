@@ -1,13 +1,9 @@
 # Exim test configuration 3401
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
+log_selector = +smtp_mailauth
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -22,6 +18,7 @@ login:
   driver = plaintext
   public_name = LOGIN
   client_send = : userx : secret
+  client_set_id = userx
 
 plain:
   driver = plaintext
@@ -32,6 +29,7 @@ xlogin:
   driver = plaintext
   public_name = XLOGIN
   client_send = : $auth1 : $auth1+$auth2
+  client_set_id = $auth1
 
 
 # ----- Routers -----

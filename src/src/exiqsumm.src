@@ -1,5 +1,4 @@
-#! PERL_COMMAND -w
-# $Cambridge: exim/src/src/exiqsumm.src,v 1.2 2006/11/20 11:57:57 ph10 Exp $
+#! PERL_COMMAND
 
 # Mail Queue Summary
 # Christoph Lameter, 21 May 1997
@@ -28,7 +27,7 @@
 #   typo. Fix provided by Chris Liddiard.
 # November 2006 by Jori Hamalainen
 #   Added feature to separate frozen and bounced messages from queue
-#   Adedd feature to list queue per source - destination pair
+#   Added feature to list queue per source - destination pair
 #   Changed regexps to compile once to very minor speed optimization
 #   Short circuit for empty lines
 #
@@ -41,6 +40,17 @@
 #   -s enables source destination separation
 
 # Slightly modified sub from eximstats
+
+use warnings;
+BEGIN { pop @INC if $INC[-1] eq '.' };
+use File::Basename;
+
+if (@ARGV && $ARGV[0] eq '--version') {
+    print basename($0) . ": $0\n",
+        "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+        "perl(runtime): $]\n";
+        exit 0;
+}
 
 sub print_volume_rounded {
 my($x) = pop @_;
@@ -140,7 +150,7 @@ elsif (/^\s+[^@]*\@([\w\.\-]+|\[(\d+\.){3}\d+\])/o)
 print "\nCount  Volume  Oldest  Newest  Domain";
 print "\n-----  ------  ------  ------  ------\n\n";
 
-my ($count, $volume, $max_age, $min_age) = (0, 0, "0m", "0000d");
+my ($count, $volume, $max_age, $min_age) = (0, 0, "0m", undef);
 
 foreach $id (sort
             {
@@ -154,10 +164,12 @@ foreach $id (sort
     $queue{$id}, &print_volume_rounded($q_size{$id}), $q_oldest{$id},
     $q_recent{$id}, $id);
     $max_age = $q_oldest{$id} if &older($q_oldest{$id}, $max_age) > 0;
-    $min_age = $q_recent{$id} if &older($min_age, $q_recent{$id}) > 0;
+    $min_age = $q_recent{$id}
+      if (!defined $min_age || &older($min_age, $q_recent{$id}) > 0);
     $volume += $q_size{$id};
     $count += $queue{$id};
   }
+  $min_age ||= "0000d";
 printf("---------------------------------------------------------------\n");
 printf("%5d  %.6s  %6s  %6s  %.80s\n",
   $count, &print_volume_rounded($volume), $max_age, $min_age, "TOTAL");

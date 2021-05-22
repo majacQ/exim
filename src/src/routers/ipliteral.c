@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/routers/ipliteral.c,v 1.10 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -31,6 +29,17 @@ value is present to keep some compilers happy. */
 
 ipliteral_router_options_block ipliteral_router_option_defaults = { 0 };
 
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+void ipliteral_router_init(router_instance *rblock) {}
+int ipliteral_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
 
 
 /*************************************************
@@ -101,8 +110,8 @@ ipliteral_router_options_block *ob =
   (ipliteral_router_options_block *)(rblock->options_block);
 */
 host_item *h;
-uschar *domain = addr->domain;
-uschar *ip;
+const uschar *domain = addr->domain;
+const uschar *ip;
 int len = Ustrlen(domain);
 int rc, ipv;
 
@@ -118,29 +127,23 @@ declines. Otherwise route to the single IP address, setting the host name to
 "(unnamed)". */
 
 if (domain[0] != '[' || domain[len-1] != ']') return DECLINE;
-domain[len-1] = 0;  /* temporarily */
-
-ip = domain + 1;
+ip = string_copyn(domain+1, len-2);
 if (strncmpic(ip, US"IPV6:", 5) == 0 || strncmpic(ip, US"IPV4:", 5) == 0)
   ip += 5;
 
 ipv = string_is_ip_address(ip, NULL);
 if (ipv == 0 || (disable_ipv6 && ipv == 6))
-  {
-  domain[len-1] = ']';
   return DECLINE;
-  }
 
 /* It seems unlikely that ignore_target_hosts will be used with this router,
 but if it is set, it should probably work. */
 
-if (verify_check_this_host(&(rblock->ignore_target_hosts), NULL, domain,
-      ip, NULL) == OK)
+if (verify_check_this_host(CUSS&rblock->ignore_target_hosts,
+       	NULL, domain, ip, NULL) == OK)
   {
   DEBUG(D_route)
       debug_printf("%s is in ignore_target_hosts\n", ip);
   addr->message = US"IP literal host explicitly ignored";
-  domain[len-1] = ']';
   return DECLINE;
   }
 
@@ -151,8 +154,7 @@ h = store_get(sizeof(host_item));
 h->next = NULL;
 h->address = string_copy(ip);
 h->port = PORT_NONE;
-domain[len-1] = ']';   /* restore */
-h->name = string_copy(domain);
+h->name = domain;
 h->mx = MX_NONE;
 h->status = hstatus_unknown;
 h->why = hwhy_unknown;
@@ -174,13 +176,13 @@ addr->host_list = h;
 
 /* Set up the errors address, if any. */
 
-rc = rf_get_errors_address(addr, rblock, verify, &(addr->p.errors_address));
+rc = rf_get_errors_address(addr, rblock, verify, &addr->prop.errors_address);
 if (rc != OK) return rc;
 
-/* Set up the additional and removeable headers for this address. */
+/* Set up the additional and removable headers for this address. */
 
-rc = rf_get_munge_headers(addr, rblock, &(addr->p.extra_headers),
-  &(addr->p.remove_headers));
+rc = rf_get_munge_headers(addr, rblock, &addr->prop.extra_headers,
+  &addr->prop.remove_headers);
 if (rc != OK) return rc;
 
 /* Fill in the transport, queue the address for local or remote delivery, and
@@ -199,4 +201,5 @@ return rf_queue_add(addr, addr_local, addr_remote, rblock, pw)?
   OK : DEFER;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/ipliteral.c */

@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/routers/accept.c,v 1.6 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -32,6 +30,18 @@ value is used. */
 accept_router_options_block accept_router_option_defaults = {
   NULL        /* dummy */
 };
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+void accept_router_init(router_instance *rblock) {}
+int accept_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else	/*!MACRO_PREDEF*/
 
 
 
@@ -107,7 +117,7 @@ DEBUG(D_route) debug_printf("%s router called for %s\n  domain = %s\n",
 rc = rf_get_errors_address(addr, rblock, verify, &errors_to);
 if (rc != OK) return rc;
 
-/* Set up the additional and removeable headers for the address. */
+/* Set up the additional and removable headers for the address. */
 
 rc = rf_get_munge_headers(addr, rblock, &extra_headers, &remove_headers);
 if (rc != OK) return rc;
@@ -120,11 +130,12 @@ if (!rf_get_transport(rblock->transport_name, &(rblock->transport),
   addr, rblock->name, NULL)) return DEFER;
 
 addr->transport = rblock->transport;
-addr->p.errors_address = errors_to;
-addr->p.extra_headers = extra_headers;
-addr->p.remove_headers = remove_headers;
+addr->prop.errors_address = errors_to;
+addr->prop.extra_headers = extra_headers;
+addr->prop.remove_headers = remove_headers;
 
 return rf_queue_add(addr, addr_local, addr_remote, rblock, pw)? OK : DEFER;
 }
 
+#endif	/*!MACRO_PREDEF*/
 /* End of routers/accept.c */

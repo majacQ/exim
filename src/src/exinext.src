@@ -1,5 +1,4 @@
 #! /bin/sh
-# $Cambridge: exim/src/src/exinext.src,v 1.5 2009/11/16 19:50:36 nm4 Exp $
 
 # Copyright (c) University of Cambridge, 1995 - 2007
 # See the file NOTICE for conditions of use and distribution.
@@ -25,6 +24,13 @@
 config=
 eximmacdef=
 exim_path=
+
+if test "x$1" = x--version
+then
+    echo "`basename $0`: $0"
+    echo "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION"
+    exit 0
+fi
 
 if expr -- $1 : '\-' >/dev/null ; then
   while expr -- $1 : '\-' >/dev/null ; do
@@ -115,6 +121,9 @@ if [ "$argone" = "" ]; then
 fi
 
 perl - $exim_path "$eximmacdef" $argone $spool_directory $qualify_domain $config <<'End'
+
+  # We don't import anything, but guard against future changes which do
+  BEGIN { pop @INC if $INC[-1] eq '.' };
 
   # Name the arguments
 

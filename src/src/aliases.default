@@ -1,5 +1,3 @@
-# $Cambridge: exim/src/src/aliases.default,v 1.1 2004/10/07 10:39:01 ph10 Exp $
-
 # Default aliases file, installed by Exim. This file contains no real aliases.
 # You should edit it to taste.
 
@@ -37,6 +35,6 @@
 #
 # abuse:       the person dealing with network and mail abuse
 # hostmaster:  the person dealing with DNS problems
-# webmaster:   the person dealing with your web site
+# webmaster:   the person dealing with your website
 
 ####

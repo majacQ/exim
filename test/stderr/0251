@@ -8,6 +8,7 @@
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "check_recipient"
 >>> processing "deny"
+>>>   message: unrouteable address
 >>> check !verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing oklist@listr.test.ex
@@ -25,14 +26,16 @@
 >>> calling exeter_listf router
 >>> routed by exeter_listf router
 >>> ----------- end verify ------------
->>> deny: condition test failed
+>>> deny: condition test failed in ACL "check_recipient"
 >>> processing "accept"
 >>> check domains = +local_domains
 >>> listr.test.ex in "test.ex : *.test.ex"? yes (matched "*.test.ex")
 >>> listr.test.ex in "+local_domains"? yes (matched "+local_domains")
->>> accept: condition test succeeded
+>>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT
 >>> using ACL "check_recipient"
 >>> processing "deny"
+>>>   message: unrouteable address
 >>> check !verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing oklist@listr.test.ex
@@ -42,11 +45,12 @@
 >>> calling exeter_listf router
 >>> routed by exeter_listf router
 >>> ----------- end verify ------------
->>> deny: condition test failed
+>>> deny: condition test failed in ACL "check_recipient"
 >>> processing "accept"
 >>> check domains = +local_domains
 >>> listr.test.ex in "test.ex : *.test.ex"? yes (matched "*.test.ex")
 >>> listr.test.ex in "+local_domains"? yes (matched "+local_domains")
->>> accept: condition test succeeded
+>>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT
 
 ******** SERVER ********

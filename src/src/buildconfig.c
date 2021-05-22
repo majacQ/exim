@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/buildconfig.c,v 1.21 2010/06/13 08:26:40 pdp Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -38,6 +36,8 @@ normally called independently. */
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/time.h>
+#include <poll.h>
 #include <pwd.h>
 #include <grp.h>
 
@@ -103,11 +103,16 @@ main(int argc, char **argv)
 {
 off_t test_off_t = 0;
 time_t test_time_t = 0;
+ino_t test_ino_t;
 #if ! (__STDC_VERSION__ >= 199901L)
 size_t test_size_t = 0;
+ssize_t test_ssize_t = 0;
 unsigned long test_ulong_t = 0L;
+unsigned int test_uint_t = 0;
 #endif
 long test_long_t = 0;
+long long test_longlong_t = 0;
+int test_int_t = 0;
 FILE *base;
 FILE *new;
 int last_initial = 'A';
@@ -151,15 +156,16 @@ This assumption is known to be OK for the common operating systems. */
 
 fprintf(new, "#ifndef OFF_T_FMT\n");
 if (sizeof(test_off_t) > sizeof(test_long_t))
-  {
-  fprintf(new, "#define OFF_T_FMT  \"%%lld\"\n");
-  fprintf(new, "#define LONGLONG_T long long int\n");
-  }
+  fprintf(new, "# define OFF_T_FMT  \"%%lld\"\n");
 else
-  {
-  fprintf(new, "#define OFF_T_FMT  \"%%ld\"\n");
-  fprintf(new, "#define LONGLONG_T long int\n");
-  }
+  fprintf(new, "# define OFF_T_FMT  \"%%ld\"\n");
+fprintf(new, "#endif\n\n");
+
+fprintf(new, "#ifndef LONGLONG_T\n");
+if (sizeof(test_longlong_t) > sizeof(test_long_t))
+  fprintf(new, "# define LONGLONG_T long long int\n");
+else
+  fprintf(new, "# define LONGLONG_T long int\n");
 fprintf(new, "#endif\n\n");
 
 /* Now do the same thing for time_t variables. If the length is greater than
@@ -170,26 +176,47 @@ off_t. */
 fprintf(new, "#ifndef TIME_T_FMT\n");
 if (sizeof(test_time_t) > sizeof(test_long_t))
   {
-  fprintf(new, "#define TIME_T_FMT  \"%%lld\"\n");
-  fprintf(new, "#undef  LONGLONG_T\n");
-  fprintf(new, "#define LONGLONG_T long long int\n");
+  fprintf(new, "# define TIME_T_FMT  \"%%lld\"\n");
+  fprintf(new, "# undef  LONGLONG_T\n");
+  fprintf(new, "# define LONGLONG_T long long int\n");
   }
 else
-  {
-  fprintf(new, "#define TIME_T_FMT  \"%%ld\"\n");
-  }
+  fprintf(new, "# define TIME_T_FMT  \"%%ld\"\n");
+fprintf(new, "#endif\n\n");
+
+fprintf(new, "#ifndef INO_T_FMT\n");
+if (sizeof(test_ino_t) > sizeof(test_long_t))
+  fprintf(new, "# define INO_T_FMT  \"%%llu\"\n");
+else
+  fprintf(new, "# define INO_T_FMT  \"%%lu\"\n");
+fprintf(new, "#endif\n\n");
+
+fprintf(new, "#ifndef PID_T_FMT\n");
+fprintf(new, "# define PID_T_FMT  \"%%lu\"\n");
 fprintf(new, "#endif\n\n");
 
 /* And for sizeof() results, size_t, which should with C99 be just %zu, deal
-with C99 not being ubiquitous yet.  Unfortunately. */
+with C99 not being ubiquitous yet.  Unfortunately.  Assume ssize_t is same
+size as size_t on C99; if someone comes up with a version where it's not, fix
+it then. */
 
 #if __STDC_VERSION__ >= 199901L
 fprintf(new, "#define SIZE_T_FMT  \"%%zu\"\n");
+fprintf(new, "#define SSIZE_T_FMT  \"%%zd\"\n");
 #else
 if (sizeof(test_size_t) > sizeof (test_ulong_t))
   fprintf(new, "#define SIZE_T_FMT  \"%%llu\"\n");
-else
+else if (sizeof(test_size_t) > sizeof (test_uint_t))
   fprintf(new, "#define SIZE_T_FMT  \"%%lu\"\n");
+else
+  fprintf(new, "#define SIZE_T_FMT  \"%%u\"\n");
+
+if (sizeof(test_ssize_t) > sizeof(test_long_t))
+  fprintf(new, "#define SSIZE_T_FMT  \"%%lld\"\n");
+else if (sizeof(test_ssize_t) > sizeof(test_int_t))
+  fprintf(new, "#define SSIZE_T_FMT  \"%%ld\"\n");
+else
+  fprintf(new, "#define SSIZE_T_FMT  \"%%d\"\n");
 #endif
 
 /* Now search the makefile for certain settings */
@@ -333,6 +360,16 @@ while (fgets(buffer, sizeof(buffer), base) != NULL)
   char *q = name;
 
   while (*p == ' ' || *p == '\t') p++;
+
+  if (strncmp(p, "#ifdef ", 7) == 0
+   || strncmp(p, "#ifndef ", 8) == 0
+   || strncmp(p, "#if ", 4) == 0
+   || strncmp(p, "#endif", 6) == 0
+     )
+    {
+    fputs(buffer, new);
+    continue;
+    }
 
   if (strncmp(p, "#define ", 8) != 0) continue;
 
@@ -700,21 +737,36 @@ else if (isgroup)
       fprintf(new, "#define FIXED_NEVER_USERS     %d", j);
       for (i = 0; i < j; i++) fprintf(new, ", %d", (unsigned int)vector[i]);
       fprintf(new, "\n");
+      free(vector);
       }
     continue;
     }
 
-  /* WITH_CONTENT_SCAN is another special case: it must be set if either it or
-  WITH_OLD_DEMIME is set. */
+  /* WITH_CONTENT_SCAN is another special case: it must be set if it or
+  EXPERIMENTAL_DCC is set. */
 
   if (strcmp(name, "WITH_CONTENT_SCAN") == 0)
     {
     char *wcs = getenv("WITH_CONTENT_SCAN");
-    char *wod = getenv("WITH_OLD_DEMIME");
     char *dcc = getenv("EXPERIMENTAL_DCC");
-    if (wcs != NULL || wod != NULL || dcc != NULL)
-      fprintf(new, "#define WITH_CONTENT_SCAN     yes\n");
-    else fprintf(new, "/* WITH_CONTENT_SCAN not set */\n");
+    fprintf(new, wcs || dcc
+      ? "#define WITH_CONTENT_SCAN     yes\n"
+      : "/* WITH_CONTENT_SCAN not set */\n");
+    continue;
+    }
+
+  /* DISABLE_DKIM is special; must be forced if no SUPPORT_TLS */
+  if (strcmp(name, "DISABLE_DKIM") == 0)
+    {
+    char *d_dkim = getenv("DISABLE_DKIM");
+    char *tls = getenv("SUPPORT_TLS");
+
+    if (d_dkim)
+      fprintf(new, "#define DISABLE_DKIM          yes\n");
+    else if (!tls)
+      fprintf(new, "#define DISABLE_DKIM          yes /* forced by lack of TLS */\n");
+    else
+      fprintf(new, "/* DISABLE_DKIM not set */\n");
     continue;
     }
 
@@ -788,7 +840,11 @@ else if (isgroup)
             strncpy(buffer, ss, sss-ss);
             buffer[sss-ss] = 0;  /* For empty case */
             }
-          else strcpy(buffer, ss);
+          else
+	    {
+       	    strncpy(buffer, ss, sizeof(buffer));
+	    buffer[sizeof(buffer)-1] = 0;
+	    }
           pp = buffer + (int)strlen(buffer);
           while (pp > buffer && isspace((unsigned char)pp[-1])) pp--;
           *pp = 0;
@@ -807,8 +863,50 @@ else if (isgroup)
       else if (strcmp(name, "TIMEZONE_DEFAULT") == 0||
                strcmp(name, "TCP_WRAPPERS_DAEMON_NAME") == 0||
                strcmp(name, "HEADERS_CHARSET") == 0||
-	       strcmp(name, "WHITELIST_D_MACROS") == 0)
+               strcmp(name, "WHITELIST_D_MACROS") == 0)
         fprintf(new, "\"%s\"\n", value);
+
+      /* GnuTLS constants; first is for debugging, others are tuning */
+
+      /* less than 0 is not-active; 0-9 are normal, API suggests higher
+      taken without problems */
+      else if (strcmp(name, "EXIM_GNUTLS_LIBRARY_LOG_LEVEL") == 0)
+        {
+        long nv;
+        char *end;
+        nv = strtol(value, &end, 10);
+        if (end != value && *end == '\0' && nv >= -1 && nv <= 100)
+          {
+          fprintf(new, "%s\n", value);
+          }
+        else
+          {
+          printf("Value of %s should be -1..9\n", name);
+          return 1;
+          }
+        }
+
+      /* how many bits Exim, as a client, demands must be in D-H */
+      /* 1024 is a historical figure; some sites actually use lower, so we
+      permit the value to be lowered "dangerously" low, but not "insanely"
+      low.  Though actually, 1024 is becoming "dangerous". */
+      else if ((strcmp(name, "EXIM_CLIENT_DH_MIN_MIN_BITS") == 0) ||
+               (strcmp(name, "EXIM_CLIENT_DH_DEFAULT_MIN_BITS") == 0) ||
+               (strcmp(name, "EXIM_SERVER_DH_BITS_PRE2_12") == 0))
+        {
+        long nv;
+        char *end;
+        nv = strtol(value, &end, 10);
+        if (end != value && *end == '\0' && nv >= 512 && nv < 500000)
+          {
+          fprintf(new, "%s\n", value);
+          }
+        else
+          {
+          printf("Unreasonable value (%s) of \"%s\".\n", value, name);
+          return 1;
+          }
+        }
 
       /* For others, quote any paths and don't quote anything else */
 
@@ -860,6 +958,25 @@ if (have_auth)
   {
   if (!support_crypteq) fprintf(new, "/* Force SUPPORT_CRYPTEQ for AUTH */\n"
     "#define SUPPORT_CRYPTEQ\n");
+  }
+
+/* Check poll() for timer functionality.
+Some OS' have released with it broken. */
+
+  {
+  struct timeval before, after;
+  int rc;
+  size_t us;
+
+  gettimeofday(&before, NULL);
+  rc = poll(NULL, 0, 500);
+  gettimeofday(&after, NULL);
+
+  us = (after.tv_sec - before.tv_sec) * 1000000 +
+    (after.tv_usec - before.tv_usec);
+
+  if (us < 400000)
+    fprintf(new, "#define NO_POLL_H\n");
   }
 
 /* End off */

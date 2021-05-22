@@ -33,13 +33,13 @@ database lookup required for fail
 testdb lookup forced FAIL
 lookup failed
 host in "testdb;fail"? no (end of list)
-deny: condition test failed
+deny: condition test failed in ACL "connect1"
 end of ACL "connect1": implicit DENY
 SMTP>> 550 Administrative prohibition
-LOG: MAIN REJECT
+LOG: connection_reject MAIN REJECT
   H=[10.0.0.1] rejected connection in "connect" ACL
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -75,10 +75,10 @@ database lookup required for fail
 testdb lookup forced FAIL
 lookup failed
 host in "net-testdb;fail"? no (end of list)
-deny: condition test failed
+deny: condition test failed in ACL "connect2"
 end of ACL "connect2": implicit DENY
 SMTP>> 550 Administrative prohibition
-LOG: MAIN REJECT
+LOG: connection_reject MAIN REJECT
   H=[10.0.0.2] rejected connection in "connect" ACL
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

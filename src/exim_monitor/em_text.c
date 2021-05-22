@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/exim_monitor/em_text.c,v 1.5 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *               Exim Monitor                     *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2012 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -59,6 +57,8 @@ XawTextSetInsertionPoint(w, text_count);
 /*************************************************
 *           Display text from format             *
 *************************************************/
+
+void text_showf(Widget w, char *s, ...) PRINTF_FUNCTION(2,3);
 
 void text_showf(Widget w, char *s, ...)
 {

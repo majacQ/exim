@@ -1,5 +1,3 @@
-$Cambridge: exim/src/src/auths/README,v 1.6 2006/10/16 15:44:36 ph10 Exp $
-
 AUTHS
 
 The modules in this directory are in support of various authentication
@@ -70,7 +68,7 @@ CLIENT AUTHENTICATION
 The third function performs authentication as a client. It receives a pointer
 to the instance block, and four further arguments:
 
-  The smtp_inblock item for the connection to the remote host.
+  The smtp_context item for the connection to the remote host.
 
   The normal command-reading timeout value.
 

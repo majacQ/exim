@@ -1,19 +1,18 @@
-/* $Cambridge: exim/src/src/dkim.h,v 1.5 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge, 1995 - 2007 */
+/* Copyright (c) University of Cambridge, 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
-uschar *dkim_exim_sign(int,uschar *,uschar *,uschar *,uschar *,uschar *);
-void    dkim_exim_verify_init(void);
+void    dkim_exim_init(void);
+gstring * dkim_exim_sign(int, off_t, uschar *, struct ob_dkim *, const uschar **);
+void    dkim_exim_verify_init(BOOL);
 void    dkim_exim_verify_feed(uschar *, int);
 void    dkim_exim_verify_finish(void);
-void    dkim_exim_acl_setup(uschar *);
+void    dkim_exim_verify_log_all(void);
+int     dkim_exim_acl_run(uschar *, gstring **, uschar **, uschar **);
 uschar *dkim_exim_expand_query(int);
-uschar *dkim_exim_expand_defaults(int);
 
 #define DKIM_ALGO               1
 #define DKIM_BODYLENGTH         2

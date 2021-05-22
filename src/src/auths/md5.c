@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/auths/md5.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #ifndef STAND_ALONE
@@ -336,7 +334,7 @@ int main(void)
 {
 md5 base;
 int i = 0x01020304;
-uschar *ctest = (uschar *)(&i);
+uschar *ctest = US (&i);
 uschar buffer[256];
 uschar digest[16];
 printf("Checking md5: %s-endian\n", (ctest[0] == 0x04)? "little" : "big");

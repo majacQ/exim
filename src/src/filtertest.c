@@ -1,5 +1,3 @@
-/* $Cambridge: exim/src/src/filtertest.c,v 1.12 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
@@ -49,7 +47,7 @@ header_size = message_size;
 
 if (!dot_ended && !feof(stdin))
   {
-  if (!dot_ends)
+  if (!f.dot_ends)
     {
     while ((ch = getc(stdin)) != EOF)
       {
@@ -261,13 +259,13 @@ testing a system filter that is going to be followed by a user filter test. */
 
 if (is_system)
   {
-  system_filtering = TRUE;
-  enable_dollar_recipients = TRUE; /* Permit $recipients in system filter */
+  f.system_filtering = TRUE;
+  f.enable_dollar_recipients = TRUE; /* Permit $recipients in system filter */
   yield = filter_interpret
     (filebuf,
     RDO_DEFER|RDO_FAIL|RDO_FILTER|RDO_FREEZE|RDO_REWRITE, &generated, &error);
-  enable_dollar_recipients = FALSE;
-  system_filtering = FALSE;
+  f.enable_dollar_recipients = FALSE;
+  f.system_filtering = FALSE;
   }
 else
   {

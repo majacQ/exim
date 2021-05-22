@@ -10,16 +10,17 @@
 > Failed: syntax error in Exim::expand_string argument: unknown variable name "notexists" at TESTSUITE/aux-fixed/3000.pl line 9.
 
 > 
-> Failed: missing or misplaced { or }
+> Failed: Not enough arguments for 'perl' (min is 1)
 > Subroutine foo called with args: 1 2 3 4 5 6 7 8
-> Failed: Too many arguments for "perl" (max is 9)
+> Failed: Too many arguments for 'perl' (max is 9)
 > 
 > 42
 > 30
 > 3
-> 2/8
+> X
 > 
-> Tue, 2 Mar 1999 09:44:33 +0000 // Changed locale // Tue, 2 Mar 1999 09:44:33 +0000
+> this change-locale fails in earlier systems.  Works on Fedora 29.
+> Tue, 2 Mar 1999 09:44:33 +0000 // Changed locale // dim., 10 févr 2019 20:05:49 +0000
 > 
 > Subroutine foo called with args: arg1
 > Failed: Perl subroutine "foo_undef" returned undef to force failure
@@ -29,6 +30,7 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello CALLER at x.y.z
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -42,6 +44,7 @@
 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-myhost.test.ex Hello x.y.z [10.0.0.1]
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK

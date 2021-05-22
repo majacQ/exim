@@ -2,14 +2,9 @@
 
 SERVER=
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -39,6 +34,7 @@ spabad:
   client_password = ${if eq{1}{0}{xxx}fail}
   client_username = username
   server_password = ok@test.ex
+  server_set_id = $auth1
 
 spa:
   driver = spa
@@ -47,6 +43,7 @@ spa:
   client_username = username
   server_debug_print = +++SPA \$auth1="$auth1"
   server_password = ok@test.ex
+  server_set_id = $auth1
 
 
 # ----- Routers -----

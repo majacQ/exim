@@ -33,7 +33,7 @@ After routing:
 locking TESTSUITE/spool/db/retry.lockfile
 locking TESTSUITE/spool/db/wait-smtp.lockfile
 LOG: MAIN
-  => userx@domain1 R=smarthost T=smtp H=thisloop.test.ex [127.0.0.1]
+  => userx@domain1 R=smarthost T=smtp H=thisloop.test.ex [127.0.0.1] C="250 OK"
 LOG: MAIN
   Completed
 locking TESTSUITE/spool/db/retry.lockfile
@@ -51,4 +51,4 @@ After routing:
     usery@domain1
 LOG: queue_run MAIN
   End queue run: pid=pppp
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

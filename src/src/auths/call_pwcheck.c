@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/auths/call_pwcheck.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This module contains interface functions to the two Cyrus authentication
@@ -90,8 +88,8 @@ Returns:   OK if authentication succeeded
 */
 
 int
-auth_call_saslauthd(uschar *username, uschar *password, uschar *service,
-  uschar *realm, uschar **errptr)
+auth_call_saslauthd(const uschar *username, const uschar *password,
+  const uschar *service, const uschar *realm, uschar **errptr)
 {
 uschar *reply = NULL;
 

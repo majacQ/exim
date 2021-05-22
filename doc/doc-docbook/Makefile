@@ -1,10 +1,8 @@
-# $Cambridge: exim/doc/doc-docbook/Makefile,v 1.14 2010/05/28 15:38:18 nm4 Exp $
-
 # Make file for Exim documentation from xfpt source.
 
 notarget:;    @echo "** You must specify a target, in the form x.y, where x is 'filter', 'spec',"
 	      @echo "** or 'test', and y is 'xml', 'fo', 'ps', 'pdf', 'html', 'txt', or 'info'."
-	      @echo "** One other possible target is 'exim.8'".
+	      @echo "** One other possible targets 'exim.8', 'spec.utf8'".
 	      exit 1
 
 
@@ -13,7 +11,7 @@ notarget:;    @echo "** You must specify a target, in the form x.y, where x is '
 # Generate all the documentation files...
 #
 ## removed info files as I cannot generate them -  spec.info filter.info
-## removed html files as superceded by new website code
+## removed html files as superseded by new website code
 everything:		spec.pdf 	spec.ps  	spec.txt \
 				filter.pdf 	filter.ps filter.txt \
 				exim.8
@@ -25,10 +23,21 @@ exim.8:       spec.xml x2man
 
 ########################################################################
 
+# .PHONY doesn't work here, because it forces a rebuild of all dependent
+# targets, always. It sets the internal timestamp of its target to
+# now().
+# But it may happen that local_params does not change
+FORCE:
+local_params: FORCE GenLocalParams
+	@set -e; \
+	trap 'rm -f $$tmp' EXIT; \
+	tmp=`mktemp`; \
+	./GenLocalParams $$tmp; \
+	cmp -s $@ $$tmp || mv -f $$tmp $@
 
 ############################### FILTER #################################
 
-filter.xml:      filter.xfpt
+filter.xml:      local_params filter.xfpt
 		 xfpt filter.xfpt
 
 filter-pr.xml:   filter.xml Pre-xml
@@ -87,7 +96,8 @@ filter.txt:   filter-txt.xml Tidytxt MyStyle-txt-html.xsl MyStyle-html.xsl \
                 MyStyle.xsl
 	      /bin/rm -rf filter-txt.html
 	      xmlto -x MyStyle-txt-html.xsl html-nochunks filter-txt.xml
-	      w3m -dump filter-txt.html | ./Tidytxt >filter.txt
+	      command -v w3m >/dev/null
+	      LC_ALL=C w3m -dump filter-txt.html | ./Tidytxt >filter.txt
 	      ./SanityTestText filter.txt
 
 # I have not found a way of making docbook2texi write its output anywhere
@@ -106,7 +116,7 @@ filter.info:  filter-info.xml
 
 ################################ SPEC ##################################
 
-spec.xml:      spec.xfpt
+spec.xml:      spec.xfpt local_params
 	       xfpt spec.xfpt
 
 spec-pr.xml:   spec.xml Pre-xml
@@ -164,12 +174,22 @@ spec.pdf: sdop-spec.pdf
 ###
 ###
 
-spec.txt:     spec-txt.xml Tidytxt MyStyle-txt-html.xsl MyStyle-html.xsl \
-                MyStyle.xsl
-	      /bin/rm -rf spec-txt.html
+spec-txt.html:     spec-txt.xml \
+		MyStyle-txt-html.xsl MyStyle-html.xsl MyStyle.xsl
 	      xmlto -x MyStyle-txt-html.xsl html-nochunks spec-txt.xml
-	      w3m -dump spec-txt.html | ./Tidytxt >spec.txt
+
+spec.utf8:	spec-txt.html Tidytxt
+		@grep -iq 'LC_CTYPE=.*utf-\?8' local_params || { \
+			echo 'your current locale does not support UTF-8' >&2; \
+			false; }
+		command -v w3m >/dev/null
+		w3m -dump spec-txt.html | ./Tidytxt -utf8 >$@
+
+spec.txt: spec-txt.html Tidytxt
+	      command -v w3m >/dev/null
+	      LC_ALL=C w3m -dump spec-txt.html | ./Tidytxt >$@
 	      ./SanityTestText spec.txt
+
 
 # I have not found a way of making docbook2texi write its output anywhere
 # other than the file name that it makes up. The --to-stdout option does not
@@ -253,6 +273,7 @@ test.txt:     test-txt.xml Tidytxt MyStyle-txt-html.xsl MyStyle-html.xsl \
                 MyStyle.xsl
 	      /bin/rm -rf test-txt.html
 	      xmlto -x MyStyle-txt-html.xsl html-nochunks test-txt.xml
+	      command -v w3m >/dev/null
 	      w3m -dump test-txt.html | Tidytxt >test.txt
 
 # I have not found a way of making docbook2texi write its output anywhere
@@ -284,7 +305,8 @@ os-fixup:
 
 clean:; /bin/rm -rf exim.8 \
 	      filter*.xml spec*.xml test*.xml \
-	      *.fo *.html *.pdf *.ps \
+	      *.fo *.pdf *.ps \
+	      filter*.html spec*.html test*.html \
 	      filter*.txt spec*.txt test*.txt \
 	      *.info* *.texinfo *.texi
 

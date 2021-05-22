@@ -1,17 +1,13 @@
 # Exim test configuration 3403
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
 acl_smtp_rcpt = accept
+acl_smtp_data = check_data
 
 
 # ----- Authentication -----
@@ -30,6 +26,12 @@ plain1:
   server_set_id = $2
   server_mail_auth_condition = ${if eq{$authenticated_id}{userx}{yes}}
 
+
+# ----- ACL -----
+begin acl
+
+check_data:
+  accept add_header = :at_start:${authresults {$primary_hostname}}
 
 # ----- Routers -----
 

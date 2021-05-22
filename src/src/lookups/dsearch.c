@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/lookups/dsearch.c,v 1.6 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* The idea for this code came from Matthew Byng-Maddick, but his original has
@@ -68,8 +66,8 @@ scanning the directory, as it is hopefully faster to let the OS do the scanning
 for us. */
 
 int
-static dsearch_find(void *handle, uschar *dirname, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+static dsearch_find(void *handle, uschar *dirname, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 struct stat statbuf;
 int save_errno;

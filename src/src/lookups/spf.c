@@ -1,5 +1,3 @@
-/* $Cambridge: exim/src/src/lookups/spf.c,v 1.3 2009/11/11 14:43:28 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
@@ -15,23 +13,28 @@
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
  *
+ * Copyright (c) The Exim Maintainers 2016
  */
 
 #include "../exim.h"
 
-#ifndef EXPERIMENTAL_SPF
-static void dummy(int x) { dummy(x-1); }
+#ifndef SUPPORT_SPF
+static void dummy(int x);
+static void dummy2(int x) { dummy(x-1); }
+static void dummy(int x) { dummy2(x-1); }
 #else
 
 #include "lf_functions.h"
-#ifndef HAVE_NS_TYPE
-#define HAVE_NS_TYPE
+#if !defined(HAVE_NS_TYPE) && defined(NS_INADDRSZ)
+# define HAVE_NS_TYPE
 #endif
 #include <spf2/spf.h>
 #include <spf2/spf_dns_resolv.h>
 #include <spf2/spf_dns_cache.h>
 
-static void *spf_open(uschar *filename, uschar **errmsg) {
+static void *
+spf_open(uschar *filename, uschar **errmsg)
+{
   SPF_server_t *spf_server = NULL;
   spf_server = SPF_server_new(SPF_DNS_CACHE, 0);
   if (spf_server == NULL) {
@@ -41,13 +44,17 @@ static void *spf_open(uschar *filename, uschar **errmsg) {
   return (void *) spf_server;
 }
 
-static void spf_close(void *handle) {
+static void
+spf_close(void *handle)
+{
   SPF_server_t *spf_server = handle;
   if (spf_server) SPF_server_free(spf_server);
 }
 
-static int spf_find(void *handle, uschar *filename, uschar *keystring, int key_len,
-             uschar **result, uschar **errmsg, BOOL *do_cache) {
+static int
+spf_find(void *handle, uschar *filename, const uschar *keystring, int key_len,
+             uschar **result, uschar **errmsg, uint *do_cache)
+{
   SPF_server_t *spf_server = handle;
   SPF_request_t *spf_request = NULL;
   SPF_response_t *spf_response = NULL;
@@ -111,4 +118,4 @@ static lookup_info _lookup_info = {
 static lookup_info *_lookup_list[] = { &_lookup_info };
 lookup_module_info spf_lookup_module_info = { LOOKUP_MODULE_INFO_MAGIC, _lookup_list, 1 };
 
-#endif /* EXPERIMENTAL_SPF */
+#endif /* SUPPORT_SPF */

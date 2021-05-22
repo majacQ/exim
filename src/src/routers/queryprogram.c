@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/routers/queryprogram.c,v 1.12 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -41,6 +39,20 @@ address can appear in the tables drtables.c. */
 
 int queryprogram_router_options_count =
   sizeof(queryprogram_router_options)/sizeof(optionlist);
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+queryprogram_router_options_block queryprogram_router_option_defaults = {0};
+void queryprogram_router_init(router_instance *rblock) {}
+int queryprogram_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
 
 /* Default private options block for the queryprogram router. */
 
@@ -111,20 +123,22 @@ add_generated(router_instance *rblock, address_item **addr_new,
 {
 while (generated != NULL)
   {
+  BOOL ignore_error = addr->prop.ignore_error;
   address_item *next = generated;
+
   generated = next->next;
 
   next->parent = addr;
-  orflag(next, addr, af_propagate);
-  next->p = *addr_prop;
+  next->prop = *addr_prop;
+  next->prop.ignore_error = next->prop.ignore_error || ignore_error;
   next->start_router = rblock->redirect_router;
 
   next->next = *addr_new;
   *addr_new = next;
 
-  if (addr->child_count == SHRT_MAX)
+  if (addr->child_count == USHRT_MAX)
     log_write(0, LOG_MAIN|LOG_PANIC_DIE, "%s router generated more than %d "
-      "child addresses for <%s>", rblock->name, SHRT_MAX, addr->address);
+      "child addresses for <%s>", rblock->name, USHRT_MAX, addr->address);
   addr->child_count++;
 
   DEBUG(D_route)
@@ -194,7 +208,7 @@ int fd_in, fd_out, len, rc;
 pid_t pid;
 struct passwd *upw = NULL;
 uschar buffer[1024];
-uschar **argvptr;
+const uschar **argvptr;
 uschar *rword, *rdata, *s;
 address_item_propagated addr_prop;
 queryprogram_router_options_block *ob =
@@ -216,14 +230,19 @@ ugid.uid_set = ugid.gid_set = FALSE;
 /* Set up the propagated data block with the current address_data and the
 errors address and extra header stuff. */
 
+bzero(&addr_prop, sizeof(addr_prop));
 addr_prop.address_data = deliver_address_data;
 
-rc = rf_get_errors_address(addr, rblock, verify, &(addr_prop.errors_address));
+rc = rf_get_errors_address(addr, rblock, verify, &addr_prop.errors_address);
 if (rc != OK) return rc;
 
-rc = rf_get_munge_headers(addr, rblock, &(addr_prop.extra_headers),
-  &(addr_prop.remove_headers));
+rc = rf_get_munge_headers(addr, rblock, &addr_prop.extra_headers,
+  &addr_prop.remove_headers);
 if (rc != OK) return rc;
+
+#ifdef EXPERIMENTAL_SRS
+addr_prop.srs_sender = NULL;
+#endif
 
 /* Get the fixed or expanded uid under which the command is to run
 (initialization ensures that one or the other is set). */
@@ -501,14 +520,14 @@ s = expand_string(US"${extract{hosts}{$value}}");
 
 if (*s != 0)
   {
-  int lookup_type = lk_default;
+  int lookup_type = LK_DEFAULT;
   uschar *ss = expand_string(US"${extract{lookup}{$value}}");
   lookup_value = NULL;
 
   if (*ss != 0)
     {
-    if (Ustrcmp(ss, "byname") == 0) lookup_type = lk_byname;
-    else if (Ustrcmp(ss, "bydns") == 0) lookup_type = lk_bydns;
+    if (Ustrcmp(ss, "byname") == 0) lookup_type = LK_BYNAME;
+    else if (Ustrcmp(ss, "bydns") == 0) lookup_type = LK_BYDNS;
     else
       {
       addr->message = string_sprintf("bad lookup type \"%s\" yielded by "
@@ -528,7 +547,7 @@ lookup_value = NULL;
 
 /* Put the errors address, extra headers, and address_data into this address */
 
-addr->p = addr_prop;
+addr->prop = addr_prop;
 
 /* Queue the address for local or remote delivery. */
 
@@ -536,4 +555,5 @@ return rf_queue_add(addr, addr_local, addr_remote, rblock, pw)?
   OK : DEFER;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/queryprogram.c */

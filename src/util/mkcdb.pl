@@ -1,5 +1,4 @@
 #!/usr/bin/perl -wT
-# $Cambridge: exim/src/util/mkcdb.pl,v 1.1 2005/05/24 11:20:40 ph10 Exp $
 #
 # Create cdb file from flat alias file. DPC: 15/10/98.
 # Args:      source  (may be relative or absolute)
@@ -10,12 +9,13 @@
 # Little Perl script to convert flat file into CDB file. Two advantages over
 # cdbmake-12 awk script that is distributed with CDB:
 #  1) Handles 'dpc22:dpc22@hermes' as well as 'dpc22 dpc22@hermes'
-#  2) Perl works with arbitary length strings: awk chokes at 1,024 chars
+#  2) Perl works with arbitrary length strings: awk chokes at 1,024 chars
 #
 # Cambridge: hermes/src/admin/mkcdb,v 1.9 2005/02/15 18:14:12 fanf2 Exp
 
 use strict;
 
+BEGIN { pop @INC if $INC[-1] eq '.' };
 $ENV{'PATH'} = "";
 umask(022);
 

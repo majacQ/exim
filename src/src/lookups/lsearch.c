@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/lookups/lsearch.c,v 1.11 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -73,7 +71,7 @@ fit into the fixed sized buffer. Most of the time this will never be exercised,
 but people do occasionally do weird things. */
 
 static int
-internal_lsearch_find(void *handle, uschar *filename, uschar *keystring,
+internal_lsearch_find(void *handle, uschar *filename, const uschar *keystring,
   int length, uschar **result, uschar **errmsg, int type)
 {
 FILE *f = (FILE *)handle;
@@ -103,11 +101,10 @@ for (last_was_eol = TRUE;
      Ufgets(buffer, sizeof(buffer), f) != NULL;
      last_was_eol = this_is_eol)
   {
-  int ptr, size;
   int p = Ustrlen(buffer);
   int linekeylength;
   BOOL this_is_comment;
-  uschar *yield;
+  gstring * yield;
   uschar *s = buffer;
 
   /* Check whether this the final segment of a line. If it follows an
@@ -148,7 +145,7 @@ for (last_was_eol = TRUE;
     uschar *t = s++;
     while (*s != 0 && *s != '\"')
       {
-      if (*s == '\\') *t++ = string_interpret_escape(&s);
+      if (*s == '\\') *t++ = string_interpret_escape(CUSS &s);
         else *t++ = *s;
       s++;
       }
@@ -183,7 +180,7 @@ for (last_was_eol = TRUE;
       {
       int rc;
       int save = buffer[linekeylength];
-      uschar *list = buffer;
+      const uschar *list = buffer;
       buffer[linekeylength] = 0;
       rc = match_isinlist(keystring,
         &list,
@@ -242,7 +239,7 @@ for (last_was_eol = TRUE;
 
   /* Reset dynamic store, if we need to, and revert to the search pool */
 
-  if (reset_point != NULL)
+  if (reset_point)
     {
     store_reset(reset_point);
     store_pool = old_pool;
@@ -256,11 +253,9 @@ for (last_was_eol = TRUE;
   Initialize, and copy the first segment of data. */
 
   this_is_comment = FALSE;
-  size = 100;
-  ptr = 0;
-  yield = store_get(size);
+  yield = string_get(100);
   if (*s != 0)
-    yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+    yield = string_cat(yield, s);
 
   /* Now handle continuations */
 
@@ -296,18 +291,17 @@ for (last_was_eol = TRUE;
 
     /* Join a physical or logical line continuation onto the result string. */
 
-    yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+    yield = string_cat(yield, s);
     }
 
-  yield[ptr] = 0;
-  store_reset(yield + ptr + 1);
-  *result = yield;
+  store_reset(yield->s + yield->ptr + 1);
+  *result = string_from_gstring(yield);
   return OK;
   }
 
 /* Reset dynamic store, if we need to */
 
-if (reset_point != NULL)
+if (reset_point)
   {
   store_reset(reset_point);
   store_pool = old_pool;
@@ -324,8 +318,8 @@ return FAIL;
 /* See local README for interface description */
 
 static int
-lsearch_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+lsearch_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 do_cache = do_cache;  /* Keep picky compilers happy */
 return internal_lsearch_find(handle, filename, keystring, length, result,
@@ -341,8 +335,8 @@ return internal_lsearch_find(handle, filename, keystring, length, result,
 /* See local README for interface description */
 
 static int
-wildlsearch_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+wildlsearch_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 do_cache = do_cache;  /* Keep picky compilers happy */
 return internal_lsearch_find(handle, filename, keystring, length, result,
@@ -358,8 +352,8 @@ return internal_lsearch_find(handle, filename, keystring, length, result,
 /* See local README for interface description */
 
 static int
-nwildlsearch_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+nwildlsearch_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 do_cache = do_cache;  /* Keep picky compilers happy */
 return internal_lsearch_find(handle, filename, keystring, length, result,
@@ -376,8 +370,8 @@ return internal_lsearch_find(handle, filename, keystring, length, result,
 /* See local README for interface description */
 
 static int
-iplsearch_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+iplsearch_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 do_cache = do_cache;  /* Keep picky compilers happy */
 if ((length == 1 && keystring[0] == '*') ||

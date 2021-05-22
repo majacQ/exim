@@ -8,6 +8,7 @@
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> using ACL "check_rcpt"
 >>> processing "deny"
+>>>   message: unverifiable
 >>> check !verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing x@ten-1
@@ -18,6 +19,7 @@
 >>> calling dnslookup router
 >>> routed by dnslookup router
 >>> ----------- end verify ------------
->>> deny: condition test failed
+>>> deny: condition test failed in ACL "check_rcpt"
 >>> processing "accept"
->>> accept: condition test succeeded
+>>> accept: condition test succeeded in ACL "check_rcpt"
+>>> end of ACL "check_rcpt": ACCEPT

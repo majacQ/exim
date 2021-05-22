@@ -1,5 +1,3 @@
-/* $Cambridge: exim/src/src/auths/plaintext.h,v 1.7 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
@@ -28,7 +26,6 @@ extern auth_plaintext_options_block auth_plaintext_option_defaults;
 
 extern void auth_plaintext_init(auth_instance *);
 extern int auth_plaintext_server(auth_instance *, uschar *);
-extern int auth_plaintext_client(auth_instance *, smtp_inblock *,
-                                 smtp_outblock *, int, uschar *, int);
+extern int auth_plaintext_client(auth_instance *, void *, int, uschar *, int);
 
 /* End of plaintext.h */

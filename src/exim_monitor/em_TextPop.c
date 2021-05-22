@@ -1,6 +1,3 @@
-/* $Cambridge: exim/src/exim_monitor/em_TextPop.c,v 1.1 2004/10/07 10:39:01 ph10 Exp $ */
-/* $XConsortium: TextPop.c,v 1.22 91/07/25 18:10:22 rws Exp $ */
-
 /***********************************************************
 Copyright 1989 by the Massachusetts Institute of Technology,
 Cambridge, Massachusetts.
@@ -50,7 +47,7 @@ SOFTWARE.
  * used by all more than one of these dialogs.
  *
  * The following functions are the only non-static ones defined
- * in this module.  They are located at the begining of the
+ * in this module.  They are located at the beginning of the
  * section that contains this dialog box that uses them.
  *
  * void _XawTextInsertFileAction(w, event, params, num_params);
@@ -130,7 +127,7 @@ static char search_text_trans[] =
  *
  * Note:
  *
- * If the search was sucessful and the argument popdown is passed to
+ * If the search was successful and the argument popdown is passed to
  * this action routine then the widget will automatically popdown the
  * search widget.
  */
@@ -174,7 +171,7 @@ Cardinal * num_params;
   PopdownSearch(w, (XtPointer) tw->text.search, NULL);
 }
 
-/*	Function Name: PopdownSeach
+/*	Function Name: PopdownSearch
  *	Description: Pops down the search widget and resets it.
  *	Arguments: w - *** NOT USED ***.
  *                 closure - a pointer to the search structure.
@@ -226,7 +223,7 @@ XtPointer call_data;
  * The parameter list contains one or two entries that may be the following.
  *
  * First Entry:   The first entry is the direction to search by default.
- *                This arguement must be specified and may have a value of
+ *                This argument must be specified and may have a value of
  *                "left" or "right".
  *
  * Second Entry:  This entry is optional and contains the value of the default
@@ -451,8 +448,8 @@ char * ptr;
 
 /*	Function Name: DoSearch
  *	Description: Performs a search.
- *	Arguments: search - the serach structure.
- *	Returns: TRUE if sucessful.
+ *	Arguments: search - the search structure.
+ *	Returns: TRUE if successful.
  */
 
 /* ARGSUSED */
@@ -471,7 +468,7 @@ struct SearchAndReplace * search;
   text.firstPos = 0;
   text.format = FMT8BIT;
 
-  dir = (XawTextScanDirection)(int) ((caddr_t)XawToggleGetCurrent(search->left_toggle) -
+  dir = (XawTextScanDirection) ((long)XawToggleGetCurrent(search->left_toggle) -
 				R_OFFSET);
 
   pos = XawTextSearch( tw, dir, &text);
@@ -631,7 +628,7 @@ XEvent *event;
  *
  * NOTE:
  *
- * The function argument is passed the following arguements.
+ * The function argument is passed the following arguments.
  *
  * form - the from widget that is the dialog.
  * ptr - the initial string for the dialog's text widget.

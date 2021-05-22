@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/tree.c,v 1.6 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions for maintaining binary balanced trees and some associated
@@ -330,13 +328,13 @@ Returns:    pointer to node, or NULL if not found
 */
 
 tree_node *
-tree_search(tree_node *p, uschar *name)
+tree_search(tree_node *p, const uschar *name)
 {
-while (p != NULL)
+while (p)
   {
   int c = Ustrcmp(name, p->name);
   if (c == 0) return p;
-  p = (c < 0)? p->left : p->right;
+  p = c < 0 ? p->left : p->right;
   }
 return NULL;
 }
@@ -357,10 +355,10 @@ Arguments:
 void
 tree_walk(tree_node *p, void (*f)(uschar*, uschar*, void*), void *ctx)
 {
-if (p == NULL) return;
+if (!p) return;
 f(p->name, p->data.ptr, ctx);
-if (p->left != NULL) tree_walk(p->left, f, ctx);
-if (p->right != NULL) tree_walk(p->right, f, ctx);
+tree_walk(p->left, f, ctx);
+tree_walk(p->right, f, ctx);
 }
 
 

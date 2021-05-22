@@ -1,11 +1,11 @@
-/* $Cambridge: exim/src/src/sieve.c,v 1.38 2009/11/05 19:40:51 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Michael Haardt 2003-2008 */
-/* See the file NOTICE for conditions of use and distribution. */
+/* Copyright (c) Michael Haardt 2003 - 2015
+ * Copyright (c) The Exim Maintainers 2016 - 2018
+ * See the file NOTICE for conditions of use and distribution.
+ */
 
 /* This code was contributed by Michael Haardt. */
 
@@ -21,7 +21,7 @@
 #include "exim.h"
 
 #if HAVE_ICONV
-#include <iconv.h>
+# include <iconv.h>
 #endif
 
 /* Define this for RFC compliant \r\n end-of-line terminators.      */
@@ -109,6 +109,38 @@ struct Notification
   struct Notification *next;
   };
 
+/* This should be a complete list of supported extensions, so that an external
+ManageSieve (RFC 5804) program can interrogate the current Exim binary for the
+list of extensions and provide correct information to a client.
+
+We'll emit the list in the order given here; keep it alphabetically sorted, so
+that callers don't get surprised.
+
+List *MUST* end with a NULL.  Which at least makes ifdef-vs-comma easier. */
+
+const uschar *exim_sieve_extension_list[] = {
+  CUS"comparator-i;ascii-numeric",
+  CUS"copy",
+#ifdef ENCODED_CHARACTER
+  CUS"encoded-character",
+#endif
+#ifdef ENOTIFY
+  CUS"enotify",
+#endif
+  CUS"envelope",
+#ifdef ENVELOPE_AUTH
+  CUS"envelope-auth",
+#endif
+  CUS"fileinto",
+#ifdef SUBADDRESS
+  CUS"subaddress",
+#endif
+#ifdef VACATION
+  CUS"vacation",
+#endif
+  NULL
+};
+
 static int eq_asciicase(const struct String *needle, const struct String *haystack, int match_prefix);
 static int parse_test(struct Sieve *filter, int *cond, int exec);
 static int parse_commands(struct Sieve *filter, int exec, address_item **generated);
@@ -121,8 +153,10 @@ static uschar str_cc_c[]="Cc";
 static const struct String str_cc={ str_cc_c, 2 };
 static uschar str_bcc_c[]="Bcc";
 static const struct String str_bcc={ str_bcc_c, 3 };
+#ifdef ENVELOPE_AUTH
 static uschar str_auth_c[]="auth";
 static const struct String str_auth={ str_auth_c, 4 };
+#endif
 static uschar str_sender_c[]="Sender";
 static const struct String str_sender={ str_sender_c, 6 };
 static uschar str_resent_from_c[]="Resent-From";
@@ -202,6 +236,9 @@ uschar *new = NULL;
 uschar ch;
 size_t line;
 
+/* Two passes: one to count output allocation size, second
+to do the encoding */
+
 for (pass=0; pass<=1; ++pass)
   {
   line=0;
@@ -215,55 +252,47 @@ for (pass=0; pass<=1; ++pass)
   for (start=src->character,end=start+src->length; start<end; ++start)
     {
     ch=*start;
-    if (line>=73)
+    if (line>=73)	/* line length limit */
       {
       if (pass==0)
         dst->length+=2;
       else
         {
-        *new++='=';
+        *new++='=';	/* line split */
         *new++='\n';
         }
       line=0;
       }
-    if
-      (
-      (ch>=33 && ch<=60)
-      || (ch>=62 && ch<=126)
-      ||
-        (
-        (ch==9 || ch==32)
-        && start+2<end
-        && (*(start+1)!='\r' || *(start+2)!='\n')
-        )
-      )
+    if (  (ch>='!' && ch<='<')
+       || (ch>='>' && ch<='~')
+       || (  (ch=='\t' || ch==' ')
+          && start+2<end
+          && (*(start+1)!='\r' || *(start+2)!='\n')	/* CRLF */
+          )
+       )
       {
       if (pass==0)
         ++dst->length;
       else
-        *new++=*start;
+        *new++=*start;	/* copy char */
       ++line;
       }
-    else if (ch=='\r' && start+1<end && *(start+1)=='\n')
+    else if (ch=='\r' && start+1<end && *(start+1)=='\n') /* CRLF */
       {
       if (pass==0)
-        {
         ++dst->length;
-        line=0;
-        }
       else
-        *new++='\n';
-        line=0;
-      ++start;
+        *new++='\n';					/* NL */
+      line=0;
+      ++start;	/* consume extra input char */
       }
     else
       {
       if (pass==0)
         dst->length+=3;
       else
-        {
-        sprintf(CS new,"=%02X",ch);
-        new+=3;
+        {		/* encoded char */
+        new += sprintf(CS new,"=%02X",ch);
         }
       line+=3;
       }
@@ -382,11 +411,14 @@ Returns
  -1           syntax error
 */
 
-static int parse_mailto_uri(struct Sieve *filter, const uschar *uri, string_item **recipient, struct String *header, struct String *subject, struct String *body)
+static int
+parse_mailto_uri(struct Sieve *filter, const uschar *uri,
+  string_item **recipient, struct String *header, struct String *subject,
+  struct String *body)
 {
 const uschar *start;
-struct String to,hname,hvalue;
-int capacity;
+struct String to, hname;
+struct String hvalue = {.character = NULL, .length = 0};
 string_item *new;
 
 if (Ustrncmp(uri,"mailto:",7))
@@ -394,6 +426,7 @@ if (Ustrncmp(uri,"mailto:",7))
   filter->errmsg=US "Unknown URI scheme";
   return 0;
   }
+
 uri+=7;
 if (*uri && *uri!='?')
   for (;;)
@@ -402,22 +435,21 @@ if (*uri && *uri!='?')
     for (start=uri; *uri && *uri!='?' && (*uri!='%' || *(uri+1)!='2' || tolower(*(uri+2))!='c'); ++uri);
     if (uri>start)
       {
-      capacity=0;
-      to.character=(uschar*)0;
-      to.length=0;
-      to.character=string_cat(to.character,&capacity,&to.length,start,uri-start);
-      to.character[to.length]='\0';
+      gstring * g = string_catn(NULL, start, uri-start);
+
+      to.character = string_from_gstring(g);
+      to.length = g->ptr;
       if (uri_decode(&to)==-1)
         {
         filter->errmsg=US"Invalid URI encoding";
         return -1;
         }
-        new=store_get(sizeof(string_item));
-        new->text=store_get(to.length+1);
-        if (to.length) memcpy(new->text,to.character,to.length);
-        new->text[to.length]='\0';
-        new->next=*recipient;
-        *recipient=new;
+      new=store_get(sizeof(string_item));
+      new->text=store_get(to.length+1);
+      if (to.length) memcpy(new->text,to.character,to.length);
+      new->text[to.length]='\0';
+      new->next=*recipient;
+      *recipient=new;
       }
     else
       {
@@ -436,11 +468,10 @@ if (*uri=='?')
     for (start=uri; *uri && (isalnum(*uri) || strchr("$-_.+!*'(),%",*uri)); ++uri);
     if (uri>start)
       {
-      capacity=0;
-      hname.character=(uschar*)0;
-      hname.length=0;
-      hname.character=string_cat(hname.character,&capacity,&hname.length,start,uri-start);
-      hname.character[hname.length]='\0';
+      gstring * g = string_catn(NULL, start, uri-start);
+
+      hname.character = string_from_gstring(g);
+      hname.length = g->ptr;
       if (uri_decode(&hname)==-1)
         {
         filter->errmsg=US"Invalid URI encoding";
@@ -459,11 +490,10 @@ if (*uri=='?')
     for (start=uri; *uri && (isalnum(*uri) || strchr("$-_.+!*'(),%",*uri)); ++uri);
     if (uri>start)
       {
-      capacity=0;
-      hvalue.character=(uschar*)0;
-      hvalue.length=0;
-      hvalue.character=string_cat(hvalue.character,&capacity,&hvalue.length,start,uri-start);
-      hvalue.character[hvalue.length]='\0';
+      gstring * g = string_catn(NULL, start, uri-start);
+
+      hname.character = string_from_gstring(g);
+      hname.length = g->ptr;
       if (uri_decode(&hvalue)==-1)
         {
         filter->errmsg=US"Invalid URI encoding";
@@ -499,13 +529,18 @@ if (*uri=='?')
       for (i=ignore; i<end && !eq_asciicase(&hname,i,0); ++i);
       if (i==end)
         {
-        if (header->length==-1) header->length=0;
-        capacity=header->length;
-        header->character=string_cat(header->character,&capacity,&header->length,hname.character,hname.length);
-        header->character=string_cat(header->character,&capacity,&header->length,CUS ": ",2);
-        header->character=string_cat(header->character,&capacity,&header->length,hvalue.character,hvalue.length);
-        header->character=string_cat(header->character,&capacity,&header->length,CUS "\n",1);
-        header->character[header->length]='\0';
+	gstring * g;
+
+        if (header->length==-1) header->length = 0;
+
+	g = string_catn(NULL, header->character, header->length);
+        g = string_catn(g, hname.character, hname.length);
+        g = string_catn(g, CUS ": ", 2);
+        g = string_catn(g, hvalue.character, hvalue.length);
+        g = string_catn(g, CUS "\n", 1);
+
+	header->character = string_from_gstring(g);
+	header->length = g->ptr;
         }
       }
     if (*uri=='&') ++uri;
@@ -963,10 +998,10 @@ Arguments:
 Returns:      quoted string
 */
 
-static const uschar *quote(const struct String *header)
+static const uschar *
+quote(const struct String *header)
 {
-uschar *quoted=NULL;
-int size=0,ptr=0;
+gstring * quoted = NULL;
 size_t l;
 const uschar *h;
 
@@ -977,26 +1012,20 @@ while (l)
   switch (*h)
     {
     case '\0':
-      {
-      quoted=string_cat(quoted,&size,&ptr,CUS "\\0",2);
+      quoted = string_catn(quoted, CUS "\\0", 2);
       break;
-      }
     case '$':
     case '{':
     case '}':
-      {
-      quoted=string_cat(quoted,&size,&ptr,CUS "\\",1);
-      }
+      quoted = string_catn(quoted, CUS "\\", 1);
     default:
-      {
-      quoted=string_cat(quoted,&size,&ptr,h,1);
-      }
+      quoted = string_catn(quoted, h, 1);
     }
   ++h;
   --l;
   }
-quoted=string_cat(quoted,&size,&ptr,CUS "",1);
-return quoted;
+quoted = string_catn(quoted, CUS "", 1);
+return string_from_gstring(quoted);
 }
 
 
@@ -1016,33 +1045,36 @@ Arguments:
 Returns:      nothing
 */
 
-static void add_addr(address_item **generated, uschar *addr, int file, int maxage, int maxmessages, int maxstorage)
+static void
+add_addr(address_item **generated, uschar *addr, int file, int maxage, int maxmessages, int maxstorage)
 {
 address_item *new_addr;
 
 for (new_addr=*generated; new_addr; new_addr=new_addr->next)
-  {
-  if (Ustrcmp(new_addr->address,addr)==0 && (file ? testflag(new_addr, af_pfr|af_file) : 1))
+  if (  Ustrcmp(new_addr->address,addr) == 0
+     && (  !file
+	|| testflag(new_addr, af_pfr)
+	|| testflag(new_addr, af_file)
+	)
+     )
     {
     if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-      {
       debug_printf("Repeated %s `%s' ignored.\n",file ? "fileinto" : "redirect", addr);
-      }
+
     return;
     }
-  }
 
 if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-  {
   debug_printf("%s `%s'\n",file ? "fileinto" : "redirect", addr);
-  }
-new_addr=deliver_make_addr(addr,TRUE);
+
+new_addr = deliver_make_addr(addr,TRUE);
 if (file)
   {
-  setflag(new_addr, af_pfr|af_file);
+  setflag(new_addr, af_pfr);
+  setflag(new_addr, af_file);
   new_addr->mode = 0;
   }
-new_addr->p.errors_address = NULL;
+new_addr->prop.errors_address = NULL;
 new_addr->next = *generated;
 *generated = new_addr;
 }
@@ -1442,12 +1474,14 @@ Returns:      1                success
               0                identifier not matched
 */
 
-static int parse_string(struct Sieve *filter, struct String *data)
+static int
+parse_string(struct Sieve *filter, struct String *data)
 {
-int dataCapacity=0;
+gstring * g = NULL;
 
-data->length=0;
-data->character=(uschar*)0;
+data->length = 0;
+data->character = NULL;
+
 if (*filter->pc=='"') /* quoted string */
   {
   ++filter->pc;
@@ -1455,11 +1489,17 @@ if (*filter->pc=='"') /* quoted string */
     {
     if (*filter->pc=='"') /* end of string */
       {
-      int foo=data->length;
-
       ++filter->pc;
+
+      if (g)
+	{
+	data->character = string_from_gstring(g);
+	data->length = g->ptr;
+	}
+      else
+	data->character = US"\0";
       /* that way, there will be at least one character allocated */
-      data->character=string_cat(data->character,&dataCapacity,&foo,CUS "",1);
+
 #ifdef ENCODED_CHARACTER
       if (filter->require_encoded_character
           && string_decode(filter,data)==-1)
@@ -1469,7 +1509,7 @@ if (*filter->pc=='"') /* quoted string */
       }
     else if (*filter->pc=='\\' && *(filter->pc+1)) /* quoted character */
       {
-      data->character=string_cat(data->character,&dataCapacity,&data->length,filter->pc+1,1);
+      g = string_catn(g, filter->pc+1, 1);
       filter->pc+=2;
       }
     else /* regular character */
@@ -1479,11 +1519,11 @@ if (*filter->pc=='"') /* quoted string */
 #else
       if (*filter->pc=='\n')
         {
-        data->character=string_cat(data->character,&dataCapacity,&data->length,US"\r",1);
+        g = string_catn(g, US"\r", 1);
         ++filter->line;
         }
 #endif
-      data->character=string_cat(data->character,&dataCapacity,&data->length,filter->pc,1);
+      g = string_catn(g, filter->pc, 1);
       filter->pc++;
       }
     }
@@ -1525,7 +1565,7 @@ else if (Ustrncmp(filter->pc,CUS "text:",5)==0) /* multiline string */
     if (*filter->pc=='\n') /* end of line */
 #endif
       {
-      data->character=string_cat(data->character,&dataCapacity,&data->length,CUS "\r\n",2);
+      g = string_catn(g, CUS "\r\n", 2);
 #ifdef RFC_EOL
       filter->pc+=2;
 #else
@@ -1538,10 +1578,15 @@ else if (Ustrncmp(filter->pc,CUS "text:",5)==0) /* multiline string */
       if (*filter->pc=='.' && *(filter->pc+1)=='\n') /* end of string */
 #endif
         {
-        int foo=data->length;
+	if (g)
+	  {
+	  data->character = string_from_gstring(g);
+	  data->length = g->ptr;
+	  }
+	else
+	  data->character = US"\0";
+	/* that way, there will be at least one character allocated */
 
-        /* that way, there will be at least one character allocated */
-        data->character=string_cat(data->character,&dataCapacity,&foo,CUS "",1);
 #ifdef RFC_EOL
         filter->pc+=3;
 #else
@@ -1557,13 +1602,13 @@ else if (Ustrncmp(filter->pc,CUS "text:",5)==0) /* multiline string */
         }
       else if (*filter->pc=='.' && *(filter->pc+1)=='.') /* remove dot stuffing */
         {
-        data->character=string_cat(data->character,&dataCapacity,&data->length,CUS ".",1);
+        g = string_catn(g, CUS ".", 1);
         filter->pc+=2;
         }
       }
     else /* regular character */
       {
-      data->character=string_cat(data->character,&dataCapacity,&data->length,filter->pc,1);
+      g = string_catn(g, filter->pc, 1);
       filter->pc++;
       }
     }
@@ -1676,12 +1721,13 @@ Returns:      1                success
               -1               no string list found
 */
 
-static int parse_stringlist(struct Sieve *filter, struct String **data)
+static int
+parse_stringlist(struct Sieve *filter, struct String **data)
 {
 const uschar *orig=filter->pc;
-int dataCapacity=0;
-int dataLength=0;
-struct String *d=(struct String*)0;
+int dataCapacity = 0;
+int dataLength = 0;
+struct String *d = NULL;
 int m;
 
 if (*filter->pc=='[') /* string list */
@@ -1690,20 +1736,17 @@ if (*filter->pc=='[') /* string list */
   for (;;)
     {
     if (parse_white(filter)==-1) goto error;
-    if ((dataLength+1)>=dataCapacity) /* increase buffer */
+    if (dataLength+1 >= dataCapacity) /* increase buffer */
       {
       struct String *new;
-      int newCapacity;          /* Don't amalgamate with next line; some compilers grumble */
-      newCapacity=dataCapacity?(dataCapacity*=2):(dataCapacity=4);
-      if ((new=(struct String*)store_get(sizeof(struct String)*newCapacity))==(struct String*)0)
-        {
-        filter->errmsg=CUstrerror(errno);
-        goto error;
-        }
+
+      dataCapacity = dataCapacity ? dataCapacity * 2 : 4;
+      new = store_get(sizeof(struct String) * dataCapacity);
+
       if (d) memcpy(new,d,sizeof(struct String)*dataLength);
-      d=new;
-      dataCapacity=newCapacity;
+      d = new;
       }
+
     m=parse_string(filter,&d[dataLength]);
     if (m==0)
       {
@@ -2094,7 +2137,7 @@ if (parse_identifier(filter,CUS "address"))
         filter->errmsg=CUS "header string expansion failed";
         return -1;
         }
-      parse_allow_group = TRUE;
+      f.parse_allow_group = TRUE;
       while (*header_value && !*cond)
         {
         uschar *error;
@@ -2140,8 +2183,8 @@ if (parse_identifier(filter,CUS "address"))
         if (saveend == 0) break;
         header_value = end_addr + 1;
         }
-      parse_allow_group = FALSE;
-      parse_found_group = FALSE;
+      f.parse_allow_group = FALSE;
+      f.parse_found_group = FALSE;
       }
     }
   return 1;
@@ -2707,8 +2750,8 @@ Returns:      2                success by stop
               1                other success
               -1               syntax or execution error
 */
-static int parse_commands(struct Sieve *filter, int exec,
-  address_item **generated)
+static int
+parse_commands(struct Sieve *filter, int exec, address_item **generated)
 {
 while (*filter->pc)
   {
@@ -2940,7 +2983,6 @@ while (*filter->pc)
     int m;
     struct String from;
     struct String importance;
-    struct String *options;
     struct String message;
     struct String method;
     struct Notification *already;
@@ -2961,7 +3003,6 @@ while (*filter->pc)
     from.length=-1;
     importance.character=(uschar*)0;
     importance.length=-1;
-    options=(struct String*)0;
     message.character=(uschar*)0;
     message.length=-1;
     recipient=NULL;
@@ -3077,7 +3118,7 @@ while (*filter->pc)
                 message.character=US"Notification";
                 message.length=Ustrlen(message.character);
                 }
-              /* Allocation is larger than neccessary, but enough even for split MIME words */
+              /* Allocation is larger than necessary, but enough even for split MIME words */
               buffer_capacity=32+4*message.length;
               buffer=store_get(buffer_capacity);
               if (message.length!=-1) fprintf(f,"Subject: %s\n",parse_quote_2047(message.character, message.length, US"utf-8", buffer, buffer_capacity, TRUE));
@@ -3246,15 +3287,13 @@ while (*filter->pc)
     if (exec)
       {
       address_item *addr;
-      int capacity,start;
       uschar *buffer;
       int buffer_capacity;
-      struct String key;
       md5 base;
       uschar digest[16];
       uschar hexdigest[33];
       int i;
-      uschar *once;
+      gstring * once;
 
       if (filter_personal(aliases,TRUE))
         {
@@ -3266,32 +3305,30 @@ while (*filter->pc)
           }
         /* build oncelog filename */
 
-        key.character=(uschar*)0;
-        key.length=0;
-        capacity=0;
+        md5_start(&base);
+
         if (handle.length==-1)
           {
-          if (subject.length!=-1) key.character=string_cat(key.character,&capacity,&key.length,subject.character,subject.length);
-          if (from.length!=-1) key.character=string_cat(key.character,&capacity,&key.length,from.character,from.length);
-          key.character=string_cat(key.character,&capacity,&key.length,reason_is_mime?US"1":US"0",1);
-          key.character=string_cat(key.character,&capacity,&key.length,reason.character,reason.length);
+	  gstring * key = NULL;
+          if (subject.length!=-1) key =string_catn(key, subject.character, subject.length);
+          if (from.length!=-1) key = string_catn(key, from.character, from.length);
+          key = string_catn(key, reason_is_mime?US"1":US"0", 1);
+          key = string_catn(key, reason.character, reason.length);
+	  md5_end(&base, key->s, key->ptr, digest);
           }
         else
-          key=handle;
-        md5_start(&base);
-        md5_end(&base, key.character, key.length, digest);
+	  md5_end(&base, handle.character, handle.length, digest);
+
         for (i = 0; i < 16; i++) sprintf(CS (hexdigest+2*i), "%02X", digest[i]);
+
         if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-          {
           debug_printf("Sieve: mail was personal, vacation file basename: %s\n", hexdigest);
-          }
+
         if (filter_test == FTEST_NONE)
           {
-          capacity=Ustrlen(filter->vacation_directory);
-          start=capacity;
-          once=string_cat(filter->vacation_directory,&capacity,&start,US"/",1);
-          once=string_cat(once,&capacity,&start,hexdigest,33);
-          once[start] = '\0';
+          once = string_cat (NULL, filter->vacation_directory);
+          once = string_catn(once, US"/", 1);
+          once = string_catn(once, hexdigest, 33);
 
           /* process subject */
 
@@ -3302,11 +3339,12 @@ while (*filter->pc)
             subject_def=expand_string(US"${if def:header_subject {true}{false}}");
             if (Ustrcmp(subject_def,"true")==0)
               {
+	      gstring * g = string_catn(NULL, US"Auto: ", 6);
+
               expand_header(&subject,&str_subject);
-              capacity=6;
-              start=6;
-              subject.character=string_cat(US"Auto: ",&capacity,&start,subject.character,subject.length);
-              subject.length=start;
+              g = string_catn(g, subject.character, subject.length);
+	      subject.character = string_from_gstring(g);
+              subject.length = g->ptr;
               }
             else
               {
@@ -3319,7 +3357,7 @@ while (*filter->pc)
 
           addr = deliver_make_addr(string_sprintf(">%.256s", sender_address), FALSE);
           setflag(addr, af_pfr);
-          setflag(addr, af_ignore_error);
+          addr->prop.ignore_error = TRUE;
           addr->next = *generated;
           *generated = addr;
           addr->reply = store_get(sizeof(reply_item));
@@ -3329,11 +3367,12 @@ while (*filter->pc)
             addr->reply->from = expand_string(US"$local_part@$domain");
           else
             addr->reply->from = from.character;
-          /* Allocation is larger than neccessary, but enough even for split MIME words */
+          /* Allocation is larger than necessary, but enough even for split MIME words */
           buffer_capacity=32+4*subject.length;
           buffer=store_get(buffer_capacity);
-          addr->reply->subject=parse_quote_2047(subject.character, subject.length, US"utf-8", buffer, buffer_capacity, TRUE);
-          addr->reply->oncelog=once;
+	  /* deconst cast safe as we pass in a non-const item */
+          addr->reply->subject = US parse_quote_2047(subject.character, subject.length, US"utf-8", buffer, buffer_capacity, TRUE);
+          addr->reply->oncelog = string_from_gstring(once);
           addr->reply->once_repeat=days*86400;
 
           /* build body and MIME headers */
@@ -3345,27 +3384,21 @@ while (*filter->pc)
 
             for
               (
-              mime_body=reason.character,reason_end=reason.character+reason.length;
-              mime_body<(reason_end-(sizeof(nlnl)-1)) && memcmp(mime_body,nlnl,(sizeof(nlnl)-1));
+              mime_body = reason.character, reason_end = reason.character + reason.length;
+              mime_body < (reason_end-(sizeof(nlnl)-1)) && memcmp(mime_body, nlnl, (sizeof(nlnl)-1));
               ++mime_body
               );
-            capacity = 0;
-            start = 0;
-            addr->reply->headers = string_cat(NULL,&capacity,&start,reason.character,mime_body-reason.character);
-            addr->reply->headers[start] = '\0';
-            capacity = 0;
-            start = 0;
+
+            addr->reply->headers = string_copyn(reason.character, mime_body-reason.character);
+
             if (mime_body+(sizeof(nlnl)-1)<reason_end) mime_body+=(sizeof(nlnl)-1);
             else mime_body=reason_end-1;
-            addr->reply->text = string_cat(NULL,&capacity,&start,mime_body,reason_end-mime_body);
-            addr->reply->text[start] = '\0';
+            addr->reply->text = string_copyn(mime_body, reason_end-mime_body);
             }
           else
             {
-            struct String qp = { NULL, 0 };  /* Keep compiler happy (PH) */
+            struct String qp = { .character = NULL, .length = 0 };  /* Keep compiler happy (PH) */
 
-            capacity = 0;
-            start = reason.length;
             addr->reply->headers = US"MIME-Version: 1.0\n"
                                    "Content-Type: text/plain;\n"
                                    "\tcharset=\"utf-8\"\n"
@@ -3375,9 +3408,7 @@ while (*filter->pc)
           }
         }
         else if ((filter_test != FTEST_NONE && debug_selector != 0) || (debug_selector & D_filter) != 0)
-          {
           debug_printf("Sieve: mail was not personal, vacation would ignore it\n");
-          }
       }
     }
     else break;
@@ -3401,8 +3432,8 @@ Returns:      1                success
               -1               syntax or execution error
 */
 
-static int parse_start(struct Sieve *filter, int exec,
-  address_item **generated)
+static int
+parse_start(struct Sieve *filter, int exec, address_item **generated)
 {
 filter->pc=filter->filter;
 filter->line=1;

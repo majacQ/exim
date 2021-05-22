@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/routers/manualroute.c,v 1.7 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -35,6 +33,21 @@ address can appear in the tables drtables.c. */
 
 int manualroute_router_options_count =
   sizeof(manualroute_router_options)/sizeof(optionlist);
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+manualroute_router_options_block manualroute_router_option_defaults = {0};
+void manualroute_router_init(router_instance *rblock) {}
+int manualroute_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
+
 
 /* Default private options block for the manualroute router. */
 
@@ -141,20 +154,20 @@ Returns:    FALSE if domain expected and string is empty;
 */
 
 static BOOL
-parse_route_item(uschar *s, uschar **domain, uschar **hostlist,
-  uschar **options)
+parse_route_item(const uschar *s, const uschar **domain, const uschar **hostlist,
+  const uschar **options)
 {
 while (*s != 0 && isspace(*s)) s++;
 
-if (domain != NULL)
+if (domain)
   {
-  if (*s == 0) return FALSE;            /* missing data */
+  if (!*s) return FALSE;            /* missing data */
   *domain = string_dequote(&s);
-  while (*s != 0 && isspace(*s)) s++;
+  while (*s && isspace(*s)) s++;
   }
 
 *hostlist = string_dequote(&s);
-while (*s != 0 && isspace(*s)) s++;
+while (*s && isspace(*s)) s++;
 *options = s;
 return TRUE;
 }
@@ -228,9 +241,11 @@ manualroute_router_entry(
 {
 int rc, lookup_type;
 uschar *route_item = NULL;
-uschar *options = NULL;
-uschar *hostlist = NULL;
-uschar *domain, *newhostlist, *listptr;
+const uschar *options = NULL;
+const uschar *hostlist = NULL;
+const uschar *domain;
+uschar *newhostlist;
+const uschar *listptr;
 manualroute_router_options_block *ob =
   (manualroute_router_options_block *)(rblock->options_block);
 transport_instance *transport = NULL;
@@ -246,7 +261,7 @@ DEBUG(D_route) debug_printf("%s router called for %s\n  domain = %s\n",
 /* The initialization check ensures that either route_list or route_data is
 set. */
 
-if (ob->route_list != NULL)
+if (ob->route_list)
   {
   int sep = -(';');             /* Default is semicolon */
   listptr = ob->route_list;
@@ -262,7 +277,7 @@ if (ob->route_list != NULL)
     /* Check the current domain; if it matches, break the loop */
 
     if ((rc = match_isinlist(addr->domain, &domain, UCHAR_MAX+1,
-           &domainlist_anchor, NULL, MCL_DOMAIN, TRUE, &lookup_value)) == OK)
+           &domainlist_anchor, NULL, MCL_DOMAIN, TRUE, CUSS &lookup_value)) == OK)
       break;
 
     /* If there was a problem doing the check, defer */
@@ -274,7 +289,7 @@ if (ob->route_list != NULL)
       }
     }
 
-  if (route_item == NULL) return DECLINE;  /* No pattern in the list matched */
+  if (!route_item) return DECLINE;  /* No pattern in the list matched */
   }
 
 /* Handle a single routing item in route_data. If it expands to an empty
@@ -282,17 +297,17 @@ string, decline. */
 
 else
   {
-  route_item = rf_expand_data(addr, ob->route_data, &rc);
-  if (route_item == NULL) return rc;
+  if (!(route_item = rf_expand_data(addr, ob->route_data, &rc)))
+    return rc;
   (void) parse_route_item(route_item, NULL, &hostlist, &options);
-  if (hostlist[0] == 0) return DECLINE;
+  if (!hostlist[0]) return DECLINE;
   }
 
 /* Expand the hostlist item. It may then pointing to an empty string, or to a
 single host or a list of hosts; options is pointing to the rest of the
 routelist item, which is either empty or contains various option words. */
 
-DEBUG(D_route) debug_printf("original list of hosts = \"%s\" options = %s\n",
+DEBUG(D_route) debug_printf("original list of hosts = '%s' options = '%s'\n",
   hostlist, options);
 
 newhostlist = expand_string_copy(hostlist);
@@ -302,47 +317,49 @@ expand_nmax = -1;
 /* If the expansion was forced to fail, just decline. Otherwise there is a
 configuration problem. */
 
-if (newhostlist == NULL)
+if (!newhostlist)
   {
-  if (expand_string_forcedfail) return DECLINE;
+  if (f.expand_string_forcedfail) return DECLINE;
   addr->message = string_sprintf("%s router: failed to expand \"%s\": %s",
     rblock->name, hostlist, expand_string_message);
   return DEFER;
   }
 else hostlist = newhostlist;
 
-DEBUG(D_route) debug_printf("expanded list of hosts = \"%s\" options = %s\n",
+DEBUG(D_route) debug_printf("expanded list of hosts = '%s' options = '%s'\n",
   hostlist, options);
 
 /* Set default lookup type and scan the options */
 
-lookup_type = lk_default;
+lookup_type = LK_DEFAULT;
 
-while (*options != 0)
+while (*options)
   {
-  int term;
-  uschar *s = options;
+  unsigned n;
+  const uschar *s = options;
   while (*options != 0 && !isspace(*options)) options++;
-  term = *options;
-  *options = 0;
+  n = options-s;
 
-  if (Ustrcmp(s, "randomize") == 0) randomize = TRUE;
-  else if (Ustrcmp(s, "no_randomize") == 0) randomize = FALSE;
-  else if (Ustrcmp(s, "byname") == 0) lookup_type = lk_byname;
-  else if (Ustrcmp(s, "bydns") == 0) lookup_type = lk_bydns;
+  if (Ustrncmp(s, "randomize", n) == 0) randomize = TRUE;
+  else if (Ustrncmp(s, "no_randomize", n) == 0) randomize = FALSE;
+  else if (Ustrncmp(s, "byname", n) == 0)
+    lookup_type = lookup_type & ~(LK_DEFAULT | LK_BYDNS) | LK_BYNAME;
+  else if (Ustrncmp(s, "bydns", n) == 0)
+    lookup_type = lookup_type & ~(LK_DEFAULT | LK_BYNAME) & LK_BYDNS;
+  else if (Ustrncmp(s, "ipv4_prefer", n) == 0) lookup_type |= LK_IPV4_PREFER;
+  else if (Ustrncmp(s, "ipv4_only",   n) == 0) lookup_type |= LK_IPV4_ONLY;
   else
     {
     transport_instance *t;
-    for (t = transports; t != NULL; t = t->next)
-      {
-      if (Ustrcmp(t->name, s) == 0)
+    for (t = transports; t; t = t->next)
+      if (Ustrncmp(t->name, s, n) == 0)
         {
         transport = t;
         individual_transport_set = TRUE;
         break;
         }
-      }
-    if (t == NULL)
+
+    if (!t)
       {
       s = string_sprintf("unknown routing option or transport name \"%s\"", s);
       log_write(0, LOG_MAIN, "Error in %s router: %s", rblock->name, s);
@@ -351,7 +368,7 @@ while (*options != 0)
       }
     }
 
-  if (term != 0)
+  if (*options)
     {
     options++;
     while (*options != 0 && isspace(*options)) options++;
@@ -360,13 +377,13 @@ while (*options != 0)
 
 /* Set up the errors address, if any. */
 
-rc = rf_get_errors_address(addr, rblock, verify, &(addr->p.errors_address));
+rc = rf_get_errors_address(addr, rblock, verify, &addr->prop.errors_address);
 if (rc != OK) return rc;
 
-/* Set up the additional and removeable headers for this address. */
+/* Set up the additional and removable headers for this address. */
 
-rc = rf_get_munge_headers(addr, rblock, &(addr->p.extra_headers),
-  &(addr->p.remove_headers));
+rc = rf_get_munge_headers(addr, rblock, &addr->prop.extra_headers,
+  &addr->prop.remove_headers);
 if (rc != OK) return rc;
 
 /* If an individual transport is not set, get the transport for this router, if
@@ -384,9 +401,9 @@ if (!individual_transport_set)
 /* Deal with the case of a local transport. The host list is passed over as a
 single text string that ends up in $host. */
 
-if (transport != NULL && transport->info->local)
+if (transport && transport->info->local)
   {
-  if (hostlist[0] != 0)
+  if (hostlist[0])
     {
     host_item *h;
     addr->host_list = h = store_get(sizeof(host_item));
@@ -413,11 +430,11 @@ if (transport != NULL && transport->info->local)
 list is mandatory in either case, except when verifying, in which case the
 address is just accepted. */
 
-if (hostlist[0] == 0)
+if (!hostlist[0])
   {
   if (verify != v_none) goto ROUTED;
   addr->message = string_sprintf("error in %s router: no host(s) specified "
-    "for domain %s", rblock->name, domain);
+    "for domain %s", rblock->name, addr->domain);
   log_write(0, LOG_MAIN, "%s", addr->message);
   return DEFER;
   }
@@ -425,7 +442,7 @@ if (hostlist[0] == 0)
 /* Otherwise we finish the routing here by building a chain of host items
 for the list of configured hosts, and then finding their addresses. */
 
-host_build_hostlist(&(addr->host_list), hostlist, randomize);
+host_build_hostlist(&addr->host_list, hostlist, randomize);
 rc = rf_lookup_hostlist(rblock, addr, rblock->ignore_target_hosts, lookup_type,
   ob->hff_code, addr_new);
 if (rc != OK) return rc;
@@ -434,7 +451,7 @@ if (rc != OK) return rc;
 be ignored, in which case we will end up with an empty host list. What happens
 is controlled by host_all_ignored. */
 
-if (addr->host_list == NULL)
+if (!addr->host_list)
   {
   int i;
   DEBUG(D_route) debug_printf("host_find_failed ignored every host\n");
@@ -476,4 +493,5 @@ addr->transport = transport;
 return OK;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/manualroute.c */

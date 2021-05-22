@@ -1,5 +1,4 @@
-#! PERL_COMMAND -w
-# $Cambridge: exim/src/src/convert4r4.src,v 1.1 2004/10/07 10:39:01 ph10 Exp $
+#! PERL_COMMAND
 
 # This is a Perl script that reads an Exim run-time configuration file for
 # Exim 3. It makes what changes it can for Exim 4, and also output commentary
@@ -7,6 +6,20 @@
 
 # It is assumed that the input is a valid Exim 3 configuration file.
 
+use warnings;
+BEGIN { pop @INC if $INC[-1] eq '.' };
+
+use Getopt::Long;
+use File::Basename;
+
+GetOptions(
+    'version' => sub {
+        print basename($0) . ": $0\n",
+            "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+            "perl(runtime): $^V\n";
+            exit 0;
+    },
+);
 
 # These are lists of main options which are abolished in Exim 4.
 # The first contains options that are used to construct new options.

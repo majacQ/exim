@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/routers/rf_get_errors_address.c,v 1.8 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -40,14 +38,14 @@ rf_get_errors_address(address_item *addr, router_instance *rblock,
 {
 uschar *s;
 
-*errors_to = addr->p.errors_address;
+*errors_to = addr->prop.errors_address;
 if (rblock->errors_to == NULL) return OK;
 
 s = expand_string(rblock->errors_to);
 
 if (s == NULL)
   {
-  if (expand_string_forcedfail)
+  if (f.expand_string_forcedfail)
     {
     DEBUG(D_route)
       debug_printf("forced expansion failure - ignoring errors_to\n");
@@ -62,7 +60,7 @@ if (s == NULL)
 
 if (*s == 0)
   {
-  setflag(addr, af_ignore_error);      /* For locally detected errors */
+  addr->prop.ignore_error = TRUE;   /* For locally detected errors */
   *errors_to = US"";                   /* Return path for SMTP */
   return OK;
   }
@@ -83,11 +81,11 @@ if (verify != v_none)
   }
 else
   {
-  BOOL save_address_test_mode = address_test_mode;
+  BOOL save_address_test_mode = f.address_test_mode;
   int save1 = 0;
   int i;
-  uschar ***p;
-  uschar *address_expansions_save[ADDRESS_EXPANSIONS_COUNT];
+  const uschar ***p;
+  const uschar *address_expansions_save[ADDRESS_EXPANSIONS_COUNT];
   address_item *snew = deliver_make_addr(s, FALSE);
 
   if (sender_address != NULL)
@@ -98,7 +96,7 @@ else
 
   for (i = 0, p = address_expansions; *p != NULL;)
     address_expansions_save[i++] = **p++;
-  address_test_mode = FALSE;
+  f.address_test_mode = FALSE;
 
   /* NOTE: the address is verified as a recipient, not a sender. This is
   perhaps confusing. It isn't immediately obvious what to do: we want to have
@@ -120,7 +118,7 @@ else
   DEBUG(D_route|D_verify)
     debug_printf("------ End verifying errors address %s ------\n", s);
 
-  address_test_mode = save_address_test_mode;
+  f.address_test_mode = save_address_test_mode;
   for (i = 0, p = address_expansions; *p != NULL;)
     **p++ = address_expansions_save[i++];
 

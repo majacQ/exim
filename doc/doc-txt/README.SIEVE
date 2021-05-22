@@ -1,5 +1,3 @@
-$Cambridge: exim/doc/doc-txt/README.SIEVE,v 1.12 2008/01/28 12:26:31 michael Exp $
-
               Notes on the Sieve implementation for Exim
 
 Exim Filter Versus Sieve Filter
@@ -276,7 +274,7 @@ The draft does not specify how strings using MIME entities are used
 to compose messages.  As a result, different implementations generate
 different mails.  The Exim Sieve implementation splits the reason into
 header and body.  It adds the header to the mail header and uses the body
-as mail body.  Be aware, that other imlementations compose a multipart
+as mail body.  Be aware, that other implementations compose a multipart
 structure with the reason as only part.  Both conform to the specification
 (or lack thereof).
 

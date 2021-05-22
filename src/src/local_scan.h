@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/local_scan.h,v 1.13 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This file is the header that is the only Exim header to be included in the
@@ -100,8 +98,8 @@ ABI is changed in a non backward compatible way. The minor number is increased
 each time a new feature is added (in a way that doesn't break backward
 compatibility). */
 
-#define LOCAL_SCAN_ABI_VERSION_MAJOR 1
-#define LOCAL_SCAN_ABI_VERSION_MINOR 1
+#define LOCAL_SCAN_ABI_VERSION_MAJOR 2
+#define LOCAL_SCAN_ABI_VERSION_MINOR 0
 #define LOCAL_SCAN_ABI_VERSION \
   LOCAL_SCAN_ABI_VERSION_MAJOR.LOCAL_SCAN_ABI_VERSION_MINOR
 
@@ -117,7 +115,7 @@ typedef struct header_line {
 /* Entries in lists options are in this form. */
 
 typedef struct {
-  const char   *name;
+  const char   *name; /* should have been uschar but too late now */
   int           type;
   void         *value;
 } optionlist;
@@ -130,6 +128,8 @@ typedef struct recipient_item {
   uschar *address;              /* the recipient address */
   int     pno;                  /* parent number for "one_time" alias, or -1 */
   uschar *errors_to;            /* the errors_to address or NULL */
+  uschar *orcpt;                /* DSN orcpt */
+  int     dsn_flags;            /* DSN flags */
 #ifdef EXPERIMENTAL_BRIGHTMAIL
   uschar *bmi_optin;
 #endif
@@ -175,7 +175,7 @@ extern void    header_add_at_position(BOOL, uschar *, BOOL, int, const char *, .
 extern void    header_remove(int, const uschar *);
 extern BOOL    header_testname(header_line *, const uschar *, int, BOOL);
 extern BOOL    header_testname_incomplete(header_line *, const uschar *, int, BOOL);
-extern void    log_write(unsigned int, int, const char *format, ...);
+extern void    log_write(unsigned int, int, const char *format, ...) PRINTF_FUNCTION(3,4);
 extern int     lss_b64decode(uschar *, uschar **);
 extern uschar *lss_b64encode(uschar *, int);
 extern int     lss_match_domain(uschar *, uschar *);
@@ -186,10 +186,10 @@ extern void    receive_add_recipient(uschar *, int);
 extern BOOL    receive_remove_recipient(uschar *);
 extern uschar *rfc2047_decode(uschar *, BOOL, uschar *, int, int *, uschar **);
 extern int     smtp_fflush(void);
-extern void    smtp_printf(const char *, ...) PRINTF_FUNCTION(1,2);
-extern void    smtp_vprintf(const char *, va_list);
-extern uschar *string_copy(uschar *);
-extern uschar *string_copyn(uschar *, int);
-extern uschar *string_sprintf(const char *, ...);
+extern void    smtp_printf(const char *, BOOL, ...) PRINTF_FUNCTION(1,3);
+extern void    smtp_vprintf(const char *, BOOL, va_list);
+extern uschar *string_copy(const uschar *);
+extern uschar *string_copyn(const uschar *, int);
+extern uschar *string_sprintf(const char *, ...) ALMOST_PRINTF(1,2);
 
 /* End of local_scan.h */

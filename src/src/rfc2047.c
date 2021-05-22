@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/rfc2047.c,v 1.6 2010/06/07 00:12:42 pdp Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This file contains a function for decoding message header lines that may
@@ -52,7 +50,7 @@ ptr = *ptrptr = store_get(Ustrlen(string) + 1);  /* No longer than this */
 
 while (*string != 0)
   {
-  register int ch = *string++;
+  int ch = *string++;
 
   if (ch == '_') *ptr++ = ' ';
   else if (ch == '=')
@@ -122,7 +120,7 @@ for (;; string = mimeword + 2)
   encoding = toupper((*q1ptr)[1]);
   **endptr = 0;
   if (encoding == 'B')
-    dlen = auth_b64decode(*q2ptr+1, dptrptr);
+    dlen = b64decode(*q2ptr+1, dptrptr);
   else if (encoding == 'Q')
     dlen = rfc2047_qpdecode(*q2ptr+1, dptrptr);
   **endptr = '?';   /* restore */
@@ -190,18 +188,18 @@ uschar *
 rfc2047_decode2(uschar *string, BOOL lencheck, uschar *target, int zeroval,
   int *lenptr, int *sizeptr, uschar **error)
 {
-int ptr = 0;
 int size = Ustrlen(string);
 size_t dlen;
-uschar *dptr, *yield;
+uschar *dptr;
+gstring *yield;
 uschar *mimeword, *q1, *q2, *endword;
 
 *error = NULL;
 mimeword = decode_mimeword(string, lencheck, &q1, &q2, &endword, &dlen, &dptr);
 
-if (mimeword == NULL)
+if (!mimeword)
   {
-  if (lenptr != NULL) *lenptr = size;
+  if (lenptr) *lenptr = size;
   return string;
   }
 
@@ -210,9 +208,12 @@ building the result as we go. The result may be longer than the input if it is
 translated into a multibyte code such as UTF-8. That's why we use the dynamic
 string building code. */
 
-yield = store_get(++size);
+yield = store_get(sizeof(gstring) + ++size);
+yield->size = size;
+yield->ptr = 0;
+yield->s = US(yield + 1);
 
-while (mimeword != NULL)
+while (mimeword)
   {
 
   #if HAVE_ICONV
@@ -220,7 +221,7 @@ while (mimeword != NULL)
   #endif
 
   if (mimeword != string)
-    yield = string_cat(yield, &size, &ptr, string, mimeword - string);
+    yield = string_catn(yield, string, mimeword - string);
 
   /* Do a charset translation if required. This is supported only on hosts
   that have the iconv() function. Translation errors set error, but carry on,
@@ -307,7 +308,7 @@ while (mimeword != NULL)
 
     /* Add the new string onto the result */
 
-    yield = string_cat(yield, &size, &ptr, tptr, tlen);
+    yield = string_catn(yield, tptr, tlen);
     }
 
   #if HAVE_ICONV
@@ -319,7 +320,7 @@ while (mimeword != NULL)
 
   string = endword + 2;
   mimeword = decode_mimeword(string, lencheck, &q1, &q2, &endword, &dlen, &dptr);
-  if (mimeword != NULL)
+  if (mimeword)
     {
     uschar *s = string;
     while (isspace(*s)) s++;
@@ -330,11 +331,11 @@ while (mimeword != NULL)
 /* Copy the remaining characters of the string, zero-terminate it, and return
 the length as well if requested. */
 
-yield = string_cat(yield, &size, &ptr, string, Ustrlen(string));
-yield[ptr] = 0;
-if (lenptr != NULL) *lenptr = ptr;
-if (sizeptr != NULL) *sizeptr = size;
-return yield;
+yield = string_cat(yield, string);
+
+if (lenptr) *lenptr = yield->ptr;
+if (sizeptr) *sizeptr = yield->size;
+return string_from_gstring(yield);
 }
 
 

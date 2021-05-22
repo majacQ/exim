@@ -11,9 +11,11 @@
 >>> check domains = +relay_domains
 >>> d in "@mx_any"? no (end of list)
 >>> d in "+relay_domains"? no (end of list)
->>> accept: condition test failed
+>>> accept: condition test failed in ACL "check_recipient"
 >>> processing "deny"
->>> deny: condition test succeeded
+>>>   message: relay not permitted
+>>> deny: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": DENY
 LOG: H=[V4NET.0.0.0] F=<a@b> rejected RCPT <c@d>: relay not permitted
 >>> using ACL "check_recipient"
 >>> processing "accept"
@@ -21,7 +23,8 @@ LOG: H=[V4NET.0.0.0] F=<a@b> rejected RCPT <c@d>: relay not permitted
 >>> local host has lowest MX
 >>> mxt1.test.ex in "@mx_any"? yes (matched "@mx_any")
 >>> mxt1.test.ex in "+relay_domains"? yes (matched "+relay_domains")
->>> accept: condition test succeeded
+>>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT
 >>> using ACL "check_recipient"
 >>> processing "accept"
 >>> check domains = +relay_domains
@@ -30,4 +33,5 @@ LOG: H=[V4NET.0.0.0] F=<a@b> rejected RCPT <c@d>: relay not permitted
 >>>   eximtesthost.test.ex ip4.ip4.ip4.ip4 6
 >>> mxt6.test.ex in "@mx_any"? yes (matched "@mx_any")
 >>> mxt6.test.ex in "+relay_domains"? yes (matched "+relay_domains")
->>> accept: condition test succeeded
+>>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT

@@ -1,4 +1,5 @@
 # Embedded Perl
+munge perl_variants
 exim -be
 ${perl{foo}}
 ${perl{foo}{arg1}}
@@ -16,8 +17,9 @@ ${perl{foo}{1}{2}{3}{4}{5}{6}{7}{8}{9}}
 ${perl{return_scalar}}
 ${perl{return_list}}
 ${perl{return_variable_vector}}
-${perl{return_hash}}
+${sg{${perl{return_hash}}}{\\d+}{X}}
 
+this change-locale fails in earlier systems.  Works on Fedora 29.
 $tod_full // ${perl{change_locale}} // $tod_full
 ****
 exim -d-all+expand -be

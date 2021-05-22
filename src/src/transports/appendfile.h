@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/transports/appendfile.h,v 1.7 2009/11/16 19:50:39 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Private structure for the private options. */
@@ -23,6 +21,7 @@ typedef struct {
   uschar *quota_warn_threshold;
   uschar *mailbox_size_string;
   uschar *mailbox_filecount_string;
+  uschar *expand_maildir_use_size_file;
   uschar *maildir_dir_regex;
   uschar *maildir_tag;
   uschar *maildirfolder_create_regex;
@@ -71,6 +70,8 @@ typedef struct {
   BOOL  mbx_format;
   BOOL  quota_warn_threshold_is_percent;
   BOOL  quota_is_inclusive;
+  BOOL  quota_no_check;
+  BOOL  quota_filecount_no_check;
 } appendfile_transport_options_block;
 
 /* Restricted creation options */

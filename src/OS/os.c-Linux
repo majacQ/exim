@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/OS/os.c-Linux,v 1.2 2005/04/06 14:09:17 ph10 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1997 - 2001 */
+/* Copyright (c) University of Cambridge 1997 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Linux-specific code. This is concatenated onto the generic
@@ -96,7 +94,7 @@ ip_address_item *last = NULL;
 ip_address_item  *next;
 char addr6p[8][5];
 unsigned int plen, scope, dad_status, if_idx;
-char devname[20];
+char devname[20+1];
 FILE *f;
 #endif
 
@@ -151,5 +149,17 @@ return yield;
 }
 
 #endif  /* FIND_RUNNING_INTERFACES */
+
+
+/*************
+* Sendfile   *
+*************/
+#include <sys/sendfile.h>
+
+ssize_t
+os_sendfile(int out, int in, off_t * off, size_t cnt)
+{
+return sendfile(out, in, off, cnt);
+}
 
 /* End of os.c-Linux */

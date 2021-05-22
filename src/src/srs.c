@@ -1,11 +1,10 @@
-/* $Cambridge: exim/src/src/srs.c,v 1.8 2005/06/27 18:10:30 tom Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
 /* SRS - Sender rewriting scheme support
   (C)2004 Miles Wilton <miles@mirtol.com>
+  Copyright (c) The Exim Maintainers 2016
 
   SRS Support Version: 1.0a
 
@@ -27,7 +26,7 @@ uschar   *srs_db_reverse        = NULL;
 
 int eximsrs_init()
 {
-  uschar *list = srs_config;
+  const uschar *list = srs_config;
   uschar secret_buf[SRS_MAX_SECRET_LENGTH];
   uschar *secret = NULL;
   uschar sbuf[4];

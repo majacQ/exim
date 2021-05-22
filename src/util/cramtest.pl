@@ -1,5 +1,4 @@
 #!/usr/bin/perl
-# $Cambridge: exim/src/util/cramtest.pl,v 1.2 2005/08/30 09:19:33 ph10 Exp $
 
 # This script is contributed by Vadim Vygonets to aid in debugging CRAM-MD5
 # authentication.
@@ -24,6 +23,8 @@
 # Copyright (c) 2002
 #       Vadim Vygonets <vadik-exim@vygo.net>.  All rights reserved.
 # Public domain is OK with me.
+
+BEGIN { pop @INC if $INC[-1] eq '.' };
 
 use MIME::Base64;
 use Digest::MD5;

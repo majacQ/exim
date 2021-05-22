@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/lookups/sqlite.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -25,7 +23,7 @@ sqlite_open(uschar *filename, uschar **errmsg)
 sqlite3 *db = NULL;
 int ret;
 
-ret = sqlite3_open((char *)filename, &db);
+ret = sqlite3_open(CS filename, &db);
 if (ret != 0)
   {
   *errmsg = (void *)sqlite3_errmsg(db);
@@ -43,21 +41,16 @@ return db;
 
 /* See local README for interface description. */
 
-struct strbuf {
-  uschar *string;
-  int size;
-  int len;
-};
-
-static int sqlite_callback(void *arg, int argc, char **argv, char **azColName)
+static int
+sqlite_callback(void *arg, int argc, char **argv, char **azColName)
 {
-struct strbuf *res = arg;
+gstring * res = *(gstring **)arg;
 int i;
 
 /* For second and subsequent results, insert \n */
 
-if (res->string != NULL)
-  res->string = string_cat(res->string, &res->size, &res->len, US"\n", 1);
+if (res)
+  res = string_catn(res, US"\n", 1);
 
 if (argc > 1)
   {
@@ -65,39 +58,35 @@ if (argc > 1)
   for (i = 0; i < argc; i++)
     {
     uschar *value = US((argv[i] != NULL)? argv[i]:"<NULL>");
-    res->string = lf_quote(US azColName[i], value, Ustrlen(value), res->string,
-      &res->size, &res->len);
+    res = lf_quote(US azColName[i], value, Ustrlen(value), res);
     }
   }
 
 else
-  {
-  res->string = string_append(res->string, &res->size, &res->len, 1,
-    (argv[0] != NULL)? argv[0]:"<NULL>");
-  }
+  res = string_cat(res, argv[0] ? US argv[0] : US "<NULL>");
 
-res->string[res->len] = 0;
+*(gstring **)arg = res;
 return 0;
 }
 
 
 static int
-sqlite_find(void *handle, uschar *filename, uschar *query, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+sqlite_find(void *handle, uschar *filename, const uschar *query, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 int ret;
-struct strbuf res = { NULL, 0, 0 };
+gstring * res = NULL;
 
-ret = sqlite3_exec(handle, (char *)query, sqlite_callback, &res, (char **)errmsg);
+ret = sqlite3_exec(handle, CS query, sqlite_callback, &res, (char **)errmsg);
 if (ret != SQLITE_OK)
   {
   debug_printf("sqlite3_exec failed: %s\n", *errmsg);
   return FAIL;
   }
 
-if (res.string == NULL) *do_cache = FALSE;
+if (!res) *do_cache = 0;
 
-*result = res.string;
+*result = string_from_gstring(res);
 return OK;
 }
 

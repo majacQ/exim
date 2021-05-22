@@ -1,5 +1,3 @@
-/* $Cambridge: exim/src/src/local_scan.c,v 1.5 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
@@ -14,6 +12,7 @@ If you want to implement your own version, you should copy this file to, say
 Local/local_scan.c, and edit the copy. To use your version instead of the
 default, you must set
 
+HAVE_LOCAL_SCAN=yes
 LOCAL_SCAN_SOURCE=Local/local_scan.c
 
 in your Local/Makefile. This makes it easy to copy your version for use with

@@ -1,5 +1,3 @@
-$Cambridge: exim/doc/doc-misc/TexiNotes,v 1.1 2004/10/08 10:38:47 ph10 Exp $
-
 Notes for conversion of sgcal input into Texinfo input
 ------------------------------------------------------
 
@@ -14,7 +12,7 @@ by @@ @{ and @} if required.
 
 @copyright{}   for copyright
 
-@minus{}  is a slighly longer minus sign
+@minus{}  is a slightly longer minus sign
 
 Input file ends with .texinfo usually.
 

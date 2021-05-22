@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/string.c,v 1.15 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Miscellaneous string-handling functions. Some are not required for
@@ -12,6 +10,7 @@ utilities and tests, and are cut out by the COMPILE_UTILITY macro. */
 
 
 #include "exim.h"
+#include <assert.h>
 
 
 #ifndef COMPILE_UTILITY
@@ -36,7 +35,7 @@ Returns:    0 if the string is not a textual representation of an IP address
 */
 
 int
-string_is_ip_address(uschar *s, int *maskptr)
+string_is_ip_address(const uschar *s, int *maskptr)
 {
 int i;
 int yield = 4;
@@ -44,9 +43,9 @@ int yield = 4;
 /* If an optional mask is permitted, check for it. If found, pass back the
 offset. */
 
-if (maskptr != NULL)
+if (maskptr)
   {
-  uschar *ss = s + Ustrlen(s);
+  const uschar *ss = s + Ustrlen(s);
   *maskptr = 0;
   if (s != ss && isdigit(*(--ss)))
     {
@@ -81,7 +80,7 @@ if (Ustrchr(s, ':') != NULL)
     if we hit the / that introduces a mask or the % that introduces the
     interface specifier (scope id) of a link-local address. */
 
-    if (*s == 0 || *s == '%' || *s == '/') return had_double_colon? yield : 0;
+    if (*s == 0 || *s == '%' || *s == '/') return had_double_colon ? yield : 0;
 
     /* If a component starts with an additional colon, we have hit a double
     colon. This is permitted to appear once only, and counts as at least
@@ -137,13 +136,16 @@ if (Ustrchr(s, ':') != NULL)
 
 for (i = 0; i < 4; i++)
   {
+  long n;
+  uschar * end;
+
   if (i != 0 && *s++ != '.') return 0;
-  if (!isdigit(*s++)) return 0;
-  if (isdigit(*s) && isdigit(*(++s))) s++;
+  n = strtol(CCS s, CSS &end, 10);
+  if (n > 255 || n < 0 || end <= s || end > s+3) return 0;
+  s = end;
   }
 
-return (*s == 0 || (*s == '/' && maskptr != NULL && *maskptr != 0))?
-  yield : 0;
+return !*s || (*s == '/' && maskptr && *maskptr != 0) ? yield : 0;
 }
 #endif  /* COMPILE_UTILITY */
 
@@ -167,7 +169,7 @@ Returns:      pointer to the buffer
 uschar *
 string_format_size(int size, uschar *buffer)
 {
-if (size == 0) Ustrcpy(CS buffer, "     ");
+if (size == 0) Ustrcpy(buffer, "     ");
 else if (size < 1024) sprintf(CS buffer, "%5d", size);
 else if (size < 10*1024)
   sprintf(CS buffer, "%4.1fK", (double)size / 1024.0);
@@ -212,7 +214,6 @@ return yield;
 
 
 
-#ifndef COMPILE_UTILITY
 /*************************************************
 *          Interpret escape sequence             *
 *************************************************/
@@ -223,15 +224,21 @@ interpreted in strings.
 Arguments:
   pp       points a pointer to the initiating "\" in the string;
            the pointer gets updated to point to the final character
+           If the backslash is the last character in the string, it
+           is not interpreted.
 Returns:   the value of the character escape
 */
 
 int
-string_interpret_escape(uschar **pp)
+string_interpret_escape(const uschar **pp)
 {
+#ifdef COMPILE_UTILITY
+const uschar *hex_digits= CUS"0123456789abcdef";
+#endif
 int ch;
-uschar *p = *pp;
+const uschar *p = *pp;
 ch = *(++p);
+if (ch == '\0') return **pp;
 if (isdigit(ch) && ch != '8' && ch != '9')
   {
   ch -= '0';
@@ -244,9 +251,12 @@ if (isdigit(ch) && ch != '8' && ch != '9')
   }
 else switch(ch)
   {
+  case 'b':  ch = '\b'; break;
+  case 'f':  ch = '\f'; break;
   case 'n':  ch = '\n'; break;
   case 'r':  ch = '\r'; break;
   case 't':  ch = '\t'; break;
+  case 'v':  ch = '\v'; break;
   case 'x':
   ch = 0;
   if (isxdigit(p[1]))
@@ -261,7 +271,6 @@ else switch(ch)
 *pp = p;
 return ch;
 }
-#endif  /* COMPILE_UTILITY */
 
 
 
@@ -282,12 +291,12 @@ Arguments:
 Returns:        string with non-printers encoded as printing sequences
 */
 
-uschar *
-string_printing2(uschar *s, BOOL allow_tab)
+const uschar *
+string_printing2(const uschar *s, BOOL allow_tab)
 {
 int nonprintcount = 0;
 int length = 0;
-uschar *t = s;
+const uschar *t = s;
 uschar *ss, *tt;
 
 while (*t != 0)
@@ -302,9 +311,9 @@ if (nonprintcount == 0) return s;
 /* Get a new block of store guaranteed big enough to hold the
 expanded string. */
 
-ss = store_get(length + nonprintcount * 4 + 1);
+ss = store_get(length + nonprintcount * 3 + 1);
 
-/* Copy everying, escaping non printers. */
+/* Copy everything, escaping non printers. */
 
 t = s;
 tt = ss;
@@ -333,6 +342,73 @@ return ss;
 }
 #endif  /* COMPILE_UTILITY */
 
+/*************************************************
+*        Undo printing escapes in string         *
+*************************************************/
+
+/* This function is the reverse of string_printing2.  It searches for
+backslash characters and if any are found, it makes a new copy of the
+string with escape sequences parsed.  Otherwise it returns the original
+string.
+
+Arguments:
+  s             the input string
+
+Returns:        string with printing escapes parsed back
+*/
+
+uschar *
+string_unprinting(uschar *s)
+{
+uschar *p, *q, *r, *ss;
+int len, off;
+
+p = Ustrchr(s, '\\');
+if (!p) return s;
+
+len = Ustrlen(s) + 1;
+ss = store_get(len);
+
+q = ss;
+off = p - s;
+if (off)
+  {
+  memcpy(q, s, off);
+  q += off;
+  }
+
+while (*p)
+  {
+  if (*p == '\\')
+    {
+    *q++ = string_interpret_escape((const uschar **)&p);
+    p++;
+    }
+  else
+    {
+    r = Ustrchr(p, '\\');
+    if (!r)
+      {
+      off = Ustrlen(p);
+      memcpy(q, p, off);
+      p += off;
+      q += off;
+      break;
+      }
+    else
+      {
+      off = r - p;
+      memcpy(q, p, off);
+      q += off;
+      p = r;
+      }
+    }
+  }
+*q = '\0';
+
+return ss;
+}
+
 
 
 
@@ -347,7 +423,7 @@ Returns:  copy of string in new store
 */
 
 uschar *
-string_copy(uschar *s)
+string_copy(const uschar *s)
 {
 int len = Ustrlen(s) + 1;
 uschar *ss = store_get(len);
@@ -368,7 +444,7 @@ Returns:  copy of string in new store
 */
 
 uschar *
-string_copy_malloc(uschar *s)
+string_copy_malloc(const uschar *s)
 {
 int len = Ustrlen(s) + 1;
 uschar *ss = store_malloc(len);
@@ -388,7 +464,7 @@ Returns:  copy of string in new store, with letters lowercased
 */
 
 uschar *
-string_copylc(uschar *s)
+string_copylc(const uschar *s)
 {
 uschar *ss = store_get(Ustrlen(s) + 1);
 uschar *p = ss;
@@ -414,7 +490,7 @@ Returns:    copy of string in new store
 */
 
 uschar *
-string_copyn(uschar *s, int n)
+string_copyn(const uschar *s, int n)
 {
 uschar *ss = store_get(n + 1);
 Ustrncpy(ss, s, n);
@@ -570,26 +646,24 @@ Returns:   the new string
 */
 
 uschar *
-string_dequote(uschar **sptr)
+string_dequote(const uschar **sptr)
 {
-uschar *s = *sptr;
+const uschar *s = *sptr;
 uschar *t, *yield;
 
 /* First find the end of the string */
 
 if (*s != '\"')
-  {
   while (*s != 0 && !isspace(*s)) s++;
-  }
 else
   {
   s++;
-  while (*s != 0 && *s != '\"')
+  while (*s && *s != '\"')
     {
     if (*s == '\\') (void)string_interpret_escape(&s);
     s++;
     }
-  if (*s != 0) s++;
+  if (*s) s++;
   }
 
 /* Get enough store to copy into */
@@ -629,7 +703,7 @@ return yield;
 *          Format a string and save it           *
 *************************************************/
 
-/* The formatting is done by string_format, which checks the length of
+/* The formatting is done by string_vformat, which checks the length of
 everything.
 
 Arguments:
@@ -643,14 +717,33 @@ Returns:    pointer to fresh piece of store containing sprintf'ed string
 uschar *
 string_sprintf(const char *format, ...)
 {
-va_list ap;
+#ifdef COMPILE_UTILITY
 uschar buffer[STRING_SPRINTF_BUFFER_SIZE];
+gstring g = { .size = STRING_SPRINTF_BUFFER_SIZE, .ptr = 0, .s = buffer };
+gstring * gp = &g;
+#else
+gstring * gp = string_get(STRING_SPRINTF_BUFFER_SIZE);
+#endif
+gstring * gp2;
+va_list ap;
+
 va_start(ap, format);
-if (!string_vformat(buffer, sizeof(buffer), format, ap))
-  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
-    "string_sprintf expansion was longer than %d", sizeof(buffer));
+gp2 = string_vformat(gp, FALSE, format, ap);
+gp->s[gp->ptr] = '\0';
 va_end(ap);
-return string_copy(buffer);
+
+if (!gp2)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+    "string_sprintf expansion was longer than %d; format string was (%s)\n"
+    "expansion started '%.32s'",
+    gp->size, format, gp->s);
+
+#ifdef COMPILE_UTILITY
+return string_copy(gp->s);
+#else
+gstring_reset_unused(gp);
+return gp->s;
+#endif
 }
 
 
@@ -756,6 +849,17 @@ return NULL;
 
 
 
+#ifdef COMPILE_UTILITY
+/* Dummy version for this function; it should never be called */
+static void
+gstring_grow(gstring * g, int p, int count)
+{
+assert(FALSE);
+}
+#endif
+
+
+
 #ifndef COMPILE_UTILITY
 /*************************************************
 *       Get next string from separated list      *
@@ -798,13 +902,13 @@ Returns:     pointer to buffer, containing the next substring,
 */
 
 uschar *
-string_nextinlist(uschar **listptr, int *separator, uschar *buffer, int buflen)
+string_nextinlist(const uschar **listptr, int *separator, uschar *buffer, int buflen)
 {
-register int sep = *separator;
-register uschar *s = *listptr;
+int sep = *separator;
+const uschar *s = *listptr;
 BOOL sep_is_special;
 
-if (s == NULL) return NULL;
+if (!s) return NULL;
 
 /* This allows for a fixed specified separator to be an iscntrl() character,
 but at the time of implementation, this is never the case. However, it's best
@@ -820,19 +924,17 @@ if (sep <= 0)
   if (*s == '<' && (ispunct(s[1]) || iscntrl(s[1])))
     {
     sep = s[1];
-    s += 2;
+    if (*++s) ++s;
     while (isspace(*s) && *s != sep) s++;
     }
   else
-    {
-    sep = (sep == 0)? ':' : -sep;
-    }
+    sep = sep ? -sep : ':';
   *separator = sep;
   }
 
 /* An empty string has no list elements */
 
-if (*s == 0) return NULL;
+if (!*s) return NULL;
 
 /* Note whether whether or not the separator is an iscntrl() character. */
 
@@ -840,25 +942,24 @@ sep_is_special = iscntrl(sep);
 
 /* Handle the case when a buffer is provided. */
 
-if (buffer != NULL)
+if (buffer)
   {
-  register int p = 0;
-  for (; *s != 0; s++)
+  int p = 0;
+  for (; *s; s++)
     {
     if (*s == sep && (*(++s) != sep || sep_is_special)) break;
     if (p < buflen - 1) buffer[p++] = *s;
     }
   while (p > 0 && isspace(buffer[p-1])) p--;
-  buffer[p] = 0;
+  buffer[p] = '\0';
   }
 
 /* Handle the case when a buffer is not provided. */
 
 else
   {
-  int size = 0;
-  int ptr = 0;
-  uschar *ss;
+  const uschar *ss;
+  gstring * g = NULL;
 
   /* We know that *s != 0 at this point. However, it might be pointing to a
   separator, which could indicate an empty string, or (if an ispunct()
@@ -880,13 +981,14 @@ else
 
   for (;;)
     {
-    for (ss = s + 1; *ss != 0 && *ss != sep; ss++);
-    buffer = string_cat(buffer, &size, &ptr, s, ss-s);
+    for (ss = s + 1; *ss && *ss != sep; ss++) ;
+    g = string_catn(g, s, ss-s);
     s = ss;
-    if (*s == 0 || *(++s) != sep || sep_is_special) break;
+    if (!*s || *++s != sep || sep_is_special) break;
     }
-  while (ptr > 0 && isspace(buffer[ptr-1])) ptr--;
-  buffer[ptr] = 0;
+  while (g->ptr > 0 && isspace(g->s[g->ptr-1])) g->ptr--;
+  buffer = string_from_gstring(g);
+  gstring_reset_unused(g);
   }
 
 /* Update the current pointer and return the new string */
@@ -894,15 +996,190 @@ else
 *listptr = s;
 return buffer;
 }
-#endif  /* COMPILE_UTILITY */
+
+
+static const uschar *
+Ustrnchr(const uschar * s, int c, unsigned * len)
+{
+unsigned siz = *len;
+while (siz)
+  {
+  if (!*s) return NULL;
+  if (*s == c)
+    {
+    *len = siz;
+    return s;
+    }
+  s++;
+  siz--;
+  }
+return NULL;
+}
+
+
+/************************************************
+*	Add element to separated list           *
+************************************************/
+/* This function is used to build a list, returning an allocated null-terminated
+growable string. The given element has any embedded separator characters
+doubled.
+
+Despite having the same growable-string interface as string_cat() the list is
+always returned null-terminated.
+
+Arguments:
+  list	expanding-string for the list that is being built, or NULL
+	if this is a new list that has no contents yet
+  sep	list separator character
+  ele	new element to be appended to the list
+
+Returns:  pointer to the start of the list, changed if copied for expansion.
+*/
+
+gstring *
+string_append_listele(gstring * list, uschar sep, const uschar * ele)
+{
+uschar * sp;
+
+if (list && list->ptr)
+  list = string_catn(list, &sep, 1);
+
+while((sp = Ustrchr(ele, sep)))
+  {
+  list = string_catn(list, ele, sp-ele+1);
+  list = string_catn(list, &sep, 1);
+  ele = sp+1;
+  }
+list = string_cat(list, ele);
+(void) string_from_gstring(list);
+return list;
+}
+
+
+gstring *
+string_append_listele_n(gstring * list, uschar sep, const uschar * ele,
+ unsigned len)
+{
+const uschar * sp;
+
+if (list && list->ptr)
+  list = string_catn(list, &sep, 1);
+
+while((sp = Ustrnchr(ele, sep, &len)))
+  {
+  list = string_catn(list, ele, sp-ele+1);
+  list = string_catn(list, &sep, 1);
+  ele = sp+1;
+  len--;
+  }
+list = string_catn(list, ele, len);
+(void) string_from_gstring(list);
+return list;
+}
 
 
 
-#ifndef COMPILE_UTILITY
+/* A slightly-bogus listmaker utility; the separator is a string so
+can be multiple chars - there is no checking for the element content
+containing any of the separator. */
+
+gstring *
+string_append2_listele_n(gstring * list, const uschar * sepstr,
+ const uschar * ele, unsigned len)
+{
+if (list && list->ptr)
+  list = string_cat(list, sepstr);
+
+list = string_catn(list, ele, len);
+(void) string_from_gstring(list);
+return list;
+}
+
+
+
+/************************************************/
+/* Create a growable-string with some preassigned space */
+
+gstring *
+string_get(unsigned size)
+{
+gstring * g = store_get(sizeof(gstring) + size);
+g->size = size;
+g->ptr = 0;
+g->s = US(g + 1);
+return g;
+}
+
+/* NUL-terminate the C string in the growable-string, and return it. */
+
+uschar *
+string_from_gstring(gstring * g)
+{
+if (!g) return NULL;
+g->s[g->ptr] = '\0';
+return g->s;
+}
+
+void
+gstring_reset_unused(gstring * g)
+{
+store_reset(g->s + (g->size = g->ptr + 1));
+}
+
+
+/* Add more space to a growable-string.
+
+Arguments:
+  g		the growable-string
+  p		current end of data
+  count		amount to grow by, offset from p
+*/
+
+static void
+gstring_grow(gstring * g, int p, int count)
+{
+int oldsize = g->size;
+
+/* Mostly, string_cat() is used to build small strings of a few hundred
+characters at most. There are times, however, when the strings are very much
+longer (for example, a lookup that returns a vast number of alias addresses).
+To try to keep things reasonable, we use increments whose size depends on the
+existing length of the string. */
+
+unsigned inc = oldsize < 4096 ? 127 : 1023;
+
+if (g->ptr < 0 || g->ptr > g->size || g->size >= INT_MAX/2)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in gstring_grow (ptr %d size %d)", g->ptr, g->size);
+
+if (count <= 0) return;
+
+if (count >= INT_MAX/2 - g->ptr)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in gstring_grow (ptr %d count %d)", g->ptr, count);
+
+
+g->size = ((p + count + inc) & ~inc) + 1;
+
+/* Try to extend an existing allocation. If the result of calling
+store_extend() is false, either there isn't room in the current memory block,
+or this string is not the top item on the dynamic store stack. We then have
+to get a new chunk of store and copy the old string. When building large
+strings, it is helpful to call store_release() on the old string, to release
+memory blocks that have become empty. (The block will be freed if the string
+is at its start.) However, we can do this only if we know that the old string
+was the last item on the dynamic memory stack. This is the case if it matches
+store_last_get. */
+
+if (!store_extend(g->s, oldsize, g->size))
+  g->s = store_newblock(g->s, g->size, p);
+}
+
+
+
 /*************************************************
 *             Add chars to string                *
 *************************************************/
-
 /* This function is used when building up strings of unknown length. Room is
 always left for a terminating zero to be added to the string that is being
 built. This function does not require the string that is being added to be NUL
@@ -912,77 +1189,61 @@ sometimes called to extract parts of other strings.
 Arguments:
   string   points to the start of the string that is being built, or NULL
              if this is a new string that has no contents yet
-  size     points to a variable that holds the current capacity of the memory
-             block (updated if changed)
-  ptr      points to a variable that holds the offset at which to add
-             characters, updated to the new offset
   s        points to characters to add
   count    count of characters to add; must not exceed the length of s, if s
-             is a C string
-
-If string is given as NULL, *size and *ptr should both be zero.
+             is a C string.
 
 Returns:   pointer to the start of the string, changed if copied for expansion.
            Note that a NUL is not added, though space is left for one. This is
            because string_cat() is often called multiple times to build up a
            string - there's no point adding the NUL till the end.
+
 */
+/* coverity[+alloc] */
 
-uschar *
-string_cat(uschar *string, int *size, int *ptr, const uschar *s, int count)
+gstring *
+string_catn(gstring * g, const uschar *s, int count)
 {
-int p = *ptr;
+int p;
 
-if (p + count >= *size)
+if (count < 0)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in string_catn (count %d)", count);
+
+if (!g)
   {
-  int oldsize = *size;
-
-  /* Mostly, string_cat() is used to build small strings of a few hundred
-  characters at most. There are times, however, when the strings are very much
-  longer (for example, a lookup that returns a vast number of alias addresses).
-  To try to keep things reasonable, we use increments whose size depends on the
-  existing length of the string. */
-
-  int inc = (oldsize < 4096)? 100 : 1024;
-  while (*size <= p + count) *size += inc;
-
-  /* New string */
-
-  if (string == NULL) string = store_get(*size);
-
-  /* Try to extend an existing allocation. If the result of calling
-  store_extend() is false, either there isn't room in the current memory block,
-  or this string is not the top item on the dynamic store stack. We then have
-  to get a new chunk of store and copy the old string. When building large
-  strings, it is helpful to call store_release() on the old string, to release
-  memory blocks that have become empty. (The block will be freed if the string
-  is at its start.) However, we can do this only if we know that the old string
-  was the last item on the dynamic memory stack. This is the case if it matches
-  store_last_get. */
-
-  else if (!store_extend(string, oldsize, *size))
-    {
-    BOOL release_ok = store_last_get[store_pool] == string;
-    uschar *newstring = store_get(*size);
-    memcpy(newstring, string, p);
-    if (release_ok) store_release(string);
-    string = newstring;
-    }
+  unsigned inc = count < 4096 ? 127 : 1023;
+  unsigned size = ((count + inc) &  ~inc) + 1;
+  g = string_get(size);
   }
+
+if (g->ptr < 0 || g->ptr > g->size)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in string_catn (ptr %d size %d)", g->ptr, g->size);
+
+p = g->ptr;
+
+if (count >= g->size - p)
+  gstring_grow(g, p, count);
 
 /* Because we always specify the exact number of characters to copy, we can
 use memcpy(), which is likely to be more efficient than strncopy() because the
 latter has to check for zero bytes. */
 
-memcpy(string + p, s, count);
-*ptr = p + count;
-return string;
+memcpy(g->s + p, s, count);
+g->ptr = p + count;
+return g;
 }
-#endif  /* COMPILE_UTILITY */
+
+
+gstring *
+string_cat(gstring *string, const uschar *s)
+{
+return string_catn(string, s, Ustrlen(s));
+}
 
 
 
-#ifndef COMPILE_UTILITY
 /*************************************************
 *        Append strings to another string        *
 *************************************************/
@@ -991,12 +1252,8 @@ return string;
 It calls string_cat() to do the dirty work.
 
 Arguments:
-  string   points to the start of the string that is being built, or NULL
+  string   expanding-string that is being built, or NULL
              if this is a new string that has no contents yet
-  size     points to a variable that holds the current capacity of the memory
-             block (updated if changed)
-  ptr      points to a variable that holds the offset at which to add
-             characters, updated to the new offset
   count    the number of strings to append
   ...      "count" uschar* arguments, which must be valid zero-terminated
              C strings
@@ -1005,17 +1262,16 @@ Returns:   pointer to the start of the string, changed if copied for expansion.
            The string is not zero-terminated - see string_cat() above.
 */
 
-uschar *
-string_append(uschar *string, int *size, int *ptr, int count, ...)
+__inline__ gstring *
+string_append(gstring *string, int count, ...)
 {
 va_list ap;
-int i;
 
 va_start(ap, count);
-for (i = 0; i < count; i++)
+while (count-- > 0)
   {
   uschar *t = va_arg(ap, uschar *);
-  string = string_cat(string, size, ptr, t, Ustrlen(t));
+  string = string_cat(string, t);
   }
 va_end(ap);
 
@@ -1037,10 +1293,10 @@ on whether the variable length list of data arguments are given explicitly or
 as a va_list item.
 
 The formats are the usual printf() ones, with some omissions (never used) and
-two additions for strings: %S forces lower case, and %#s or %#S prints nothing
-for a NULL string. Without the # "NULL" is printed (useful in debugging). There
-is also the addition of %D and %M, which insert the date in the form used for
-datestamped log files.
+three additions for strings: %S forces lower case, %T forces upper case, and
+%#s or %#S prints nothing for a NULL string. Without the # "NULL" is printed
+(useful in debugging). There is also the addition of %D and %M, which insert
+the date in the form used for datestamped log files.
 
 Arguments:
   buffer       a buffer in which to put the formatted string
@@ -1052,49 +1308,82 @@ Returns:       TRUE if the result fitted in the buffer
 */
 
 BOOL
-string_format(uschar *buffer, int buflen, const char *format, ...)
+string_format(uschar * buffer, int buflen, const char * format, ...)
 {
-BOOL yield;
+gstring g = { .size = buflen, .ptr = 0, .s = buffer }, *gp;
 va_list ap;
 va_start(ap, format);
-yield = string_vformat(buffer, buflen, format, ap);
+gp = string_vformat(&g, FALSE, format, ap);
 va_end(ap);
-return yield;
+g.s[g.ptr] = '\0';
+return !!gp;
 }
 
 
-BOOL
-string_vformat(uschar *buffer, int buflen, const char *format, va_list ap)
+
+
+
+/* Bulid or append to a growing-string, sprintf-style.
+
+If the "extend" argument is true, the string passed in can be NULL,
+empty, or non-empty.
+
+If the "extend" argument is false, the string passed in may not be NULL,
+will not be grown, and is usable in the original place after return.
+The return value can be NULL to signify overflow.
+
+Returns the possibly-new (if copy for growth was needed) string,
+not nul-terminated.
+*/
+
+gstring *
+string_vformat(gstring * g, BOOL extend, const char *format, va_list ap)
 {
-enum { L_NORMAL, L_SHORT, L_LONG, L_LONGLONG, L_LONGDOUBLE };
+enum ltypes { L_NORMAL=1, L_SHORT=2, L_LONG=3, L_LONGLONG=4, L_LONGDOUBLE=5, L_SIZE=6 };
 
-BOOL yield = TRUE;
-int width, precision;
-const char *fp = format;       /* Deliberately not unsigned */
-uschar *p = buffer;
-uschar *last = buffer + buflen - 1;
+int width, precision, off, lim;
+const char * fp = format;	/* Deliberately not unsigned */
 
-string_datestamp_offset = -1;  /* Datestamp not inserted */
-string_datestamp_length = 0;   /* Datestamp not inserted */
-string_datestamp_type = 0;     /* Datestamp not inserted */
+string_datestamp_offset = -1;	/* Datestamp not inserted */
+string_datestamp_length = 0;	/* Datestamp not inserted */
+string_datestamp_type = 0;	/* Datestamp not inserted */
+
+#ifdef COMPILE_UTILITY
+assert(!extend);
+assert(g);
+#else
+
+/* Ensure we have a string, to save on checking later */
+if (!g) g = string_get(16);
+#endif	/*!COMPILE_UTILITY*/
+
+lim = g->size - 1;	/* leave one for a nul */
+off = g->ptr;		/* remember initial offset in gstring */
 
 /* Scan the format and handle the insertions */
 
-while (*fp != 0)
+while (*fp)
   {
   int length = L_NORMAL;
   int *nptr;
   int slen;
-  const char *null = "NULL";   /* ) These variables */
-  const char *item_start, *s;  /* ) are deliberately */
-  char newformat[16];          /* ) not unsigned */
+  const char *null = "NULL";		/* ) These variables */
+  const char *item_start, *s;		/* ) are deliberately */
+  char newformat[16];			/* ) not unsigned */
+  char * gp = CS g->s + g->ptr;		/* ) */
 
   /* Non-% characters just get copied verbatim */
 
   if (*fp != '%')
     {
-    if (p >= last) { yield = FALSE; break; }
-    *p++ = (uschar)*fp++;
+    /* Avoid string_copyn() due to COMPILE_UTILITY */
+    if (g->ptr >= lim - 1)
+      {
+      if (!extend) return NULL;
+      gstring_grow(g, g->ptr, 1);
+      lim = g->size - 1;
+      }
+    g->s[g->ptr++] = (uschar) *fp++;
     continue;
     }
 
@@ -1122,78 +1411,92 @@ while (*fp != 0)
     }
 
   if (*fp == '.')
-    {
     if (*(++fp) == '*')
       {
       precision = va_arg(ap, int);
       fp++;
       }
     else
-      {
-      precision = 0;
-      while (isdigit((uschar)*fp))
-        precision = precision*10 + *fp++ - '0';
-      }
-    }
+      for (precision = 0; isdigit((uschar)*fp); fp++)
+        precision = precision*10 + *fp - '0';
 
-  /* Skip over 'h', 'L', 'l', and 'll', remembering the item length */
+  /* Skip over 'h', 'L', 'l', 'll' and 'z', remembering the item length */
 
   if (*fp == 'h')
     { fp++; length = L_SHORT; }
   else if (*fp == 'L')
     { fp++; length = L_LONGDOUBLE; }
   else if (*fp == 'l')
-    {
     if (fp[1] == 'l')
-      {
-      fp += 2;
-      length = L_LONGLONG;
-      }
+      { fp += 2; length = L_LONGLONG; }
     else
-      {
-      fp++;
-      length = L_LONG;
-      }
-    }
+      { fp++; length = L_LONG; }
+  else if (*fp == 'z')
+    { fp++; length = L_SIZE; }
 
   /* Handle each specific format type. */
 
   switch (*fp++)
     {
     case 'n':
-    nptr = va_arg(ap, int *);
-    *nptr = p - buffer;
-    break;
+      nptr = va_arg(ap, int *);
+      *nptr = g->ptr - off;
+      break;
 
     case 'd':
     case 'o':
     case 'u':
     case 'x':
     case 'X':
-    if (p >= last - ((length > L_LONG)? 24 : 12))
-      { yield = FALSE; goto END_FORMAT; }
-    strncpy(newformat, item_start, fp - item_start);
-    newformat[fp - item_start] = 0;
+      width = length > L_LONG ? 24 : 12;
+      if (g->ptr >= lim - width)
+	{
+	if (!extend) return NULL;
+	gstring_grow(g, g->ptr, width);
+	lim = g->size - 1;
+	gp = CS g->s + g->ptr;
+	}
+      strncpy(newformat, item_start, fp - item_start);
+      newformat[fp - item_start] = 0;
 
-    /* Short int is promoted to int when passing through ..., so we must use
-    int for va_arg(). */
+      /* Short int is promoted to int when passing through ..., so we must use
+      int for va_arg(). */
 
-    switch(length)
-      {
-      case L_SHORT:
-      case L_NORMAL:   sprintf(CS p, newformat, va_arg(ap, int)); break;
-      case L_LONG:     sprintf(CS p, newformat, va_arg(ap, long int)); break;
-      case L_LONGLONG: sprintf(CS p, newformat, va_arg(ap, LONGLONG_T)); break;
-      }
-    while (*p) p++;
-    break;
+      switch(length)
+	{
+	case L_SHORT:
+	case L_NORMAL:
+	  g->ptr += sprintf(gp, newformat, va_arg(ap, int)); break;
+	case L_LONG:
+	  g->ptr += sprintf(gp, newformat, va_arg(ap, long int)); break;
+	case L_LONGLONG:
+	  g->ptr += sprintf(gp, newformat, va_arg(ap, LONGLONG_T)); break;
+	case L_SIZE:
+	  g->ptr += sprintf(gp, newformat, va_arg(ap, size_t)); break;
+	}
+      break;
 
     case 'p':
-    if (p >= last - 24) { yield = FALSE; goto END_FORMAT; }
-    strncpy(newformat, item_start, fp - item_start);
-    newformat[fp - item_start] = 0;
-    sprintf(CS p, newformat, va_arg(ap, void *));
-    while (*p) p++;
+      {
+      void * ptr;
+      if (g->ptr >= lim - 24)
+	{
+	if (!extend) return NULL;
+	gstring_grow(g, g->ptr, 24);
+	lim = g->size - 1;
+	gp = CS g->s + g->ptr;
+	}
+      /* sprintf() saying "(nil)" for a null pointer seems unreliable.
+      Handle it explicitly. */
+      if ((ptr = va_arg(ap, void *)))
+	{
+	strncpy(newformat, item_start, fp - item_start);
+	newformat[fp - item_start] = 0;
+	g->ptr += sprintf(gp, newformat, ptr);
+	}
+      else
+	g->ptr += sprintf(gp, "(nil)");
+      }
     break;
 
     /* %f format is inherently insecure if the numbers that it may be
@@ -1208,121 +1511,151 @@ while (*fp != 0)
     case 'E':
     case 'g':
     case 'G':
-    if (precision < 0) precision = 6;
-    if (p >= last - precision - 8) { yield = FALSE; goto END_FORMAT; }
-    strncpy(newformat, item_start, fp - item_start);
-    newformat[fp-item_start] = 0;
-    if (length == L_LONGDOUBLE)
-      sprintf(CS p, newformat, va_arg(ap, long double));
-    else
-      sprintf(CS p, newformat, va_arg(ap, double));
-    while (*p) p++;
-    break;
+      if (precision < 0) precision = 6;
+      if (g->ptr >= lim - precision - 8)
+	{
+	if (!extend) return NULL;
+	gstring_grow(g, g->ptr, precision+8);
+	lim = g->size - 1;
+	gp = CS g->s + g->ptr;
+	}
+      strncpy(newformat, item_start, fp - item_start);
+      newformat[fp-item_start] = 0;
+      if (length == L_LONGDOUBLE)
+	g->ptr += sprintf(gp, newformat, va_arg(ap, long double));
+      else
+	g->ptr += sprintf(gp, newformat, va_arg(ap, double));
+      break;
 
     /* String types */
 
     case '%':
-    if (p >= last) { yield = FALSE; goto END_FORMAT; }
-    *p++ = '%';
-    break;
+      if (g->ptr >= lim - 1)
+	{
+	if (!extend) return NULL;
+	gstring_grow(g, g->ptr, 1);
+	lim = g->size - 1;
+	}
+      g->s[g->ptr++] = (uschar) '%';
+      break;
 
     case 'c':
-    if (p >= last) { yield = FALSE; goto END_FORMAT; }
-    *p++ = va_arg(ap, int);
-    break;
+      if (g->ptr >= lim - 1)
+	{
+	if (!extend) return NULL;
+	gstring_grow(g, g->ptr, 1);
+	lim = g->size - 1;
+	}
+      g->s[g->ptr++] = (uschar) va_arg(ap, int);
+      break;
 
     case 'D':                   /* Insert daily datestamp for log file names */
-    s = CS tod_stamp(tod_log_datestamp_daily);
-    string_datestamp_offset = p - buffer;   /* Passed back via global */
-    string_datestamp_length = Ustrlen(s);   /* Passed back via global */
-    string_datestamp_type = tod_log_datestamp_daily;
-    slen = string_datestamp_length;
-    goto INSERT_STRING;
+      s = CS tod_stamp(tod_log_datestamp_daily);
+      string_datestamp_offset = g->ptr;		/* Passed back via global */
+      string_datestamp_length = Ustrlen(s);	/* Passed back via global */
+      string_datestamp_type = tod_log_datestamp_daily;
+      slen = string_datestamp_length;
+      goto INSERT_STRING;
 
     case 'M':                   /* Insert monthly datestamp for log file names */
-    s = CS tod_stamp(tod_log_datestamp_monthly);
-    string_datestamp_offset = p - buffer;   /* Passed back via global */
-    string_datestamp_length = Ustrlen(s);   /* Passed back via global */
-    string_datestamp_type = tod_log_datestamp_monthly;
-    slen = string_datestamp_length;
-    goto INSERT_STRING;
+      s = CS tod_stamp(tod_log_datestamp_monthly);
+      string_datestamp_offset = g->ptr;		/* Passed back via global */
+      string_datestamp_length = Ustrlen(s);	/* Passed back via global */
+      string_datestamp_type = tod_log_datestamp_monthly;
+      slen = string_datestamp_length;
+      goto INSERT_STRING;
 
     case 's':
     case 'S':                   /* Forces *lower* case */
-    s = va_arg(ap, char *);
+    case 'T':                   /* Forces *upper* case */
+      s = va_arg(ap, char *);
 
-    if (s == NULL) s = null;
-    slen = Ustrlen(s);
+      if (!s) s = null;
+      slen = Ustrlen(s);
 
     INSERT_STRING:              /* Come to from %D or %M above */
 
-    /* If the width is specified, check that there is a precision
-    set; if not, set it to the width to prevent overruns of long
-    strings. */
-
-    if (width >= 0)
       {
-      if (precision < 0) precision = width;
+      BOOL truncated = FALSE;
+
+      /* If the width is specified, check that there is a precision
+      set; if not, set it to the width to prevent overruns of long
+      strings. */
+
+      if (width >= 0)
+	{
+	if (precision < 0) precision = width;
+	}
+
+      /* If a width is not specified and the precision is specified, set
+      the width to the precision, or the string length if shorted. */
+
+      else if (precision >= 0)
+	width = precision < slen ? precision : slen;
+
+      /* If neither are specified, set them both to the string length. */
+
+      else
+	width = precision = slen;
+
+      if (!extend)
+	{
+	if (g->ptr == lim) return NULL;
+	if (g->ptr >= lim - width)
+	  {
+	  truncated = TRUE;
+	  width = precision = lim - g->ptr - 1;
+	  if (width < 0) width = 0;
+	  if (precision < 0) precision = 0;
+	  }
+	}
+      else if (g->ptr >= lim - width)
+	{
+	gstring_grow(g, g->ptr, width);
+	lim = g->size - 1;
+	gp = CS g->s + g->ptr;
+	}
+
+      g->ptr += sprintf(gp, "%*.*s", width, precision, s);
+      if (fp[-1] == 'S')
+	while (*gp) { *gp = tolower(*gp); gp++; }
+      else if (fp[-1] == 'T')
+	while (*gp) { *gp = toupper(*gp); gp++; }
+
+      if (truncated) return NULL;
+      break;
       }
-
-    /* If a width is not specified and the precision is specified, set
-    the width to the precision, or the string length if shorted. */
-
-    else if (precision >= 0)
-      {
-      width = (precision < slen)? precision : slen;
-      }
-
-    /* If neither are specified, set them both to the string length. */
-
-    else width = precision = slen;
-
-    /* Check string space, and add the string to the buffer if ok. If
-    not OK, add part of the string (debugging uses this to show as
-    much as possible). */
-
-    if (p == last)
-      {
-      yield = FALSE;
-      goto END_FORMAT;
-      }
-    if (p >= last - width)
-      {
-      yield = FALSE;
-      width = precision = last - p - 1;
-      if (width < 0) width = 0;
-      if (precision < 0) precision = 0;
-      }
-    sprintf(CS p, "%*.*s", width, precision, s);
-    if (fp[-1] == 'S')
-      while (*p) { *p = tolower(*p); p++; }
-    else
-      while (*p) p++;
-    if (!yield) goto END_FORMAT;
-    break;
 
     /* Some things are never used in Exim; also catches junk. */
 
     default:
-    strncpy(newformat, item_start, fp - item_start);
-    newformat[fp-item_start] = 0;
-    log_write(0, LOG_MAIN|LOG_PANIC_DIE, "string_format: unsupported type "
-      "in \"%s\" in \"%s\"", newformat, format);
-    break;
+      strncpy(newformat, item_start, fp - item_start);
+      newformat[fp-item_start] = 0;
+      log_write(0, LOG_MAIN|LOG_PANIC_DIE, "string_format: unsupported type "
+	"in \"%s\" in \"%s\"", newformat, format);
+      break;
     }
   }
 
-/* Ensure string is complete; return TRUE if got to the end of the format */
-
-END_FORMAT:
-
-*p = 0;
-return yield;
+return g;
 }
 
 
 
 #ifndef COMPILE_UTILITY
+
+gstring *
+string_fmt_append(gstring * g, const char *format, ...)
+{
+va_list ap;
+va_start(ap, format);
+g = string_vformat(g, TRUE, format, ap);
+va_end(ap);
+return g;
+}
+
+
+
 /*************************************************
 *       Generate an "open failed" message        *
 *************************************************/
@@ -1343,179 +1676,43 @@ uschar *
 string_open_failed(int eno, const char *format, ...)
 {
 va_list ap;
-uschar buffer[1024];
+gstring * g = string_get(1024);
 
-Ustrcpy(buffer, "failed to open ");
-va_start(ap, format);
+g = string_catn(g, US"failed to open ", 15);
 
 /* Use the checked formatting routine to ensure that the buffer
 does not overflow. It should not, since this is called only for internally
 specified messages. If it does, the message just gets truncated, and there
 doesn't seem much we can do about that. */
 
-(void)string_vformat(buffer+15, sizeof(buffer) - 15, format, ap);
+va_start(ap, format);
+(void) string_vformat(g, FALSE, format, ap);
+string_from_gstring(g);
+gstring_reset_unused(g);
+va_end(ap);
 
-return (eno == EACCES)?
-  string_sprintf("%s: %s (euid=%ld egid=%ld)", buffer, strerror(eno),
-    (long int)geteuid(), (long int)getegid()) :
-  string_sprintf("%s: %s", buffer, strerror(eno));
+return eno == EACCES
+  ? string_sprintf("%s: %s (euid=%ld egid=%ld)", g->s, strerror(eno),
+    (long int)geteuid(), (long int)getegid())
+  : string_sprintf("%s: %s", g->s, strerror(eno));
 }
 #endif  /* COMPILE_UTILITY */
+
+
 
 
 
 #ifndef COMPILE_UTILITY
-/*************************************************
-*        Generate local prt for logging          *
-*************************************************/
+/* qsort(3), currently used to sort the environment variables
+for -bP environment output, needs a function to compare two pointers to string
+pointers. Here it is. */
 
-/* This function is a subroutine for use in string_log_address() below.
-
-Arguments:
-  addr        the address being logged
-  yield       the current dynamic buffer pointer
-  sizeptr     points to current size
-  ptrptr      points to current insert pointer
-
-Returns:      the new value of the buffer pointer
-*/
-
-static uschar *
-string_get_localpart(address_item *addr, uschar *yield, int *sizeptr,
-  int *ptrptr)
+int
+string_compare_by_pointer(const void *a, const void *b)
 {
-if (testflag(addr, af_include_affixes) && addr->prefix != NULL)
-  yield = string_cat(yield, sizeptr, ptrptr, addr->prefix,
-    Ustrlen(addr->prefix));
-yield = string_cat(yield, sizeptr, ptrptr, addr->local_part,
-  Ustrlen(addr->local_part));
-if (testflag(addr, af_include_affixes) && addr->suffix != NULL)
-  yield = string_cat(yield, sizeptr, ptrptr, addr->suffix,
-    Ustrlen(addr->suffix));
-return yield;
+return Ustrcmp(* CUSS a, * CUSS b);
 }
-
-
-/*************************************************
-*          Generate log address list             *
-*************************************************/
-
-/* This function generates a list consisting of an address and its parents, for
-use in logging lines. For saved onetime aliased addresses, the onetime parent
-field is used. If the address was delivered by a transport with rcpt_include_
-affixes set, the af_include_affixes bit will be set in the address. In that
-case, we include the affixes here too.
-
-Arguments:
-  addr          bottom (ultimate) address
-  all_parents   if TRUE, include all parents
-  success       TRUE for successful delivery
-
-Returns:        a string in dynamic store
-*/
-
-uschar *
-string_log_address(address_item *addr, BOOL all_parents, BOOL success)
-{
-int size = 64;
-int ptr = 0;
-BOOL add_topaddr = TRUE;
-uschar *yield = store_get(size);
-address_item *topaddr;
-
-/* Find the ultimate parent */
-
-for (topaddr = addr; topaddr->parent != NULL; topaddr = topaddr->parent);
-
-/* We start with just the local part for pipe, file, and reply deliveries, and
-for successful local deliveries from routers that have the log_as_local flag
-set. File deliveries from filters can be specified as non-absolute paths in
-cases where the transport is goin to complete the path. If there is an error
-before this happens (expansion failure) the local part will not be updated, and
-so won't necessarily look like a path. Add extra text for this case. */
-
-if (testflag(addr, af_pfr) ||
-      (success &&
-       addr->router != NULL && addr->router->log_as_local &&
-       addr->transport != NULL && addr->transport->info->local))
-  {
-  if (testflag(addr, af_file) && addr->local_part[0] != '/')
-    yield = string_cat(yield, &size, &ptr, CUS"save ", 5);
-  yield = string_get_localpart(addr, yield, &size, &ptr);
-  }
-
-/* Other deliveries start with the full address. It we have split it into local
-part and domain, use those fields. Some early failures can happen before the
-splitting is done; in those cases use the original field. */
-
-else
-  {
-  if (addr->local_part != NULL)
-    {
-    yield = string_get_localpart(addr, yield, &size, &ptr);
-    yield = string_cat(yield, &size, &ptr, US"@", 1);
-    yield = string_cat(yield, &size, &ptr, addr->domain,
-      Ustrlen(addr->domain) );
-    }
-  else
-    {
-    yield = string_cat(yield, &size, &ptr, addr->address, Ustrlen(addr->address));
-    }
-  yield[ptr] = 0;
-
-  /* If the address we are going to print is the same as the top address,
-  and all parents are not being included, don't add on the top address. First
-  of all, do a caseless comparison; if this succeeds, do a caseful comparison
-  on the local parts. */
-
-  if (strcmpic(yield, topaddr->address) == 0 &&
-      Ustrncmp(yield, topaddr->address, Ustrchr(yield, '@') - yield) == 0 &&
-      addr->onetime_parent == NULL &&
-      (!all_parents || addr->parent == NULL || addr->parent == topaddr))
-    add_topaddr = FALSE;
-  }
-
-/* If all parents are requested, or this is a local pipe/file/reply, and
-there is at least one intermediate parent, show it in brackets, and continue
-with all of them if all are wanted. */
-
-if ((all_parents || testflag(addr, af_pfr)) &&
-    addr->parent != NULL &&
-    addr->parent != topaddr)
-  {
-  uschar *s = US" (";
-  address_item *addr2;
-  for (addr2 = addr->parent; addr2 != topaddr; addr2 = addr2->parent)
-    {
-    yield = string_cat(yield, &size, &ptr, s, 2);
-    yield = string_cat(yield, &size, &ptr, addr2->address, Ustrlen(addr2->address));
-    if (!all_parents) break;
-    s = US", ";
-    }
-  yield = string_cat(yield, &size, &ptr, US")", 1);
-  }
-
-/* Add the top address if it is required */
-
-if (add_topaddr)
-  {
-  yield = string_cat(yield, &size, &ptr, US" <", 2);
-
-  if (addr->onetime_parent == NULL)
-    yield = string_cat(yield, &size, &ptr, topaddr->address,
-      Ustrlen(topaddr->address));
-  else
-    yield = string_cat(yield, &size, &ptr, addr->onetime_parent,
-      Ustrlen(addr->onetime_parent));
-
-  yield = string_cat(yield, &size, &ptr, US">", 1);
-  }
-
-yield[ptr] = 0;  /* string_cat() leaves space */
-return yield;
-}
-#endif  /* COMPILE_UTILITY */
-
+#endif /* COMPILE_UTILITY */
 
 
 

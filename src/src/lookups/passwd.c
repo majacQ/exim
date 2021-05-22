@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/lookups/passwd.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -35,8 +33,8 @@ return (void *)(-1);     /* Just return something non-null */
 /* See local README for interface description */
 
 static int
-passwd_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+passwd_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 struct passwd *pw;
 

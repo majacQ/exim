@@ -14,6 +14,8 @@ LOG: smtp_connection MAIN
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<abc@domain1>
 using ACL "rcpt"
@@ -23,7 +25,7 @@ search_open: lsearch "TESTSUITE/aux-fixed/0464.domains"
 search_find: file="TESTSUITE/aux-fixed/0464.domains"
   key="domain1" partial=-1 affix=NULL starflags=0
 LRU list:
-  :TESTSUITE/aux-fixed/0464.domains
+  0TESTSUITE/aux-fixed/0464.domains
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0464.domains"
   type=lsearch key="domain1"
@@ -70,7 +72,7 @@ search_open: lsearch "TESTSUITE/aux-fixed/0464.domains"
 search_find: file="TESTSUITE/aux-fixed/0464.domains"
   key="xxx.domain1" partial=-1 affix=NULL starflags=0
 LRU list:
-  :TESTSUITE/aux-fixed/0464.domains
+  0TESTSUITE/aux-fixed/0464.domains
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0464.domains"
   type=lsearch key="xxx.domain1"
@@ -94,7 +96,7 @@ routed by r2 router
   envelope to: abc@xxx.domain1
   transport: smtp
 ----------- end verify ------------
-require: condition test succeeded
+require: condition test succeeded in ACL "rcpt"
 processing "require"
 check domains = +special_domains
 cached yes match for +special_domains
@@ -137,7 +139,7 @@ search_open: lsearch "TESTSUITE/aux-fixed/0464.domains"
 search_find: file="TESTSUITE/aux-fixed/0464.domains"
   key="xxx.domain1" partial=-1 affix=NULL starflags=0
 LRU list:
-  :TESTSUITE/aux-fixed/0464.domains
+  0TESTSUITE/aux-fixed/0464.domains
   End
 internal_search_find: file="TESTSUITE/aux-fixed/0464.domains"
   type=lsearch key="xxx.domain1"
@@ -160,13 +162,15 @@ routed by r2 router
   envelope to: abc@xxx.domain1
   transport: smtp
 ----------- end verify ------------
-require: condition test succeeded
+require: condition test succeeded in ACL "rcpt"
 processing "accept"
-accept: condition test succeeded
+accept: condition test succeeded in ACL "rcpt"
+end of ACL "rcpt": ACCEPT
 SMTP>> 250 Accepted
+DSN: orcpt: NULL  flags: 0
 SMTP<< quit
 SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from CALLER closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>

@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/routers/dnslookup.h,v 1.6 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Private structure for the private options. */
@@ -19,6 +17,9 @@ typedef struct {
   uschar *mx_fail_domains;
   uschar *srv_fail_domains;
   uschar *check_srv;
+  uschar *fail_defer_domains;
+  uschar *ipv4_only;
+  uschar *ipv4_prefer;
 } dnslookup_router_options_block;
 
 /* Data for reading the private options. */

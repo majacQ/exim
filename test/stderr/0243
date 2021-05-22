@@ -7,9 +7,12 @@
 >>> host in helo_try_verify_hosts? no (option unset)
 >>> host in helo_accept_junk_hosts? no (option unset)
 >>> xxxx in helo_lookup_domains? no (end of list)
+>>> host in dsn_advertise_hosts? no (option unset)
 >>> host in pipelining_advertise_hosts? yes (matched "*")
+>>> host in chunking_advertise_hosts? no (end of list)
 >>> using ACL "check_recipient"
 >>> processing "deny"
+>>>   message: unrouteable address
 >>> check !verify = recipient
 >>> >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 >>> routing faq@nl.demon.net
@@ -22,9 +25,10 @@
 >>> calling algemeen_aliases router
 >>> routed by algemeen_aliases router
 >>> ----------- end verify ------------
->>> deny: condition test failed
+>>> deny: condition test failed in ACL "check_recipient"
 >>> processing "accept"
 >>> check domains = +local_domains
 >>> nl.demon.net in "nl.demon.net"? yes (matched "nl.demon.net")
 >>> nl.demon.net in "+local_domains"? yes (matched "+local_domains")
->>> accept: condition test succeeded
+>>> accept: condition test succeeded in ACL "check_recipient"
+>>> end of ACL "check_recipient": ACCEPT

@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/lookups/nis.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -43,14 +41,14 @@ for nis0 because they are so short it isn't worth trying to use any common
 code. */
 
 static int
-nis_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+nis_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 int rc;
 uschar *nis_data;
 int nis_data_length;
 do_cache = do_cache;   /* Placate picky compilers */
-if ((rc = yp_match(CS handle, CS filename, CS keystring, length,
+if ((rc = yp_match(CCS handle, CCS filename, CCS keystring, length,
     CSS &nis_data, &nis_data_length)) == 0)
   {
   *result = string_copy(nis_data);
@@ -69,14 +67,14 @@ return (rc == YPERR_KEY || rc == YPERR_MAP)? FAIL : DEFER;
 /* See local README for interface description. */
 
 static int
-nis0_find(void *handle, uschar *filename, uschar *keystring, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+nis0_find(void *handle, uschar *filename, const uschar *keystring, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 int rc;
 uschar *nis_data;
 int nis_data_length;
 do_cache = do_cache;   /* Placate picky compilers */
-if ((rc = yp_match(CS handle, CS filename, CS keystring, length + 1,
+if ((rc = yp_match(CCS handle, CCS filename, CCS keystring, length + 1,
     CSS &nis_data, &nis_data_length)) == 0)
   {
   *result = string_copy(nis_data);

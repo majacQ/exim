@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/osfunctions.h,v 1.5 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2016 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Prototypes for os-specific functions. For utilities, we don't need the one
@@ -14,7 +12,7 @@ that uses a type that isn't defined for them. */
 extern ip_address_item *os_common_find_running_interfaces(void);
 #endif
 
-/* If these exist as a macro, then they're overriden away from us and we
+/* If these exist as a macro, then they're overridden away from us and we
 rely upon the system headers to provide prototype declarations for us.
 Notably, strsignal() is not in the Single Unix Specification (v3) and
 predicting constness is awkward. */
@@ -33,6 +31,12 @@ extern const char   *os_strexit(int);     /* char to match os_strsignal */
 #endif
 #ifndef os_strsignal
 extern const char   *os_strsignal(int);   /* char to match strsignal in some OS */
+#endif
+#ifndef os_unsetenv
+extern int           os_unsetenv(const uschar *);
+#endif
+#ifndef os_getcwd
+extern uschar       *os_getcwd(uschar *, size_t);
 #endif
 
 /* End of osfunctions.h */

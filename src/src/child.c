@@ -1,16 +1,18 @@
-/* $Cambridge: exim/src/src/child.c,v 1.12 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2015 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
 #include "exim.h"
 
 static void (*oldsignal)(int);
+
+#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_REQUIRETLS)
+static uschar tls_requiretls_copy = 0;
+#endif
 
 
 /*************************************************
@@ -74,9 +76,14 @@ child_exec_exim(int exec_type, BOOL kill_v, int *pcount, BOOL minimal,
 {
 int first_special = -1;
 int n = 0;
-int extra = (pcount != NULL)? *pcount : 0;
-uschar **argv =
-  store_get((extra + acount + MAX_CLMACROS + 16) * sizeof(char *));
+int extra = pcount ? *pcount : 0;
+uschar **argv;
+
+#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_REQUIRETLS)
+if (tls_requiretls) extra++;
+#endif
+
+argv = store_get((extra + acount + MAX_CLMACROS + 18) * sizeof(char *));
 
 /* In all case, the list starts out with the path, any macros, and a changed
 config file. */
@@ -87,7 +94,7 @@ if (clmacro_count > 0)
   memcpy(argv + n, clmacros, clmacro_count * sizeof(uschar *));
   n += clmacro_count;
   }
-if (config_changed)
+if (f.config_changed)
   {
   argv[n++] = US"-C";
   argv[n++] = config_main_filename;
@@ -110,12 +117,22 @@ if (!minimal)
     if (debug_selector != 0)
       argv[n++] = string_sprintf("-d=0x%x", debug_selector);
     }
-  if (dont_deliver) argv[n++] = US"-N";
-  if (queue_smtp) argv[n++] = US"-odqs";
-  if (synchronous_delivery) argv[n++] = US"-odi";
+  if (f.dont_deliver) argv[n++] = US"-N";
+  if (f.queue_smtp) argv[n++] = US"-odqs";
+  if (f.synchronous_delivery) argv[n++] = US"-odi";
   if (connection_max_messages >= 0)
     argv[n++] = string_sprintf("-oB%d", connection_max_messages);
+  if (*queue_name)
+    {
+    argv[n++] = US"-MCG";
+    argv[n++] = queue_name;
+    }
   }
+
+#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_REQUIRETLS)
+if (tls_requiretls_copy & REQUIRETLS_MSG)
+  argv[n++] = US"-MS";
+#endif
 
 /* Now add in any others that are in the call. Remember which they were,
 for more helpful diagnosis on failure. */
@@ -143,7 +160,7 @@ if (exec_type == CEE_RETURN_ARGV)
 failure. We know that there will always be at least one extra option in the
 call when exec() is done here, so it can be used to add to the panic data. */
 
-DEBUG(D_exec) debug_print_argv(argv);
+DEBUG(D_exec) debug_print_argv(CUSS argv);
 exim_nullstd();                            /* Make sure std{in,out,err} exist */
 execv(CS argv[0], (char *const *)argv);
 
@@ -219,17 +236,20 @@ pid = fork();
 
 /* Child process: make the reading end of the pipe into the standard input and
 close the writing end. If debugging, pass debug_fd as stderr. Then re-exec
-Exim with appropriat options. In the test harness, use -odi unless queue_only
+Exim with appropriate options. In the test harness, use -odi unless queue_only
 is set, so that the bounce is fully delivered before returning. Failure is
 signalled with EX_EXECFAILED (specified by CEE_EXEC_EXIT), but this shouldn't
 occur. */
 
 if (pid == 0)
   {
+#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_REQUIRETLS)
+  tls_requiretls_copy = tls_requiretls;
+#endif
   force_fd(pfd[pipe_read], 0);
   (void)close(pfd[pipe_write]);
   if (debug_fd > 0) force_fd(debug_fd, 2);
-  if (running_in_test_harness && !queue_only)
+  if (f.running_in_test_harness && !queue_only)
     {
     if (sender_authentication != NULL)
       child_exec_exim(CEE_EXEC_EXIT, FALSE, NULL, FALSE, 9,
@@ -309,8 +329,9 @@ Returns:      the pid of the created process or -1 if anything has gone wrong
 */
 
 pid_t
-child_open_uid(uschar **argv, uschar **envp, int newumask, uid_t *newuid,
-  gid_t *newgid, int *infdptr, int *outfdptr, uschar *wd, BOOL make_leader)
+child_open_uid(const uschar **argv, const uschar **envp, int newumask,
+  uid_t *newuid, gid_t *newgid, int *infdptr, int *outfdptr, uschar *wd,
+  BOOL make_leader)
 {
 int save_errno;
 int inpfd[2], outpfd[2];
@@ -389,7 +410,7 @@ if (pid == 0)
   /* Now do the exec */
 
   if (envp == NULL) execv(CS argv[0], (char *const *)argv);
-    else execve(CS argv[0], (char *const *)argv, (char *const *)envp);
+  else execve(CS argv[0], (char *const *)argv, (char *const *)envp);
 
   /* Failed to execv. Signal this failure using EX_EXECFAILED. We are
   losing the actual errno we got back, because there is no way to return
@@ -452,8 +473,8 @@ pid_t
 child_open(uschar **argv, uschar **envp, int newumask, int *infdptr,
   int *outfdptr, BOOL make_leader)
 {
-return child_open_uid(argv, envp, newumask, NULL, NULL, infdptr, outfdptr,
-  NULL, make_leader);
+return child_open_uid(CUSS argv, CUSS envp, newumask, NULL, NULL,
+  infdptr, outfdptr, NULL, make_leader);
 }
 
 
@@ -486,7 +507,7 @@ int yield;
 if (timeout > 0)
   {
   sigalrm_seen = FALSE;
-  alarm(timeout);
+  ALARM(timeout);
   }
 
 for(;;)
@@ -496,18 +517,23 @@ for(;;)
   if (rc == pid)
     {
     int lowbyte = status & 255;
-    if (lowbyte == 0) yield = (status >> 8) & 255;
-      else yield = -lowbyte;
+    yield = lowbyte == 0 ? (status >> 8) & 255 : -lowbyte;
     break;
     }
   if (rc < 0)
     {
-    yield = (errno == EINTR && sigalrm_seen)? -256 : -257;
+    /* This "shouldn't happen" test does happen on MacOS: for some reason
+    I do not understand we seems to get an alarm signal despite not having
+    an active alarm set. There seems to be only one, so just go round again. */
+
+    if (errno == EINTR && sigalrm_seen && timeout <= 0) continue;
+
+    yield = (errno == EINTR && sigalrm_seen) ? -256 : -257;
     break;
     }
   }
 
-if (timeout > 0) alarm(0);
+if (timeout > 0) ALARM_CLR(0);
 
 signal(SIGCHLD, oldsignal);   /* restore */
 return yield;

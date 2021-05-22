@@ -1,5 +1,3 @@
-/* $Cambridge: exim/test/src/fd.c,v 1.1 2006/02/06 16:24:05 ph10 Exp $ */
-
 /* A program to check on open file descriptors. There are some weird options
 for running it in Exim testing. If -q is given, make output suitable for
 queryprogram. If -f is given, copy the input as for a transport filter. If -s
@@ -52,7 +50,8 @@ if (filter)
   {
   int len;
   while ((len = read(0, buffer, sizeof(buffer))) > 0)
-    write(1, buffer, len);
+    if (write(1, buffer, len) < 0)
+	exit(1);
   }
 
 p += sprintf(p, "max fd = %d\n", (int)mac_maxfd);

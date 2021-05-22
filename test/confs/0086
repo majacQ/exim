@@ -1,13 +1,8 @@
 # Exim test configuration 0086
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -21,7 +16,8 @@ recipient_unqualified_hosts = V4NET.10.10.9
 begin acl
 
 check_message:
-  require verify = header_syntax
+  deny	!verify = header_syntax
+	logwrite = acl_verify_message: '$acl_verify_message'
   accept
 
 # End

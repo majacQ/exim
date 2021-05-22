@@ -1,5 +1,3 @@
-$Cambridge: exim/doc/doc-txt/OptionLists.txt,v 1.38 2010/06/12 15:21:25 jetmore Exp $
-
 LISTS OF EXIM OPTIONS
 ---------------------
 
@@ -50,12 +48,14 @@ release 4.00, and so no router options are shown as earlier than 4.00, though
 in fact some of them were inherited from earlier versions.
 
 -----------------------------------------------------------------------------------------
-accept_8bitmime                      boolean         false         main              1.60
+accept_8bitmime                      boolean         true          main              1.60 changed to true in 4.80
 acl_not_smtp                         string*         unset         main              4.11
 acl_not_smtp_mime                    string*         unset         main              4.51 with content scan
 acl_smtp_auth                        string*         unset         main              4.00
 acl_smtp_connect                     string*         unset         main              4.11
 acl_smtp_data                        string*         unset         main              4.00
+acl_smtp_data_prdr                   string*         unset         main              4.82 with experimental_prdr, 4.83 unless disable_prdr
+acl_smtp_dkim                        string*         unset         main              4.70 unless disable_dkim
 acl_smtp_etrn                        string*         unset         main              4.00
 acl_smtp_expn                        string*         unset         main              4.00
 acl_smtp_helo                        string*         unset         main              4.20
@@ -82,6 +82,7 @@ allow_localhost                      boolean         false         smtp         
 allow_mx_to_ip                       boolean         false         main              3.14
 allow_symlink                        boolean         false         appendfile
 allow_utf8_domains                   boolean         false         main              4.14
+arc_sign			     string*	     unset	   smtp		     4.91 with Experimental_ARC
 auth_advertise_hosts                 host list       "*"           main              4.00
 authenticated_sender                 string*         unset         smtp              4.14
 authenticated_sender_force           boolean         false         smtp              4.61
@@ -137,6 +138,7 @@ command                              string*         unset         lmtp         
 command_group                        string          unset         queryprogram      4.00
 command_timeout                      time            5m            smtp
 command_user                         string          unset         queryprogram      4.00
+commandline_checks_require_admin     boolean         false         main              4.90
 condition                            string*         unset         routers           4.00
 connect_timeout                      time            0s            smtp              1.60
 connection_max_messages              integer         500           smtp              4.00 replaces batch_max
@@ -147,11 +149,13 @@ current_directory                    string          unset         transports   
 daemon_smtp_ports                    string          unset         main              1.75  pluralised in 4.21
 daemon_startup_retries               int             9             main              4.52
 daemon_startup_sleep                 time            30s           main              4.52
+dane_require_tls_ciphers             string*         unset         smtp              4.91
 data                                 string          unset         redirect          4.00
 data_timeout                         time            5m            smtp
 debug_print                          string*         unset         authenticators    4.00
                                                      unset         routers           4.00
                                                      unset         transports        2.00
+debug_store                          boolean         false         main              4.90
 delay_after_cutoff                   boolean         true          smtp
 delay_warning                        time list       24h           main
 delay_warning_condition              string*         +             main              1.73
@@ -165,6 +169,7 @@ dkim_private_key                     string*         unset         smtp         
 dkim_selector                        string*         unset         smtp              4.70
 dkim_sign_headers                    string*         (RFC4871)     smtp              4.70
 dkim_strict                          string*         unset         smtp              4.70
+dkim_timestamps                      integer*        unset         smtp              4.92
 dkim_verify_signers                  string*         $dkim_signers main              4.70
 directory                            string*         unset         appendfile
 directory_file                       string*         +             appendfile
@@ -173,10 +178,16 @@ directory_transport                  string*         unset         redirect     
 disable_ipv6                         boolean         false         main              4.61
 disable_logging                      boolean         false         routers           4.11
                                                      false         transports        4.11
+dmarc_forensic_sender                string          unset         main              4.82 if experimental_dmarc
+dmarc_history_file                   string          unset         main              4.82 if experimental_dmarc
+dmarc_tld_file                       string          unset         main              4.82 if experimental_dmarc
 dns_again_means_nonexist             domain list     unset         main              1.89
 dns_check_names_pattern              string          +             main              2.11
+dns_cname_loops                      integer         0             main              4.92 Set to 9 for older behaviour
 dns_csa_search_limit                 integer         5             main              4.60
 dns_csa_use_reverse                  boolean         true          main              4.60
+dns_dnssec_ok                        integer         -1            main              4.82
+dns_dane_ok                          integer         -1            main              4.83
 dns_ipv4_lookup                      boolean         false         main              3.20
 dns_qualify_single                   boolean         true          smtp
 dns_retrans                          time            0s            main              1.60
@@ -188,6 +199,7 @@ driver                               string          unset         authenticator
                                                      unset         routers           4.00
                                                      unset         transports
 drop_cr                              boolean         false         main              4.00 became a no-op in 4.21
+dscp                                 string          unset         smtp              4.82
 dsn_from                             string*         +             main              4.67
 envelope_to_add                      boolean         false         transports
 envelope_to_remove                   boolean         true          main
@@ -235,6 +247,7 @@ forbid_include                       boolean         false         redirect     
 forbid_pipe                          boolean         false         redirect          4.00
 forbid_sieve_filter                  boolean         false         redirect          4.44
 forbid_smtp_code                     boolean         false         redirect          4.63
+force_command                        boolean         false         pipe              4.82
 freeze_exec_fail                     boolean         false         pipe              1.89
 freeze_signal                        boolean         false         pipe              4.75
 freeze_tell                          boolean         false         main              4.00 replaces freeze_tell_mailmaster
@@ -242,13 +255,14 @@ from                                 string*         unset         autoreply
 gecos_name                           string*         unset         main
 gecos_pattern                        string          unset         main
 gethostbyname                        boolean         false         smtp
+gnutls_allow_auto_pkcs11             boolean         false         main              4.82
 gnutls_compat_mode                   boolean         unset         main              4.70
-gnutls_require_kx                    string*         unset         main              4.67
-                                     string*         unset         smtp              4.67
-gnutls_require_mac                   string*         unset         main              4.67
-                                     string*         unset         smtp              4.67
-gnutls_require_protocols             string*         unset         main              4.67
-                                     string*         unset         smtp              4.67
+gnutls_require_kx                    string*         unset         main              4.67 deprecated, warns
+                                     string*         unset         smtp              4.67 deprecated, warns
+gnutls_require_mac                   string*         unset         main              4.67 deprecated, warns
+                                     string*         unset         smtp              4.67 deprecated, warns
+gnutls_require_protocols             string*         unset         main              4.67 deprecated, warns
+                                     string*         unset         smtp              4.67 deprecated, warns
 group                                string          +             routers           4.00
                                                      unset         transports        4.00 replaces local option in some transports
 header_line_maxsize                  integer         0 (unset)     main              4.14
@@ -284,13 +298,20 @@ hosts_connection_nolog               host list       unset         main         
 hosts_max_try                        integer         5             smtp              3.20
 hosts_max_try_hardlimit              integer         50            smtp              4.50
 hosts_nopass_tls                     host list       unset         smtp              4.00
+hosts_noproxy_tls                    host list       "*"           smtp              4.90
 hosts_override                       boolean         false         smtp              2.11
+hosts_pipe_connect		     host_list	     unset	   smtp		     4.93 if experimental_pipe_connect
 hosts_randomize                      boolean         false         manualroute       4.00
                                                      false         smtp              3.14
 hosts_require_auth                   host list       unset         smtp              4.00
+hosts_require_dane                   host list       unset         smtp              4.91 (4.85 experimental)
+hosts_require_ocsp                   host list       unset         smtp              4.82 if experimental_ocsp
 hosts_require_tls                    host list       unset         smtp              3.20
 hosts_treat_as_local                 domain list     unset         main              1.95
 hosts_try_auth                       host list       unset         smtp              4.00
+hosts_try_dane                       host list       unset         smtp              4.91 (4.85 experimental)
+hosts_try_fastopen                   host list       unset         smtp              4.88
+hosts_try_prdr                       host list       unset         smtp              4.82 if experimental_prdr
 ibase_servers                        string          unset         main              4.23
 ignore_bounce_errors_after           time            0s            main              4.00
 ignore_eacces                        boolean         false         redirect          4.00
@@ -338,7 +359,7 @@ mailbox_size                         string*         unset         appendfile   
 maildir_format                       boolean         false         appendfile        1.70
 maildir_retries                      integer         10            appendfile        1.70
 maildir_tag                          string*         unset         appendfile        1.92
-maildir_use_size_file                boolean         false         appendfile        4.30
+maildir_use_size_file                boolean*        false         appendfile        4.30 expanded in 4.77
 maildirfolder_create_regex           string          unset         appendfile        4.62
 mailstore_format                     boolean         false         appendfile        2.00
 mailstore_prefix                     string*         unset         appendfile        2.00
@@ -375,7 +396,7 @@ once                                 string*         unset         autoreply
 once_file_size                       integer         0             autoreply         3.20
 once_repeat                          time            0s            autoreply         2.95
 one_time                             boolean         false         redirect          4.00
-openssl_options                      string "+dont_insert_empty_fragments" main      4.73
+openssl_options                      string          +no_sslv2     main              4.73 default changed in 4.80
 optional                             boolean         false         iplookup          4.00
 oracle_servers                       string          unset         main              4.00
 owners                               string list     unset         redirect          4.00
@@ -392,9 +413,11 @@ pid_file_path                        string          ++            main
 pipe_as_creator                      boolean         false         pipe
 pipe_transport                       string*         unset         redirect          4.00
 pipelining_advertise_hosts           host list       "*"           main              4.14
+pipelining__connect_advertise_hosts  host list       "*"           main              4.92 if experimental_pipe_connect
 port                                 integer         0             iplookup          4.00
                                      string          "smtp"        smtp
 preserve_message_logs                boolean         false         main
+prdr_enable                          boolean         false         main              4.82 if experimental_prdr
 primary_hostname                     string          +             main
 print_topbitchars                    boolean         false         main              1.89
 process_log_path                     string          unset         main              4.21
@@ -468,14 +491,22 @@ sender_unqualified_hosts             host list       unset         main
 senders                              address list    unset         routers           4.00
 serialize_hosts                      host list       unset         smtp              1.60
 server_advertise_condition           string*         unset         authenticators    4.14
+server_channelbinding                bool            false         gsasl             4.80
 server_condition                     string*         unset         authenticators    3.10 (plaintext) 4.64 (others)
-server_hostname                      string*   "$primary_hostname" cyrus_sasl        4.43
+server_hostname                      string*   "$primary_hostname" cyrus_sasl,gsasl,heimdal_gssapi (cyrus-only) 4.80 (others)
+server_keytab                        string*         unset         heimdal_gssapi    4.80
 server_mail_auth_condition           string*         unset         authenticators    3.22
-server_mech                          string          public_name   cyrus_sasl        4.43
+server_mech                          string          public_name   cyrus_sasl,gsasl  4.43 (cyrus-only) 4.80 (others)
+server_password                      string          unset         gsasl             4.80
+server_param1			     string*	     unset	   tls (auth)	     4.86
+server_param2			     string*	     unset	   tls (auth)	     4.86
+server_param3			     string*	     unset	   tls (auth)	     4.86
 server_prompts                       string*         unset         plaintext         3.10
-server_realm                         string          unset         cyrus_sasl        4.43
+server_realm                         string          unset         cyrus_sasl,gsasl  4.43 (cyrus-only) 4.80 (others)
+server_scram_iter                    string*         unset         gsasl             4.80
+server_scram_salt                    string*         unset         gsasl             4.80
 server_secret                        string*         unset         cram_md5          3.10
-server_service                       string          "smtp"        cyrus_sasl        4.43
+server_service                       string          "smtp"  cyrus_sasl,gsasl,heimdal_gssapi  (cyrus-only) 4.80 (others)
 server_set_id                        string*         unset         authenticators    3.10
 shadow_condition                     string*         unset         transports
 shadow_transport                     string          unset         transports
@@ -510,6 +541,7 @@ socket                               string*         unset         lmtp         
 spamd_address                        string*         +             main              4.50 with content scan
 split_spool_directory                boolean         false         main              1.70
 spool_directory                      string          ++            main
+spool_wireformat                     boolean         false         main              4.90
 sqlite_lock_timeout                  time            5s            main              4.53
 strict_acl_vars                      boolean         false         main              4.64
 srv_fail_domains                     domain list     unset         dnslookup         4.43
@@ -542,15 +574,20 @@ timeout_defer                        boolean         false         pipe         
 timeout_frozen_after                 time            0s            main              3.20
 timezone                             string          +             main              3.15
 tls_advertise_hosts                  host list       *             main              3.20
+tls_advertise_requiretls             host list       *             main              4.92 if experimental_requiretls
 tls_certificate                      string*         unset         main              3.20
                                                      unset         smtp              3.20
+tls_dh_max_bits                      integer         2236          main              4.80
+tls_dh_min_bits                      integer         1024          smtp              4.82
 tls_dhparam                          string*         unset         main              3.20
+tls_ocsp_file                        string*         unset         main              4.80 if experimental_ocsp
 tls_on_connect_ports                 string          unset         main              4.43
 tls_privatekey                       string*         unset         main              3.20
                                                      unset         smtp              3.20
 tls_remember_emstp                   boolean         false         main              4.21
 tls_require_ciphers                  string*         unset         smtp              4.00 replaces tls_verify_ciphers
                                      string*         unset         main              4.33
+tls_sni                              string*         unset         main              4.80
 tls_tempfail_tryclear                boolean         true          smtp              4.05
 tls_try_verify_hosts                 host list       unset         main              4.00
 tls_verify_certificates              string*         unset         main              3.20
@@ -581,6 +618,7 @@ use_mbx_lock                         boolean         +             appendfile   
 use_shell                            boolean         false         pipe              1.70
 user                                 string          +             routers           4.00
                                                      unset         transports        4.00 replaces individual options
+utf8_downconvert                     integer         unset         smtp              4.92 if SUPPORT_I18N
 uucp_from_pattern                    string          +             main              1.75
 uucp_from_sender                     string*         "$1"          main              1.75
 verify                               boolean         true          routers           4.00
@@ -618,6 +656,7 @@ provide compatibility with Sendmail.
 -bh              Test incoming SMTP call, omitting callouts
 -bhc             Test incoming SMTP call, with callouts
 -bi            * Run <command>bi_command</command>
+-bI:help         Show list of accepted -bI:<tag> options
 -bm              Accept message on standard input
 -bmalware      + Invoke configured malware scanning against supplied filename
 -bnq             Don't qualify addresses in locally submitted messages
@@ -637,6 +676,7 @@ provide compatibility with Sendmail.
 -bV              Verify version number
 -bv              Test recipient address verification
 -bvs             Test sender address verification
+-bw            + Inetd wait mode
 -C             + Use alternate configuration file
 -D             + Define macro for configuration file
 -d             + Turn on debugging output
@@ -693,6 +733,7 @@ provide compatibility with Sendmail.
 -oMai          # Supply authenticated id
 -oMas          # Supply authenticated sender
 -oMi           # Supply interface address
+-oMm           # Supply message reference
 -oMr           # Supply protocol name
 -oMs           # Supply host name
 -oMt           # Supply ident string
@@ -739,9 +780,12 @@ provide compatibility with Sendmail.
 3. BUILD TIME OPTIONS FOR EXIM
 ------------------------------
 
-The table below contains a complete list of options that can be set in
-Local/Makefile when building Exim. More information about individual options
-can be found in src/EDITME and OS/Makefile-Default.
+The table below contains a "mostly" complete list of options that can be
+set in Local/Makefile when building Exim.  The only items not included are
+those whose names can be trivially derived from rules stated below.
+
+More information about individual options can be found in src/EDITME and
+OS/Makefile-Default.
 
 The second column below gives the type of option:
 
@@ -771,6 +815,23 @@ empty by default, and is provided for just this reason. Of course, if you do
 actually want to modify a setting from the OS-specific file, there is nothing
 to stop you overriding it in your Local/Makefile.
 
+When building Exim with dynamically loaded lookup support, for "LOOKUP_FOO",
+you can define "LOOKUP_FOO_INCLUDE" and "LOOKUP_FOO_LIBS", for includes and
+libraries specific only to that module.  These rules are only used where the
+relevant lookup is a module.  These options are not explicitly listed below.
+
+Variables with names endined `_PC' are used for pkg-config integration; setting
+the value to the name of a pkg-config package will cause Exim's build system to
+query the --cflags and --libs for the given name, when building anything
+dependent upon the component associated with the `_PC' variable.  For lookups,
+if the lookup is dynamically loaded, then this *replaces* the use of the
+corresponding _INCLUDE and _LIBS options, which will be ignored.  If the lookup
+is statically loaded into Exim, the results will be inserted into the
+"LOOKUP_INCLUDE" and "LOOKUP_LIBS" options.  For authenticator, the results
+will be inserted into the "CFLAGS" and "AUTH_LIBS" options.  These options are
+only listed below for the TLS implementation cases.
+
+
 Option                       Type         Description
 ------------------------------------------------------------------------------
 
@@ -781,6 +842,9 @@ APPENDFILE_LOCKFILE_MODE     optional*
 AR                           system       command to build a library
 AUTH_CRAM_MD5                driver       include cram_md5 authenticator
 AUTH_CYRUS_SASL              driver       include Cyrus SASL authenticator
+AUTH_GSASL                   driver       include GNU SASL authenticator
+AUTH_HEIMDAL_GSSAPI          driver       include Heimdal GSSAPI authenticator
+AUTH_LIBS                    system       library linkage for authenticators
 AUTH_PLAINTEXT               driver       include plaintext authenticator
 AUTH_SPA                     driver       include SPA (NTLM) authenticator
 AUTH_VARS=3                  optional*    number of $auth variables
@@ -809,6 +873,7 @@ DEFAULT_CRYPT                optional     default crypt() function
 DELIVER_IN_BUFFER_SIZE       optional*
 DELIVER_OUT_BUFFER_SIZE      optional*
 DISABLE_DKIM                 optional     disables DKIM support
+DISABLE_DNSSEC               optional     disables attempts to use DNSSEC
 DISABLE_D_OPTION             optional     disables -D option
 ERRNO_QUOTA                  optional*    error code for system quota failures
 EXICYCLOG_MAX                optional     number of old log files to keep
@@ -822,11 +887,12 @@ EXIM_MONITOR                 optional     set to eximon.bin to compile
 EXIM_PERL                    optional
 EXIM_USER                    mandatory    user to use for Exim
 EXIWHAT_EGREP_ARG            system**     to find Exim processes from ps
-EXIWHAT_KILL_SIGNAL          system**     -SIGUSER1 or numerical equivalent
+EXIWHAT_KILL_SIGNAL          system**     -SIGUSR1 or numerical equivalent
 EXIWHAT_MULTIKILL_CMD        system**
 EXIWHAT_MULTIKILL_ARG        system**
 EXIWHAT_PS_ARG               system**     to list all processes
 EXIWHAT_PS_CMD               system**     path to ps command
+EXPAND_LISTMATCH_RHS         optional*    restore pre-4.77 match_*{}{} behaviour
 EXTRALIBS                    system       additional libraries
 EXTRALIBS_EXIM               system       additional libraries for Exim only
 EXTRALIBS_EXIMON             system       additional libraries for the monitor
@@ -881,7 +947,8 @@ MAX_INTERFACES               system       maximum network interfaces
 MSGLOG_DIRECTORY_MODE        optional*    mode for message log directory
 MV_COMMAND                   system       path to mv command
 NO_SYMLINK                   optional     install doesn't make 'exim" symlink
-PCRE_CFLAGS                  system       compile flags for PCRE library
+PCRE_CONFIG                  system*      use pcre-config for PCRE support
+PCRE_LIBS                    system*      library for using PCRE
 PERL_CC                      system*      compiler for Perl interface code
 PERL_CCOPTS                  system*      flags for same
 PERL_COMMAND                 system       path to Perl
@@ -919,7 +986,7 @@ TCP_WRAPPERS_DAEMON_NAME     system*      daemon name used by tcpwrappers librar
 TIMEZONE_DEFAULT             optional     default for timezone option
 TLS_INCLUDE                  optional     path to include files for TLS
 TLS_LIBS                     optional     additional libraries for TLS
-TMPDIR                       system       value for TMPDIR environment variable
+EXIM_TMPDIR                  system       value for TMPDIR environment variable
 TRANSPORT_APPENDFILE         driver       include appendfile transport
 TRANSPORT_AUTOREPLY          driver       include autoreply transport
 TRANSPORT_LMTP               driver       include lmtp transport
@@ -928,6 +995,8 @@ TRANSPORT_SMTP               driver       include smtp transport
 TRUSTED_CONFIG_LIST          optional     config files safe to retain privileges
 USE_DB                       system**     use native DB interface
 USE_GNUTLS                   optional     use GnuTLS instead of OpenSSL
+USE_GNUTLS_PC                optional     probably "gnutls"
+USE_OPENSSL_PC               optional     probably "openssl"
 USE_READLINE                 optional     try to load libreadline for -be
 USE_TCP_WRAPPERS             system       link with tcpwrappers
 USE_TDB                      optional     use the tdb DB interface

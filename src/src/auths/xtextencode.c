@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/auths/xtextencode.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -30,7 +28,7 @@ uschar *
 auth_xtextencode(uschar *clear, int len)
 {
 uschar *code;
-uschar *p = (uschar *)clear;
+uschar *p = US clear;
 uschar *pp;
 int c = len;
 int count = 1;
@@ -44,17 +42,13 @@ while (c -- > 0)
 
 pp = code = store_get(count);
 
-p = (uschar *)clear;
+p = US clear;
 c = len;
 while (c-- > 0)
-  {
   if ((x = *p++) < 33 || x > 127 || x == '+' || x == '=')
-    {
-    sprintf(CS pp, "+%.02x", x);   /* There's always room */
-    pp += 3;
-    }
-  else *pp++ = x;
-  }
+    pp += sprintf(CS pp, "+%.02x", x);   /* There's always room */
+  else
+    *pp++ = x;
 
 *pp = 0;
 return code;

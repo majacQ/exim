@@ -1,5 +1,4 @@
 #! /bin/sh
-# $Cambridge: exim/src/scripts/Configure-config.h,v 1.2 2005/05/04 10:17:29 ph10 Exp $
 
 # Build the config.h file, using the buildconfig program, first ensuring that
 # it exists.
@@ -35,7 +34,7 @@ $MAKE buildconfig || exit 1
 st='	 '
 
 (sed -n \
-  "/\\\$/d;s/#.*\$//;s/^[$st]*\\([A-Z][^:$st]*\\)[$st]*=[$st]*\\([^$st]*\\)[$st]*\$/\\1=\\2 export \\1/p" \
+  "/\\\$/d;s/#.*\$//;s/^[$st]*\\([A-Z][^:!+$st]*\\)[$st]*=[$st]*\\([^$st]*\\)[$st]*\$/\\1=\\2 export \\1/p" \
   < Makefile ; echo "./buildconfig") | /bin/sh
 
 # If buildconfig ends with an error code, it will have output an error
@@ -57,4 +56,5 @@ fi
 echo ">>> config.h built"
 echo ""
 
+# vim: set ft=sh :
 # End of Configure-config.h

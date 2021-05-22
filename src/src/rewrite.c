@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/rewrite.c,v 1.5 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions concerned with rewriting headers */
@@ -120,7 +118,8 @@ for (rule = rewrite_rules;
   {
   int start, end, pdomain;
   int count = 0;
-  uschar *save_localpart, *save_domain;
+  uschar *save_localpart;
+  const uschar *save_domain;
   uschar *error, *new, *newparsed;
 
   /* Ensure that the flag matches the flags in the rule. */
@@ -143,7 +142,7 @@ for (rule = rewrite_rules;
     uschar *key = expand_string(rule->key);
     if (key == NULL)
       {
-      if (!expand_string_forcedfail)
+      if (!f.expand_string_forcedfail)
         log_write(0, LOG_MAIN|LOG_PANIC, "failed to expand \"%s\" while "
           "checking for SMTP rewriting: %s", rule->key, expand_string_message);
       continue;
@@ -164,7 +163,7 @@ for (rule = rewrite_rules;
     /* Use the general function for matching an address against a list (here
     just one item, so use the "impossible value" separator UCHAR_MAX+1). */
 
-    if (match_address_list(subject, FALSE, TRUE, &(rule->key), NULL, 0,
+    if (match_address_list(subject, FALSE, TRUE, CUSS &(rule->key), NULL, 0,
         UCHAR_MAX + 1, NULL) != OK)
       continue;
 
@@ -204,8 +203,11 @@ for (rule = rewrite_rules;
 
   if (new == NULL)
     {
-    if (expand_string_forcedfail)
+    if (f.expand_string_forcedfail)
       { if ((rule->flags & rewrite_quit) != 0) break; else continue; }
+
+    expand_string_message = expand_hide_passwords(expand_string_message);
+
     log_write(0, LOG_MAIN|LOG_PANIC, "Expansion of %s failed while rewriting: "
       "%s", rule->replacement, expand_string_message);
     break;
@@ -248,8 +250,7 @@ for (rule = rewrite_rules;
 
   /* We have a validly rewritten address */
 
-  if ((log_write_selector & L_address_rewrite) != 0 ||
-      (debug_selector & D_rewrite) != 0)
+  if (LOGGING(address_rewrite) || (debug_selector & D_rewrite) != 0)
     {
     int i;
     const uschar *where = CUS"?";
@@ -294,7 +295,7 @@ for (rule = rewrite_rules;
         {
         uschar *p1 = new + start - 1;
         uschar *p2 = new + end + 1;
-        uschar *pf1, *pf2;
+        const uschar *pf1, *pf2;
         uschar buff1[256], buff2[256];
 
         while (p1 > new && p1[-1] == ' ') p1--;
@@ -308,7 +309,7 @@ for (rule = rewrite_rules;
 
         start = Ustrlen(pf1) + start + new - p1;
         end = start + Ustrlen(newparsed);
-        new = string_sprintf("%s%.*s%s", pf1, p2 - p1, p1, pf2);
+        new = string_sprintf("%s%.*s%s", pf1, (int)(p2 - p1), p1, pf2);
         }
 
       /* Now accept the whole thing */
@@ -451,8 +452,9 @@ Returns:         NULL if header unchanged; otherwise the rewritten header
 */
 
 static header_line *
-rewrite_one_header(header_line *h, int flag, uschar *routed_old,
-  uschar *routed_new, rewrite_rule *rewrite_rules, int existflags, BOOL replace)
+rewrite_one_header(header_line *h, int flag,
+  const uschar *routed_old, const uschar *routed_new,
+  rewrite_rule *rewrite_rules, int existflags, BOOL replace)
 {
 int lastnewline = 0;
 header_line *newh = NULL;
@@ -463,7 +465,7 @@ while (isspace(*s)) s++;
 DEBUG(D_rewrite)
   debug_printf("rewrite_one_header: type=%c:\n  %s", h->type, h->text);
 
-parse_allow_group = TRUE;     /* Allow group syntax */
+f.parse_allow_group = TRUE;     /* Allow group syntax */
 
 /* Loop for multiple addresses in the header. We have to go through them all
 in case any need qualifying, even if there's no rewriting. Pathological headers
@@ -542,8 +544,8 @@ while (*s != 0)
 
     /* Can only qualify if permitted; if not, no rewrite. */
 
-    if (changed && ((is_recipient && !allow_unqualified_recipient) ||
-                    (!is_recipient && !allow_unqualified_sender)))
+    if (changed && ((is_recipient && !f.allow_unqualified_recipient) ||
+                    (!is_recipient && !f.allow_unqualified_sender)))
       {
       store_reset(loop_reset_point);
       continue;
@@ -671,8 +673,8 @@ while (*s != 0)
     }
   }
 
-parse_allow_group = FALSE;  /* Reset group flags */
-parse_found_group = FALSE;
+f.parse_allow_group = FALSE;  /* Reset group flags */
+f.parse_found_group = FALSE;
 
 /* If a rewrite happened and "replace" is true, put the new header into the
 chain following the old one, and mark the old one as replaced. */
@@ -719,7 +721,8 @@ Returns:         NULL if header unchanged; otherwise the rewritten header
 */
 
 header_line *
-rewrite_header(header_line *h, uschar *routed_old, uschar *routed_new,
+rewrite_header(header_line *h,
+  const uschar *routed_old, const uschar *routed_new,
   rewrite_rule *rewrite_rules, int existflags, BOOL replace)
 {
 switch (h->type)

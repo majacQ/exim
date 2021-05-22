@@ -1,10 +1,9 @@
-/* $Cambridge: exim/src/src/perl.c,v 1.5 2006/07/14 14:32:09 ph10 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
 /* Copyright (c) 1998 Malcolm Beattie */
+/* Copyright (C) 1999 - 2018  Exim maintainers */
 
 /* Modified by PH to get rid of the "na" usage, March 1999.
    Modified further by PH for general tidying for Exim 4.
@@ -15,6 +14,7 @@
 /* This Perl add-on can be distributed under the same terms as Exim itself. */
 /* See the file NOTICE for conditions of use and distribution. */
 
+#include <assert.h>
 #include "exim.h"
 
 #define EXIM_TRUE TRUE
@@ -61,8 +61,8 @@ XS(xs_expand_string)
   str = expand_string(US SvPV(ST(0), len));
   ST(0) = sv_newmortal();
   if (str != NULL)
-    sv_setpv(ST(0), (const char *) str);
-  else if (!expand_string_forcedfail)
+    sv_setpv(ST(0), CCS  str);
+  else if (!f.expand_string_forcedfail)
     croak("syntax error in Exim::expand_string argument: %s",
       expand_string_message);
 }
@@ -97,10 +97,16 @@ static void  xs_init(pTHX)
 uschar *
 init_perl(uschar *startup_code)
 {
-  static int argc = 2;
-  static char *argv[3] = { "exim-perl", "/dev/null", 0 };
+  static int argc = 1;
+  static char *argv[4] = { "exim-perl" };
   SV *sv;
   STRLEN len;
+
+  if (opt_perl_taintmode) argv[argc++] = "-T";
+  argv[argc++] = "/dev/null";
+  argv[argc] = 0;
+
+  assert(sizeof(argv)/sizeof(argv[0]) > argc);
 
   if (interp_perl) return 0;
   interp_perl = perl_alloc();
@@ -145,9 +151,8 @@ cleanup_perl(void)
   interp_perl = 0;
 }
 
-uschar *
-call_perl_cat(uschar *yield, int *sizep, int *ptrp, uschar **errstrp,
-  uschar *name, uschar **arg)
+gstring *
+call_perl_cat(gstring * yield, uschar **errstrp, uschar *name, uschar **arg)
 {
   dSP;
   SV *sv;
@@ -181,7 +186,7 @@ call_perl_cat(uschar *yield, int *sizep, int *ptrp, uschar **errstrp,
     return NULL;
     }
   str = US SvPV(sv, len);
-  yield = string_cat(yield, sizep, ptrp, str, (int)len);
+  yield = string_catn(yield, str, (int)len);
   FREETMPS;
   LEAVE;
 

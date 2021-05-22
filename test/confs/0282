@@ -1,18 +1,13 @@
 # Exim test configuration 0282
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
 acl_smtp_rcpt = accept
-local_interfaces = <; 127.0.0.1.PORT_D ; [127.0.0.1]:PORT_D2 ; HOSTIPV4
+local_interfaces = <; 127.0.0.1.PORT_D ; [127.0.0.1]:PORT_D2 ; HOSTIPV4 ; 127.0.0.1.PORT_D4
 log_selector = +incoming_interface+incoming_port
 queue_only
 queue_run_in_order

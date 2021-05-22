@@ -1,5 +1,4 @@
 #! /bin/sh
-# $Cambridge: exim/src/src/exim_checkaccess.src,v 1.2 2009/11/16 19:50:36 nm4 Exp $
 
 # Copyright (c) University of Cambridge, 1995 - 2007
 # See the file NOTICE for conditions of use and distribution.
@@ -64,8 +63,17 @@ if test "$exim_path" = ""; then exim_path=BIN_DIRECTORY/exim; fi
 
 PERL_COMMAND - $exim_path $args <<'End'
 
+BEGIN { pop @INC if $INC[-1] eq '.' };
 use FileHandle;
+use File::Basename;
 use IPC::Open2;
+
+if ($ARGV[0] eq '--version') {
+    print basename($0) . ": $0\n",
+          "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+          "perl(runtime): $]\n";
+          exit 0;
+}
 
 if (scalar(@ARGV) < 3)
   {

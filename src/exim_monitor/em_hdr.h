@@ -1,5 +1,3 @@
-/* $Cambridge: exim/src/exim_monitor/em_hdr.h,v 1.8 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *                 Exim Monitor                   *
 *************************************************/
@@ -89,11 +87,13 @@ anything. */
 
 #include <pcre.h>
 
-/* Includes from the main source of Exim. We need to have MAXPACKET defined for
-the benefit of structs.h. One of these days I should tidy up this interface so
-that this kind of kludge isn't needed. */
+/* Includes from the main source of Exim.  One of these days I should tidy up
+this interface so that this kind of kludge isn't needed. */
 
-#define MAXPACKET 1024
+#ifndef NS_MAXMSG
+# define NS_MAXMSG 65535
+#endif
+typedef void hctx;
 
 #include "config.h"
 #include "mytypes.h"
@@ -101,7 +101,9 @@ that this kind of kludge isn't needed. */
 
 #include "local_scan.h"
 #include "structs.h"
+#include "blob.h"
 #include "globals.h"
+#include "dbstuff.h"
 #include "functions.h"
 #include "osfunctions.h"
 #include "store.h"

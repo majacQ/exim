@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/exim_monitor/em_menu.c,v 1.5 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *                  Exim Monitor                  *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -135,32 +133,33 @@ menu_is_up = FALSE;
 *          Display the message log               *
 *************************************************/
 
-static void msglogAction(Widget w, XtPointer client_data, XtPointer call_data)
+static void
+msglogAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 int i;
-uschar buffer[256];
-Widget text = text_create((uschar *)client_data, text_depth);
-FILE *f = NULL;
+Widget text = text_create(US client_data, text_depth);
+uschar * fname = NULL;
+FILE * f = NULL;
 
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
 
 /* End up with the split version, so message looks right when non-exist */
 
-for (i = 0; i < (spool_is_split? 2:1); i++)
+for (i = 0; i < (spool_is_split ? 2:1); i++)
   {
-  message_subdir[0] = (i != 0)? ((uschar *)client_data)[5] : 0;
-  sprintf(CS buffer, "%s/msglog/%s/%s", spool_directory, message_subdir,
-    (uschar *)client_data);
-  f = fopen(CS buffer, "r");
-  if (f != NULL) break;
+  message_subdir[0] = i != 0 ? (US client_data)[5] : 0;
+  fname = spool_fname(US"msglog", message_subdir, US client_data, US"");
+  if ((f = fopen(CS fname, "r")))
+    break;
   }
 
-if (f == NULL)
-  text_showf(text, "%s: %s\n", buffer, strerror(errno));
+if (!f)
+  text_showf(text, "%s: %s\n", fname, strerror(errno));
 else
   {
-  while (Ufgets(buffer, 256, f) != NULL) text_show(text, buffer);
+  uschar buffer[256];
+  while (Ufgets(buffer, sizeof(buffer), f) != NULL) text_show(text, buffer);
   fclose(f);
   }
 }
@@ -171,11 +170,11 @@ else
 *          Display the message body               *
 *************************************************/
 
-static void bodyAction(Widget w, XtPointer client_data, XtPointer call_data)
+static void
+bodyAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 int i;
-uschar buffer[256];
-Widget text = text_create((uschar *)client_data, text_depth);
+Widget text = text_create(US client_data, text_depth);
 FILE *f = NULL;
 
 w = w;      /* Keep picky compilers happy */
@@ -183,19 +182,21 @@ call_data = call_data;
 
 for (i = 0; i < (spool_is_split? 2:1); i++)
   {
-  message_subdir[0] = (i != 0)? ((uschar *)client_data)[5] : 0;
-  sprintf(CS buffer, "%s/input/%s/%s-D", spool_directory, message_subdir,
-    (uschar *)client_data);
-  f = fopen(CS buffer, "r");
-  if (f != NULL) break;
+  uschar * fname;
+  message_subdir[0] = i != 0 ? (US client_data)[5] : 0;
+  fname = spool_fname(US"input", message_subdir, US client_data, US"-D");
+  if ((f = fopen(CS fname, "r")))
+    break;
   }
 
 if (f == NULL)
   text_showf(text, "Failed to open file: %s\n", strerror(errno));
 else
   {
+  uschar buffer[256];
   int count = 0;
-  while (Ufgets(buffer, 256, f) != NULL)
+
+  while (Ufgets(buffer, sizeof(buffer), f) != NULL)
     {
     text_show(text, buffer);
     count += Ustrlen(buffer);
@@ -275,8 +276,12 @@ if (pipe(pipe_fd) != 0)
   return;
   }
 
-fcntl(pipe_fd[0], F_SETFL, O_NONBLOCK);
-fcntl(pipe_fd[1], F_SETFL, O_NONBLOCK);
+if (  fcntl(pipe_fd[0], F_SETFL, O_NONBLOCK)
+   || fcntl(pipe_fd[1], F_SETFL, O_NONBLOCK))
+  {
+  perror("set nonblocking on pipe");
+  exit(1);
+  }
 
 /* Delivering a message can take some time, and we want to show the
 output as it goes along. This requires subprocesses and is coded below. For
@@ -329,9 +334,9 @@ if (!delivery)
   if (rc == 0 && Ustrcmp(action + Ustrlen(action) - 4, "-Mes") == 0)
     {
     queue_item *q = find_queue(id, queue_noop, 0);
-    if (q != NULL)
+    if (q)
       {
-      if (q->sender != NULL) store_free(q->sender);
+      if (q->sender) store_free(q->sender);
       q->sender = store_malloc(Ustrlen(address_arg) + 1);
       Ustrcpy(q->sender, address_arg);
       }
@@ -375,7 +380,7 @@ if ((pid = fork()) == 0)
 
 /* Main process - set up an item for the main ticker to watch. */
 
-if (pid < 0) text_showf(text, "Failed to fork: %s\n", strerror(pid)); else
+if (pid < 0) text_showf(text, "Failed to fork: %s\n", strerror(errno)); else
   {
   pipe_item *p = (pipe_item *)store_malloc(sizeof(pipe_item));
 
@@ -406,7 +411,7 @@ static void deliverAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-ActOnMessage((uschar *)client_data, US"-v -M", US"");
+ActOnMessage(US client_data, US"-v -M", US"");
 }
 
 
@@ -419,7 +424,7 @@ static void freezeAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-ActOnMessage((uschar *)client_data, US"-Mf", US"");
+ActOnMessage(US client_data, US"-Mf", US"");
 }
 
 
@@ -432,7 +437,7 @@ static void thawAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-ActOnMessage((uschar *)client_data, US"-Mt", US"");
+ActOnMessage(US client_data, US"-Mt", US"");
 }
 
 
@@ -553,7 +558,8 @@ static void addrecipAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-Ustrcpy(actioned_message, (uschar *)client_data);
+Ustrncpy(actioned_message, client_data, 24);
+actioned_message[23] = '\0';
 action_required = US"-Mar";
 dialog_ref_widget = menushell;
 create_dialog(US"Recipient address to add?", US"");
@@ -569,7 +575,8 @@ static void markdelAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-Ustrcpy(actioned_message, (uschar *)client_data);
+Ustrncpy(actioned_message, client_data, 24);
+actioned_message[23] = '\0';
 action_required = US"-Mmd";
 dialog_ref_widget = menushell;
 create_dialog(US"Recipient address to mark delivered?", US"");
@@ -584,7 +591,7 @@ static void markalldelAction(Widget w, XtPointer client_data, XtPointer call_dat
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-ActOnMessage((uschar *)client_data, US"-Mmad", US"");
+ActOnMessage(US client_data, US"-Mmad", US"");
 }
 
 
@@ -599,9 +606,10 @@ queue_item *q;
 uschar *sender;
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-Ustrcpy(actioned_message, (uschar *)client_data);
+Ustrncpy(actioned_message, client_data, 24);
+actioned_message[23] = '\0';
 q = find_queue(actioned_message, queue_noop, 0);
-sender = (q == NULL)? US"" : (q->sender[0] == 0)? US"<>" : q->sender;
+sender = !q ? US"" : q->sender[0] == 0 ? US"<>" : q->sender;
 action_required = US"-Mes";
 dialog_ref_widget = menushell;
 create_dialog(US"New sender address?", sender);
@@ -616,7 +624,7 @@ static void giveupAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-ActOnMessage((uschar *)client_data, US"-v -Mg", US"");
+ActOnMessage(US client_data, US"-v -Mg", US"");
 }
 
 
@@ -629,7 +637,7 @@ static void removeAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 w = w;      /* Keep picky compilers happy */
 call_data = call_data;
-ActOnMessage((uschar *)client_data, US"-Mrm", US"");
+ActOnMessage(US client_data, US"-Mrm", US"");
 }
 
 
@@ -642,7 +650,7 @@ static void headersAction(Widget w, XtPointer client_data, XtPointer call_data)
 {
 uschar buffer[256];
 header_line *h, *next;
-Widget text = text_create((uschar *)client_data, text_depth);
+Widget text = text_create(US client_data, text_depth);
 void *reset_point;
 
 w = w;      /* Keep picky compilers happy */
@@ -653,7 +661,7 @@ Then use Exim's function to read the header. */
 
 reset_point = store_get(0);
 
-sprintf(CS buffer, "%s-H", (uschar *)client_data);
+sprintf(CS buffer, "%s-H", US client_data);
 if (spool_read_header(buffer, TRUE, FALSE) != spool_read_OK)
   {
   if (errno == ERRNO_SPOOLFORMAT)
@@ -672,7 +680,7 @@ if (spool_read_header(buffer, TRUE, FALSE) != spool_read_OK)
 
 if (sender_address != NULL)
   {
-  text_showf(text, "%s sender: <%s>\n", sender_local? "Local" : "Remote",
+  text_showf(text, "%s sender: <%s>\n", f.sender_local ? "Local" : "Remote",
     sender_address);
   }
 

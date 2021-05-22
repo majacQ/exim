@@ -1,16 +1,19 @@
-/* $Cambridge: exim/src/src/os.c,v 1.8 2009/11/16 19:50:37 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #ifdef STAND_ALONE
-#include <signal.h>
-#include <stdio.h>
-#include <time.h>
+# include <signal.h>
+# include <stdio.h>
+# include <time.h>
+#endif
+
+#ifndef CS
+# define CS (char *)
+# define US (unsigned char *)
 #endif
 
 /* This source file contains "default" system-dependent functions which
@@ -415,7 +418,7 @@ if (avg_kd < 0)
   }
 
 if (lseek (avg_kd, avg_offset, 0) == -1L
-    || read (avg_kd, (char *)(&avg), sizeof (avg)) != sizeof(avg))
+    || read (avg_kd, CS (&avg), sizeof (avg)) != sizeof(avg))
   return -1;
 
 return (int)(((double)avg/FSCALE)*1000.0);
@@ -647,7 +650,7 @@ ifc.V_ifc_family = V_FAMILY_QUERY;
 ifc.V_ifc_flags = 0;
 #endif
 
-if (ioctl(vs, V_GIFCONF, (char *)&ifc) < 0)
+if (ioctl(vs, V_GIFCONF, CS &ifc) < 0)
   log_write(0, LOG_PANIC_DIE, "Unable to get interface configuration: %d %s",
     errno, strerror(errno));
 
@@ -682,7 +685,7 @@ find its length, and then recopy the correct length. */
 
 for (cp = buf; cp < buf + ifc.V_ifc_len; cp += len)
   {
-  memcpy((char *)&ifreq, cp, sizeof(ifreq));
+  memcpy(CS &ifreq, cp, sizeof(ifreq));
 
   #ifndef HAVE_SA_LEN
   len = sizeof(struct V_ifreq);
@@ -712,7 +715,7 @@ for (cp = buf; cp < buf + ifc.V_ifc_len; cp += len)
   interface hasn't been "plumbed" to any protocol (IPv4 or IPv6). Therefore,
   we now just treat this case as "down" as well. */
 
-  if (ioctl(vs, V_GIFFLAGS, (char *)&ifreq) < 0)
+  if (ioctl(vs, V_GIFFLAGS, CS &ifreq) < 0)
     {
     continue;
     /*************
@@ -728,7 +731,7 @@ for (cp = buf; cp < buf + ifc.V_ifc_len; cp += len)
   GIFFLAGS may have wrecked the data. */
 
   #ifndef SIOCGIFCONF_GIVES_ADDR
-  if (ioctl(vs, V_GIFADDR, (char *)&ifreq) < 0)
+  if (ioctl(vs, V_GIFADDR, CS &ifreq) < 0)
     log_write(0, LOG_PANIC_DIE, "Unable to get IP address for %s interface: "
       "%d %s", ifreq.V_ifr_name, errno, strerror(errno));
   addrp = &ifreq.V_ifr_addr;
@@ -797,6 +800,98 @@ return yield;
 
 
 
+/* ----------------------------------------------------------------------- */
+
+/***********************************************************
+*                 DNS Resolver Base Finder                 *
+***********************************************************/
+
+/* We need to be able to set options for the system resolver(5), historically
+made available as _res.  At least one OS (NetBSD) now no longer provides this
+directly, instead making you call a function per thread to get a handle.
+Other OSs handle thread-safe resolver differently, in ways which fail if the
+programmer creates their own structs. */
+
+#if !defined(OS_GET_DNS_RESOLVER_RES) && !defined(COMPILE_UTILITY)
+
+#include <resolv.h>
+
+/* confirmed that res_state is typedef'd as a struct* on BSD and Linux, will
+find out how unportable it is on other OSes, but most resolver implementations
+should be descended from ISC's bind.
+
+Linux and BSD do:
+  define _res (*__res_state())
+identically.  We just can't rely on __foo functions.  It's surprising that use
+of _res has been as portable as it has, for so long.
+
+So, since _res works everywhere, and everything can decode the struct, I'm
+going to gamble that res_state is a typedef everywhere and use that as the
+return type.
+*/
+
+res_state
+os_get_dns_resolver_res(void)
+{
+  return &_res;
+}
+
+#endif /* OS_GET_DNS_RESOLVER_RES */
+
+/* ----------------------------------------------------------------------- */
+
+/***********************************************************
+*                 unsetenv()                               *
+***********************************************************/
+
+/* Most modern systems define int unsetenv(const char*),
+* some don't. */
+
+#if !defined(OS_UNSETENV)
+int
+os_unsetenv(const unsigned char * name)
+{
+return unsetenv(CS name);
+}
+#endif
+
+/* ----------------------------------------------------------------------- */
+
+/***********************************************************
+*               getcwd()                                   *
+***********************************************************/
+
+/* Glibc allows getcwd(NULL, 0) to do auto-allocation. Some systems
+do auto-allocation, but need the size of the buffer, and others
+may not even do this. If the OS supports getcwd(NULL, 0) we'll use
+this, for all other systems we provide our own getcwd() */
+
+#if !defined(OS_GETCWD)
+unsigned char *
+os_getcwd(unsigned char * buffer, size_t size)
+{
+return US  getcwd(CS buffer, size);
+}
+#else
+#ifndef PATH_MAX
+# define PATH_MAX 4096
+#endif
+unsigned char *
+os_getcwd(unsigned char * buffer, size_t size)
+{
+char * b = CS buffer;
+
+if (!size) size = PATH_MAX;
+if (!b && !(b = malloc(size))) return NULL;
+if (!(b = getcwd(b, size))) return NULL;
+return buffer ? buffer : realloc(b, strlen(b) + 1);
+}
+#endif
+
+/* ----------------------------------------------------------------------- */
+
+
+
 
 /*************************************************
 **************************************************
@@ -827,7 +922,7 @@ int rc;
 printf("Testing restarting signal; wait for handler message, then type a line\n");
 strcpy(buffer, "*** default ***\n");
 os_restarting_signal(SIGALRM, sigalrm_handler);
-alarm(2);
+ALARM(2);
 if ((rc = read(fd, buffer, sizeof(buffer))) < 0)
   printf("No data read\n");
 else
@@ -835,12 +930,12 @@ else
   buffer[rc] = 0;
   printf("Read: %s", buffer);
   }
-alarm(0);
+ALARM_CLR(0);
 
 printf("Testing non-restarting signal; should read no data after handler message\n");
 strcpy(buffer, "*** default ***\n");
 os_non_restarting_signal(SIGALRM, sigalrm_handler);
-alarm(2);
+ALARM(2);
 if ((rc = read(fd, buffer, sizeof(buffer))) < 0)
   printf("No data read\n");
 else
@@ -848,7 +943,7 @@ else
   buffer[rc] = 0;
   printf("Read: %s", buffer);
   }
-alarm(0);
+ALARM_CLR(0);
 
 printf("Testing load averages (last test - ^C to kill)\n");
 for (;;)

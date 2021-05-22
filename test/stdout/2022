@@ -7,6 +7,8 @@ Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
 ??? 250-
 <<< 250-SIZE 52428800
 ??? 250-
+<<< 250-8BITMIME
+??? 250-
 <<< 250-PIPELINING
 ??? 250-
 <<< 250-STARTTLS
@@ -21,7 +23,7 @@ Succeeded in starting TLS
 ??? 214-
 <<< 214-Commands supported:
 ??? 214
-<<< 214 AUTH HELO EHLO MAIL RCPT DATA NOOP QUIT RSET HELP
+<<< 214 AUTH HELO EHLO MAIL RCPT DATA BDAT NOOP QUIT RSET HELP
 >>> quit
 ??? 221
 <<< 221 myhost.test.ex closing connection

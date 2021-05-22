@@ -1,5 +1,3 @@
-# $Cambridge: exim/src/OS/eximon.conf-Default,v 1.1 2004/10/06 15:07:39 ph10 Exp $
-
 # Exim: Default settings for the eximon script which fires up the Exim monitor.
 # These can be overridden by OS-specific scripts and local installation
 # scripts, and also at run time by shell variables.
@@ -7,7 +5,7 @@
 # The name of the eximon binary, usually the same as the eximon script,
 # with .bin stuck on the end.
 
-EXIMON_BINARY=${EXIMON_BINARY-$0.bin}
+EXIMON_BINARY="${EXIMON_BINARY-$0.bin}"
 
 # The remaining parameters are values likely to be changed to suit the
 # user's taste. They are documented in the EDITME file.

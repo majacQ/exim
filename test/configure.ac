@@ -1,5 +1,3 @@
-dnl $Cambridge: exim/test/configure.ac,v 1.2 2007/01/23 11:01:10 ph10 Exp $
-
 dnl Process this file with autoconf to produce a configure script.
 
 dnl This is required at the start; the name is the name of a file
@@ -17,8 +15,10 @@ AC_PROG_CC
 
 dnl Checks for header files.
 
+AC_CHECK_HEADERS(sys/socket.h)
 AC_CHECK_HEADERS(openssl/crypto.h,[CLIENT_SSL=bin/client-ssl])
 AC_CHECK_HEADERS(gnutls/gnutls.h,[CLIENT_GNUTLS=bin/client-gnutls])
+AC_CHECK_HEADERS(gnutls/gnutls.h,[B64_GNUTLS=bin/ed25519_privkey_pem_to_pubkey_raw_b64])
 
 dnl The check on dynamically loaded modules requires the building of
 dnl something to load. This seems to be something that varies between
@@ -50,13 +50,22 @@ case $host_os in
     ;;
 esac
 
+dnl Solaris requires additional libraries for networking functions.
+
+AC_SEARCH_LIBS([inet_addr], [nsl])
+AC_SEARCH_LIBS([connect], [socket])
+AC_SEARCH_LIBS([inet_pton], [nsl socket resolv])
+AC_SEARCH_LIBS([inet_ntop], [nsl socket resolv])
+
 dnl "Export" these variables
 
 AC_SUBST(BIND_8_COMPAT)
 AC_SUBST(CLIENT_SSL)
 AC_SUBST(CLIENT_GNUTLS)
+AC_SUBST(B64_GNUTLS)
 AC_SUBST(LOADED)
 AC_SUBST(LOADED_OPT)
+AC_SUBST(LIBS)
 
 dnl This must be last; it determines what files are written
 

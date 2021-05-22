@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/auths/plaintext.c,v 1.8 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -35,6 +33,18 @@ auth_plaintext_options_block auth_plaintext_option_defaults = {
   NULL,              /* client_send */
   FALSE              /* client_ignore_invalid_base64 */
 };
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_plaintext_init(auth_instance *ablock) {}
+int auth_plaintext_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_plaintext_client(auth_instance *ablock, void * sx, int timeout,
+    uschar *buffer, int buffsize) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
 
 
 /*************************************************
@@ -68,7 +78,7 @@ auth_plaintext_server(auth_instance *ablock, uschar *data)
 {
 auth_plaintext_options_block *ob =
   (auth_plaintext_options_block *)(ablock->options_block);
-uschar *prompts = ob->server_prompts;
+const uschar *prompts = ob->server_prompts;
 uschar *clear, *end, *s;
 int number = 1;
 int len, rc;
@@ -78,7 +88,7 @@ int sep = 0;
 
 if (prompts != NULL)
   {
-  prompts = expand_string(prompts);
+  prompts = expand_cstring(prompts);
   if (prompts == NULL)
     {
     auth_defer_msg = expand_string_message;
@@ -101,7 +111,7 @@ if (*data != 0)
     }
   else
     {
-    if ((len = auth_b64decode(data, &clear)) < 0) return BAD64;
+    if ((len = b64decode(data, &clear)) < 0) return BAD64;
     end = clear + len;
     while (clear < end && expand_nmax < EXPAND_MAXN)
       {
@@ -123,7 +133,7 @@ while ((s = string_nextinlist(&prompts, &sep, big_buffer, big_buffer_size))
   {
   if (number++ <= expand_nmax) continue;
   if ((rc = auth_get_data(&data, s, Ustrlen(s))) != OK) return rc;
-  if ((len = auth_b64decode(data, &clear)) < 0) return BAD64;
+  if ((len = b64decode(data, &clear)) < 0) return BAD64;
   end = clear + len;
 
   /* This loop must run at least once, in case the length is zero */
@@ -157,15 +167,14 @@ return auth_check_serv_cond(ablock);
 int
 auth_plaintext_client(
   auth_instance *ablock,                 /* authenticator block */
-  smtp_inblock *inblock,                 /* connection inblock */
-  smtp_outblock *outblock,               /* connection outblock */
+  void * sx,				 /* smtp connextion */
   int timeout,                           /* command timeout */
   uschar *buffer,                        /* buffer for reading response */
   int buffsize)                          /* size of buffer */
 {
 auth_plaintext_options_block *ob =
   (auth_plaintext_options_block *)(ablock->options_block);
-uschar *text = ob->client_send;
+const uschar *text = ob->client_send;
 uschar *s;
 BOOL first = TRUE;
 int sep = 0;
@@ -175,7 +184,7 @@ int auth_var_idx = 0;
 sent one by one. The first one is sent with the AUTH command; the remainder are
 sent in response to subsequent prompts. Each is expanded before being sent. */
 
-while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL)
+while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)))
   {
   int i, len, clear_len;
   uschar *ss = expand_string(s);
@@ -186,15 +195,15 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
   sending a line containing "*". Save the failed expansion string, because it
   is in big_buffer, and that gets used by the sending function. */
 
-  if (ss == NULL)
+  if (!ss)
     {
     uschar *ssave = string_copy(s);
     if (!first)
       {
-      if (smtp_write_command(outblock, FALSE, "*\r\n") >= 0)
-        (void) smtp_read_response(inblock, US buffer, buffsize, '2', timeout);
+      if (smtp_write_command(sx, SCMD_FLUSH, "*\r\n") >= 0)
+        (void) smtp_read_response(sx, US buffer, buffsize, '2', timeout);
       }
-    if (expand_string_forcedfail)
+    if (f.expand_string_forcedfail)
       {
       *buffer = 0;       /* No message */
       return CANCELLED;
@@ -210,33 +219,25 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
   needed for the PLAIN mechanism. It must be doubled if really needed. */
 
   for (i = 0; i < len; i++)
-    {
     if (ss[i] == '^')
-      {
-      if (ss[i+1] != '^') ss[i] = 0; else
-        {
-        i++;
-        len--;
-        memmove(ss + i, ss + i + 1, len - i);
-        }
-      }
-    }
+      if (ss[i+1] != '^')
+	ss[i] = 0;
+      else
+        if (--len > ++i) memmove(ss + i, ss + i + 1, len - i);
 
   /* The first string is attached to the AUTH command; others are sent
-  unembelished. */
+  unembellished. */
 
   if (first)
     {
     first = FALSE;
-    if (smtp_write_command(outblock, FALSE, "AUTH %s%s%s\r\n",
-         ablock->public_name, (len == 0)? "" : " ",
-         auth_b64encode(ss, len)) < 0)
+    if (smtp_write_command(sx, SCMD_FLUSH, "AUTH %s%s%s\r\n",
+         ablock->public_name, len == 0 ? "" : " ", b64encode(ss, len)) < 0)
       return FAIL_SEND;
     }
   else
     {
-    if (smtp_write_command(outblock, FALSE, "%s\r\n",
-          auth_b64encode(ss, len)) < 0)
+    if (smtp_write_command(sx, SCMD_FLUSH, "%s\r\n", b64encode(ss, len)) < 0)
       return FAIL_SEND;
     }
 
@@ -244,7 +245,7 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
   has succeeded. There may be more data to send, but is there any point
   in provoking an error here? */
 
-  if (smtp_read_response(inblock, US buffer, buffsize, '2', timeout)) return OK;
+  if (smtp_read_response(sx, US buffer, buffsize, '2', timeout)) return OK;
 
   /* Not a success response. If errno != 0 there is some kind of transmission
   error. Otherwise, check the response code in the buffer. If it starts with
@@ -255,10 +256,10 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
   /* If there is no more data to send, we have to cancel the authentication
   exchange and return ERROR. */
 
-  if (text == NULL)
+  if (!text)
     {
-    if (smtp_write_command(outblock, FALSE, "*\r\n") >= 0)
-      (void)smtp_read_response(inblock, US buffer, buffsize, '2', timeout);
+    if (smtp_write_command(sx, SCMD_FLUSH, "*\r\n") >= 0)
+      (void)smtp_read_response(sx, US buffer, buffsize, '2', timeout);
     string_format(buffer, buffsize, "Too few items in client_send in %s "
       "authenticator", ablock->name);
     return ERROR;
@@ -267,7 +268,7 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
   /* Now that we know we'll continue, we put the received data into $auth<n>,
   if possible. First, decode it: buffer+4 skips over the SMTP status code. */
 
-  clear_len = auth_b64decode(buffer+4, &clear);
+  clear_len = b64decode(buffer+4, &clear);
 
   /* If decoding failed, the default is to terminate the authentication, and
   return FAIL, with the SMTP response still in the buffer. However, if client_
@@ -279,8 +280,8 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
     uschar *save_bad = string_copy(buffer);
     if (!ob->client_ignore_invalid_base64)
       {
-      if (smtp_write_command(outblock, FALSE, "*\r\n") >= 0)
-        (void)smtp_read_response(inblock, US buffer, buffsize, '2', timeout);
+      if (smtp_write_command(sx, SCMD_FLUSH, "*\r\n") >= 0)
+        (void)smtp_read_response(sx, US buffer, buffsize, '2', timeout);
       string_format(buffer, buffsize, "Invalid base64 string in server "
         "response \"%s\"", save_bad);
       return CANCELLED;
@@ -298,4 +299,5 @@ while ((s = string_nextinlist(&text, &sep, big_buffer, big_buffer_size)) != NULL
 return FAIL;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of plaintext.c */

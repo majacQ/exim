@@ -1,6 +1,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -23,6 +24,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -31,6 +33,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -39,6 +42,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -48,6 +52,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -56,6 +61,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -68,6 +74,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -78,12 +85,14 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
 250 Accepted
 221 the.local.host.name closing connection
 +++++++++++++++++++++++++++
+07-Mar-2000 12:21:52 other.ex callout=accept postmaster=unknown random=unknown
 07-Mar-2000 12:21:52 r1@test.ex callout=accept
 07-Mar-2000 12:21:52 r1@test.ex/<postmaster@the.local.host.name> callout=accept
 07-Mar-2000 12:21:52 r1@test.ex/<s1@test.ex> callout=accept
@@ -95,6 +104,28 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
+250-PIPELINING
+250 HELP
+250 OK
+250 Accepted
+221 the.local.host.name closing connection
++++++++++++++++++++++++++++
+07-Mar-2000 12:21:52 other.ex callout=accept postmaster=unknown random=unknown
+07-Mar-2000 12:21:52 r12@three.test.ex callout=accept
+07-Mar-2000 12:21:52 r1@test.ex callout=accept
+07-Mar-2000 12:21:52 r1@test.ex/<postmaster@the.local.host.name> callout=accept
+07-Mar-2000 12:21:52 r1@test.ex/<s1@test.ex> callout=accept
+07-Mar-2000 12:21:52 r1@test.ex/<s2@test.ex> callout=accept
+07-Mar-2000 12:21:52 r9@test.ex/<x9@test.ex> callout=reject
+07-Mar-2000 12:21:52 test.ex callout=accept postmaster=unknown random=unknown
+07-Mar-2000 12:21:52 three.test.ex callout=accept postmaster=unknown random=reject (07-Mar-2000 12:21:52)
+07-Mar-2000 12:21:52 two.test.ex callout=accept postmaster=unknown random=accept (07-Mar-2000 12:21:52)
+07-Mar-2000 12:21:52 x9@test.ex callout=reject
+220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
+250-the.local.host.name Hello CALLER at xxxx
+250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -103,6 +134,7 @@
 220 the.local.host.name ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 250-the.local.host.name Hello CALLER at xxxx
 250-SIZE 52428800
+250-8BITMIME
 250-PIPELINING
 250 HELP
 250 OK
@@ -113,7 +145,7 @@
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<s1@test.ex>
 250 OK
@@ -125,7 +157,7 @@ Expected EOF read from client
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<s2@test.ex>
 250 OK
@@ -137,7 +169,7 @@ Expected EOF read from client
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<s3@other.ex>
 550 NOTOK
@@ -147,7 +179,7 @@ End of script
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<>
 250 OK
@@ -159,7 +191,7 @@ End of script
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<postmaster@the.local.host.name>
 250 OK
@@ -171,7 +203,7 @@ End of script
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<x9@test.ex>
 250 OK
@@ -183,7 +215,7 @@ End of script
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<>
 250 OK
@@ -195,7 +227,7 @@ End of script
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<postmaster@the.local.host.name>
 250 OK
@@ -207,7 +239,29 @@ End of script
 Listening on port 1224 ... 
 Connection request from [127.0.0.1]
 220 Server ready
-HELO the.local.host.name
+EHLO the.local.host.name
+250 OK
+MAIL FROM:<>
+250 OK
+RCPT TO:<the.local.host.name--testing@three.test.ex>
+550 Bad receipient, dropping conn
+>*eof
+Listening on port 1224 ... 
+Connection request from [127.0.0.1]
+220 Server ready
+EHLO the.local.host.name
+250 OK
+MAIL FROM:<>
+250 OK
+RCPT TO:<r12@three.test.ex>
+250 OK
+QUIT
+250 OK
+End of script
+Listening on port 1224 ... 
+Connection request from [127.0.0.1]
+220 Server ready
+EHLO the.local.host.name
 250 OK
 MAIL FROM:<>
 250 OK

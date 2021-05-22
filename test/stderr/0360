@@ -143,9 +143,9 @@ After routing:
     defer@test.ex
 locking TESTSUITE/spool/db/retry.lockfile
 LOG: MAIN
-  *> unknown@recurse.test.ex.test.ex <cms@test.ex> R=r1 T=t1 H=recurse.test.ex.test.ex [V4NET.99.0.2]
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+  *> unknown@recurse.test.ex.test.ex <cms@test.ex> R=r1 T=t1 H=recurse.test.ex.test.ex [V4NET.99.0.2] C="delivery bypassed by -N option"
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
@@ -242,4 +242,4 @@ After routing:
     defer@test.ex
 LOG: queue_run MAIN
   End queue run: pid=pppp -qf
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

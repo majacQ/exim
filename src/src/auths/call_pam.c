@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/auths/call_pam.c,v 1.5 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -18,10 +16,13 @@ available for compiling. Therefore, compile these functions only if SUPPORT_PAM
 is defined. However, some compilers don't like compiling empty modules, so keep
 them happy with a dummy when skipping the rest. Make it reference itself to
 stop picky compilers complaining that it is unused, and put in a dummy argument
-to stop even pickier compilers complaining about infinite loops. */
+to stop even pickier compilers complaining about infinite loops.
+Then use a mutually-recursive pair as gcc is just getting stupid. */
 
 #ifndef SUPPORT_PAM
-static void dummy(int x) { dummy(x-1); }
+static void dummy(int x);
+static void dummy2(int x) { dummy(x-1); }
+static void dummy(int x) { dummy2(x-1); }
 #else  /* SUPPORT_PAM */
 
 #ifdef PAM_H_IN_PAM
@@ -35,7 +36,7 @@ data pointer passed to the conversation function. However, I was unable to get
 this to work on Solaris 2.6, so static variables are used instead. */
 
 static int pam_conv_had_error;
-static uschar *pam_args;
+static const uschar *pam_args;
 static BOOL pam_arg_ended;
 
 
@@ -128,7 +129,7 @@ Returns:   OK if authentication succeeded
 */
 
 int
-auth_call_pam(uschar *s, uschar **errptr)
+auth_call_pam(const uschar *s, uschar **errptr)
 {
 pam_handle_t *pamh = NULL;
 struct pam_conv pamc;
@@ -188,7 +189,7 @@ if (pam_error == PAM_SUCCESS)
   return OK;
   }
 
-*errptr = (uschar *)pam_strerror(pamh, pam_error);
+*errptr = US pam_strerror(pamh, pam_error);
 DEBUG(D_auth) debug_printf("PAM error: %s\n", *errptr);
 
 if (pam_error == PAM_USER_UNKNOWN ||

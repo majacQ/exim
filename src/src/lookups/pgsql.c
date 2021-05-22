@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/lookups/pgsql.c,v 1.11 2009/11/16 19:50:38 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Thanks to Petr Cech for contributing the original code for these
@@ -99,7 +97,7 @@ configuration line for PostgreSQL via Unix domain sockets looks like this:
 hide pgsql_servers = (/tmp/.s.PGSQL.5432)/db/user/password[:<nextserver>]
 
 We enclose the path name in parentheses so that its slashes aren't visually
-confused with the delimeters for the other pgsql_server settings.
+confused with the delimiters for the other pgsql_server settings.
 
 For TCP/IP connections, the server is a host name and optional port (with a
 colon separator).
@@ -120,18 +118,16 @@ Returns:       OK, FAIL, or DEFER
 */
 
 static int
-perform_pgsql_search(uschar *query, uschar *server, uschar **resultptr,
-  uschar **errmsg, BOOL *defer_break, BOOL *do_cache)
+perform_pgsql_search(const uschar *query, uschar *server, uschar **resultptr,
+  uschar **errmsg, BOOL *defer_break, uint *do_cache)
 {
 PGconn *pg_conn = NULL;
 PGresult *pg_result = NULL;
 
 int i;
-int ssize = 0;
-int offset = 0;
+gstring * result = NULL;
 int yield = DEFER;
 unsigned int num_fields, num_tuples;
-uschar *result = NULL;
 pgsql_connection *cn;
 uschar *server_copy = NULL;
 uschar *sdata[3];
@@ -144,7 +140,7 @@ has the password removed. This copy is also used for debugging output. */
 for (i = 2; i >= 0; i--)
   {
   uschar *pp = Ustrrchr(server, '/');
-  if (pp == NULL)
+  if (!pp)
     {
     *errmsg = string_sprintf("incomplete pgSQL server data: %s",
       (i == 2)? server : server_copy);
@@ -160,18 +156,16 @@ for (i = 2; i >= 0; i--)
 start is the identification of the server (host or path). See if we have a
 cached connection to the server. */
 
-for (cn = pgsql_connections; cn != NULL; cn = cn->next)
-  {
+for (cn = pgsql_connections; cn; cn = cn->next)
   if (Ustrcmp(cn->server, server_copy) == 0)
     {
     pg_conn = cn->handle;
     break;
     }
-  }
 
 /* If there is no cached connection, we must set one up. */
 
-if (cn == NULL)
+if (!cn)
   {
   uschar *port = US"";
 
@@ -182,7 +176,7 @@ if (cn == NULL)
     uschar *last_slash, *last_dot, *p;
 
     p = ++server;
-    while (*p != 0 && *p != ')') p++;
+    while (*p && *p != ')') p++;
     *p = 0;
 
     last_slash = Ustrrchr(server, '/');
@@ -195,10 +189,9 @@ if (cn == NULL)
     We have to call PQsetdbLogin with '/var/run/postgresql' as the hostname
     argument and put '5432' into the port variable. */
 
-    if (last_slash == NULL || last_dot == NULL)
+    if (!last_slash || !last_dot)
       {
-      *errmsg = string_sprintf("PGSQL invalid filename for socket: %s",
-        server);
+      *errmsg = string_sprintf("PGSQL invalid filename for socket: %s", server);
       *defer_break = TRUE;
       return DEFER;
       }
@@ -215,13 +208,13 @@ if (cn == NULL)
   else
     {
     uschar *p;
-    if ((p = Ustrchr(server, ':')) != NULL)
+    if ((p = Ustrchr(server, ':')))
       {
       *p++ = 0;
       port = p;
       }
 
-    if (Ustrchr(server, '/') != NULL)
+    if (Ustrchr(server, '/'))
       {
       *errmsg = string_sprintf("unexpected slash in pgSQL server hostname: %s",
         server);
@@ -284,36 +277,37 @@ else
 
 /* Run the query */
 
-  pg_result = PQexec(pg_conn, CS query);
-  switch(PQresultStatus(pg_result))
-    {
-    case PGRES_EMPTY_QUERY:
-    case PGRES_COMMAND_OK:
+pg_result = PQexec(pg_conn, CS query);
+switch(PQresultStatus(pg_result))
+  {
+  case PGRES_EMPTY_QUERY:
+  case PGRES_COMMAND_OK:
     /* The command was successful but did not return any data since it was
-     * not SELECT but either an INSERT, UPDATE or DELETE statement. Tell the
-     * high level code to not cache this query, and clean the current cache for
-     * this handle by setting *do_cache FALSE. */
-    result = string_copy(US PQcmdTuples(pg_result));
-    offset = Ustrlen(result);
-    *do_cache = FALSE;
-    DEBUG(D_lookup) debug_printf("PGSQL: command does not return any data "
-      "but was successful. Rows affected: %s\n", result);
+    not SELECT but either an INSERT, UPDATE or DELETE statement. Tell the
+    high level code to not cache this query, and clean the current cache for
+    this handle by setting *do_cache zero. */
 
-    case PGRES_TUPLES_OK:
+    result = string_cat(result, US PQcmdTuples(pg_result));
+    *do_cache = 0;
+    DEBUG(D_lookup) debug_printf("PGSQL: command does not return any data "
+      "but was successful. Rows affected: %s\n", string_from_gstring(result));
     break;
 
-    default:
+  case PGRES_TUPLES_OK:
+    break;
+
+  default:
     /* This was the original code:
     *errmsg = string_sprintf("PGSQL: query failed: %s\n",
-                             PQresultErrorMessage(pg_result));
+			     PQresultErrorMessage(pg_result));
     This was suggested by a user:
     */
 
     *errmsg = string_sprintf("PGSQL: query failed: %s (%s) (%s)\n",
-                             PQresultErrorMessage(pg_result),
-                             PQresStatus(PQresultStatus(pg_result)), query);
+			   PQresultErrorMessage(pg_result),
+			   PQresStatus(PQresultStatus(pg_result)), query);
     goto PGSQL_EXIT;
-    }
+  }
 
 /* Result is in pg_result. Find the number of fields returned. If this is one,
 we don't add field names to the data. Otherwise we do. If the query did not
@@ -328,40 +322,29 @@ row, we insert '\n' between them. */
 
 for (i = 0; i < num_tuples; i++)
   {
-  if (result != NULL)
-    result = string_cat(result, &ssize, &offset, US"\n", 1);
+  if (result)
+    result = string_catn(result, US"\n", 1);
 
-   if (num_fields == 1)
-    {
-    result = string_cat(result, &ssize, &offset,
-      US PQgetvalue(pg_result, i, 0), PQgetlength(pg_result, i, 0));
-    }
-
-   else
+  if (num_fields == 1)
+    result = string_catn(result,
+	US PQgetvalue(pg_result, i, 0), PQgetlength(pg_result, i, 0));
+  else
     {
     int j;
     for (j = 0; j < num_fields; j++)
       {
       uschar *tmp = US PQgetvalue(pg_result, i, j);
-      result = lf_quote(US PQfname(pg_result, j), tmp, Ustrlen(tmp), result,
-        &ssize, &offset);
+      result = lf_quote(US PQfname(pg_result, j), tmp, Ustrlen(tmp), result);
       }
     }
   }
 
-/* If result is NULL then no data has been found and so we return FAIL.
-Otherwise, we must terminate the string which has been built; string_cat()
-always leaves enough room for a terminating zero. */
+/* If result is NULL then no data has been found and so we return FAIL. */
 
-if (result == NULL)
+if (!result)
   {
   yield = FAIL;
   *errmsg = US"PGSQL: no data found";
-  }
-else
-  {
-  result[offset] = 0;
-  store_reset(result + offset + 1);
   }
 
 /* Get here by goto from various error checks. */
@@ -371,13 +354,14 @@ PGSQL_EXIT:
 /* Free store for any result that was got; don't close the connection, as
 it is cached. */
 
-if (pg_result != NULL) PQclear(pg_result);
+if (pg_result) PQclear(pg_result);
 
-/* Non-NULL result indicates a sucessful result */
+/* Non-NULL result indicates a successful result */
 
-if (result != NULL)
+if (result)
   {
-  *resultptr = result;
+  store_reset(result->s + result->ptr + 1);
+  *resultptr = string_from_gstring(result);
   return OK;
   }
 else
@@ -400,8 +384,8 @@ query is deferred with a retryable error is now in a separate function that is
 shared with other SQL lookups. */
 
 static int
-pgsql_find(void *handle, uschar *filename, uschar *query, int length,
-  uschar **result, uschar **errmsg, BOOL *do_cache)
+pgsql_find(void *handle, uschar *filename, const uschar *query, int length,
+  uschar **result, uschar **errmsg, uint *do_cache)
 {
 return lf_sqlperform(US"PostgreSQL", US"pgsql_servers", pgsql_servers, query,
   result, errmsg, do_cache, perform_pgsql_search);
@@ -415,12 +399,6 @@ return lf_sqlperform(US"PostgreSQL", US"pgsql_servers", pgsql_servers, query,
 
 /* The characters that always need to be quoted (with backslash) are newline,
 tab, carriage return, backspace, backslash itself, and the quote characters.
-Percent and underscore are only special in contexts where they can be wild
-cards, and this isn't usually the case for data inserted from messages, since
-that isn't likely to be treated as a pattern of any kind. However, pgsql seems
-to allow escaping "on spec". If you use something like "where id="ab\%cd" it
-does treat the string as "ab%cd". So we can safely quote percent and
-underscore. [This is different to MySQL, where you can't do this.]
 
 The original code quoted single quotes as \' which is documented as valid in
 the O'Reilly book "Practical PostgreSQL" (first edition) as an alternative to
@@ -450,7 +428,7 @@ uschar *quoted;
 if (opt != NULL) return NULL;     /* No options recognized */
 
 while ((c = *t++) != 0)
-  if (Ustrchr("\n\t\r\b\'\"\\%_", c) != NULL) count++;
+  if (Ustrchr("\n\t\r\b\'\"\\", c) != NULL) count++;
 
 if (count == 0) return s;
 t = quoted = store_get(Ustrlen(s) + count + 1);
@@ -462,7 +440,7 @@ while ((c = *s++) != 0)
     *t++ = '\'';
     *t++ = '\'';
     }
-  else if (Ustrchr("\n\t\r\b\"\\%_", c) != NULL)
+  else if (Ustrchr("\n\t\r\b\"\\", c) != NULL)
     {
     *t++ = '\\';
     switch(c)

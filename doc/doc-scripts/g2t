@@ -1,5 +1,4 @@
 #! /usr/bin/perl -w
-# $Cambridge: exim/doc/doc-scripts/g2t,v 1.2 2005/01/27 10:25:35 ph10 Exp $
 
 # A Perl script to turn the SGCAL source of the Exim documentation into
 # Texinfo input, more or less...
@@ -726,7 +725,7 @@ while (<>)
       # "-". If we triple it in the menu it gets displayed OK, but building
       # software complains about non-existent cross references etc.
 
-      # I have gone for the horrid kludge of turning it into "-<hyhen>"
+      # I have gone for the horrid kludge of turning it into "-<hyphen>"
       # in the menus and nodes.
 
       # Exim 4 has added --help, which has the same problem.

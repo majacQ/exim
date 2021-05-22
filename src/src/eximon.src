@@ -1,12 +1,10 @@
-# $Cambridge: exim/src/src/eximon.src,v 1.1 2004/10/07 10:39:01 ph10 Exp $
-
 # Base source of start-up shell script for the Exim Monitor. Used to set the
 # required environment variables before running the program. Using script
 # rather than a configuration file means that computation can be done.
 # The build process concatenates on the front of this various settings from
 # os-specific files and from the user's configuration file.
 
-# Copyright (c) 2004 University of Cambridge.
+# Copyright (c) 2004 - 2015 University of Cambridge.
 # See the file NOTICE for conditions of use and distribution.
 
 # Except when they appear in comments, the following placeholders in this
@@ -20,6 +18,21 @@
 # X11_LD_LIBRARY
 
 # PROCESSED_FLAG
+#
+if test "x$1" = x--version
+then
+    echo "`basename $0`: $0"
+    echo "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION"
+    exit 0
+fi
+
+# See if caller wants to invoke gdb
+
+use_gdb=''
+
+case ${1:-foo} in
+  gdb*) use_gdb="$1"; shift ;;
+esac
 
 # Save arguments (can be the usual X parameters)
 
@@ -73,11 +86,12 @@ LOG_FILE_PATH=`$EXIM_PATH -C $config -bP log_file_path | sed 's/.*=[  ]*//'`
 
 # If log_file_path is "syslog" then logging is only to syslog, and the monitor
 # is unable to display a log tail unless EXIMON_LOG_FILE_PATH is set to tell
-# it where the log data is. Otherwise, remove any occurrences of
-# "syslog:" or ":syslog" (spaces allowed in various places) and look at the
-# remainder of the entry. If it's null, the default is "mainlog" in the
-# "log" directory in the spool directory. Otherwise, set the name from the
-# given path.
+# it where the log data is. If log_file_path is unset (i.e. empty) the default
+# is "mainlog" in the "log" directory in the spool directory. Otherwise,
+# remove any occurrences of "syslog:" or ":syslog" (spaces allowed in various
+# places) and look at the remainder of the entry. If it's null, check whether
+# LOG_FILE_NAME was set a compile time and contains a path. Otherwise fall
+# back to the default path.
 
 if [ "$EXIMON_LOG_FILE_PATH" != "" ] ; then
   LOG_FILE_NAME="$EXIMON_LOG_FILE_PATH"
@@ -88,6 +102,8 @@ elif [ "$LOG_FILE_PATH" = "syslog" ] ; then
   echo MAIL.INFO syslog messages into a separate file, you can point eximon at
   echo that file with the EXIMON_LOG_FILE_PATH environment variable.
   echo \*\*\*
+elif [ "$LOG_FILE_PATH" = "" ] ; then
+    LOG_FILE_NAME=$SPOOL_DIRECTORY/log/mainlog
 else
   LOG_FILE_NAME=`echo $LOG_FILE_PATH | \
     sed -e 's/ *: *syslog *: */:/' \
@@ -95,7 +111,17 @@ else
         -e 's/^ *syslog *: *//' \
         -e 's/%s/main/'`
   if [ "$LOG_FILE_NAME" = "" ] ; then
-    LOG_FILE_NAME=$SPOOL_DIRECTORY/log/mainlog
+    COMPILETIMEDEFAULT=`$EXIM_PATH -C /dev/null -bP log_file_path | \
+      sed -e 's/.*=[  ]*//' \
+        -e 's/ *: *syslog *: */:/' \
+        -e 's/ *: *syslog *$//' \
+        -e 's/^ *syslog *: *//' \
+        -e 's/%s/main/'`
+    if [ "$COMPILETIMEDEFAULT" != "" ] ; then
+      LOG_FILE_NAME="$COMPILETIMEDEFAULT"
+    else
+      LOG_FILE_NAME=$SPOOL_DIRECTORY/log/mainlog
+    fi
   fi
 fi
 
@@ -183,8 +209,13 @@ export EXIM_PATH LD_LIBRARY_PATH \
 
 # Exec to the program we really want to run, thereby continuing in
 # just the one process, and let it run in parallel with whatever
-# called this script.
+# called this script (unless gdb was requested in original $1).
 
-exec ${EXIMON_BINARY} $cmd_args &
+if [ "${use_gdb:-}" = "" ] ; then
+  exec "${EXIMON_BINARY}" $cmd_args &
+else
+  exec "$use_gdb" "${EXIMON_BINARY}" $cmd_args
+  # not backgrounded
+fi
 
 # End

@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/exim_monitor/em_globals.c,v 1.17 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *                Exim Monitor                    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -132,7 +130,7 @@ int     body_zerocount         = 0;
 
 BOOL    deliver_firsttime      = FALSE;
 BOOL    deliver_freeze         = FALSE;
-int     deliver_frozen_at      = 0;
+time_t  deliver_frozen_at      = 0;
 BOOL    deliver_manual_thaw    = FALSE;
 
 #ifndef DISABLE_DKIM
@@ -141,11 +139,18 @@ uschar *dkim_signers             = NULL;
 uschar *dkim_signing_domain      = NULL;
 uschar *dkim_signing_selector    = NULL;
 uschar *dkim_verify_signers      = US"$dkim_signers";
-BOOL    dkim_collect_input       = FALSE;
+unsigned dkim_collect_input      = 0;
 BOOL    dkim_disable_verify      = FALSE;
 #endif
 
 BOOL    dont_deliver           = FALSE;
+
+int     dsn_ret                = 0;
+uschar *dsn_envid              = NULL;
+
+struct global_flags f = {
+ .sender_local		= FALSE,
+};
 
 #ifdef WITH_CONTENT_SCAN
 int     fake_response          = OK;
@@ -186,13 +191,15 @@ uid_t   originator_uid;
 
 uschar *primary_hostname       = NULL;
 
+uschar *queue_name             = US"";
+
 int     received_count         = 0;
 uschar *received_protocol      = NULL;
-int     received_time          = 0;
+struct timeval received_time   = { 0, 0 };
 int     recipients_count       = 0;
 recipient_item *recipients_list = NULL;
 int     recipients_list_max    = 0;
-int     running_in_test_harness=FALSE;
+BOOL    running_in_test_harness=FALSE;
 
 uschar *sender_address         = NULL;
 uschar *sender_fullhost        = NULL;
@@ -202,7 +209,6 @@ uschar *sender_host_authenticated = NULL;
 uschar *sender_host_name       = NULL;
 int     sender_host_port       = 0;
 uschar *sender_ident           = NULL;
-BOOL    sender_local           = FALSE;
 BOOL    sender_set_untrusted   = FALSE;
 uschar *smtp_active_hostname   = NULL;
 
@@ -213,9 +219,20 @@ int     string_datestamp_length= 0;
 int     string_datestamp_type  = -1;
 
 BOOL    timestamps_utc         = FALSE;
-BOOL    tls_certificate_verified = FALSE;
-uschar *tls_cipher             = NULL;
-uschar *tls_peerdn             = NULL;
+tls_support tls_in = {
+ {-1},	/* tls_active */
+ 0,	/* bits */
+ FALSE,	/* tls_certificate_verified */
+#ifdef SUPPORT_DANE
+ FALSE, /* dane_verified */
+ 0,     /* tlsa_usage */
+#endif
+ NULL,	/* tls_cipher */
+ FALSE,	/* tls_on_connect */
+ NULL,	/* tls_on_connect_ports */
+ NULL,	/* tls_peerdn */
+ NULL	/* tls_sni */
+};
 
 tree_node *tree_duplicates     = NULL;
 tree_node *tree_nonrecipients  = NULL;

@@ -6,14 +6,20 @@ Connecting to 127.0.0.1 [127.0.0.1]:1225 ... connected
   SMTP>> EHLO helo.data.changed
   SMTP<< 250-myhost.test.ex Hello helo.data.changed [127.0.0.1]
          250-SIZE 52428800
+         250-8BITMIME
          250-PIPELINING
          250-STARTTLS
          250 HELP
   SMTP>> STARTTLS
   SMTP<< 220 TLS go ahead
+LOG: MAIN
+  [127.0.0.1] SSL verify error: depth=0 error=self signed certificate cert=/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock
+LOG: MAIN
+  [127.0.0.1] SSL verify error: certificate name mismatch: DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" H="127.0.0.1"
   SMTP>> EHLO helo.data.changed
   SMTP<< 250-myhost.test.ex Hello helo.data.changed [127.0.0.1]
          250-SIZE 52428800
+         250-8BITMIME
          250-PIPELINING
          250 HELP
   SMTP>> MAIL FROM:<CALLER@myhost.test.ex> SIZE=ssss
@@ -25,8 +31,9 @@ Connecting to 127.0.0.1 [127.0.0.1]:1225 ... connected
   SMTP>> writing message and terminating "."
   SMTP<< 250 OK id=10HmaZ-0005vi-00
   SMTP>> QUIT
+  SMTP(close)>>
 LOG: MAIN
-  => CALLER@test.ex R=client T=send_to_server1 H=127.0.0.1 [127.0.0.1] X=TLSv1:AES256-SHA:256 DN="/C=UK/L=Cambridge/O=University of Cambridge/OU=Computing Service/CN=Philip Hazel"
+  => CALLER@test.ex R=client T=send_to_server1 H=127.0.0.1 [127.0.0.1] X=TLS1.x:ke-RSA-AES256-SHAnnn:xxx CV=no DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" C="250 OK id=10HmaZ-0005vi-00"
 LOG: MAIN
   Completed
 delivering 10HmaY-0005vi-00 (queue run pid ppppp)
@@ -35,14 +42,20 @@ Connecting to 127.0.0.1 [127.0.0.1]:1225 ... connected
   SMTP>> EHLO helo.data.changed
   SMTP<< 250-myhost.test.ex Hello helo.data.changed [127.0.0.1]
          250-SIZE 52428800
+         250-8BITMIME
          250-PIPELINING
          250-STARTTLS
          250 HELP
   SMTP>> STARTTLS
   SMTP<< 220 TLS go ahead
+LOG: MAIN
+  [127.0.0.1] SSL verify error: depth=0 error=self signed certificate cert=/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock
+LOG: MAIN
+  [127.0.0.1] SSL verify error: certificate name mismatch: DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" H="127.0.0.1"
   SMTP>> EHLO helo.data.changed
   SMTP<< 250-myhost.test.ex Hello helo.data.changed [127.0.0.1]
          250-SIZE 52428800
+         250-8BITMIME
          250-PIPELINING
          250 HELP
   SMTP>> MAIL FROM:<CALLER@myhost.test.ex> SIZE=ssss
@@ -56,23 +69,30 @@ Connecting to 127.0.0.1 [127.0.0.1]:1225 ... connected
   SMTP>> writing message and terminating "."
   SMTP<< 250 OK id=10HmbA-0005vi-00
   SMTP>> QUIT
+  SMTP(close)>>
 LOG: MAIN
-  => CALLER@test.ex R=client T=send_to_server1 H=127.0.0.1 [127.0.0.1] X=TLSv1:AES256-SHA:256 DN="/C=UK/L=Cambridge/O=University of Cambridge/OU=Computing Service/CN=Philip Hazel"
+  => CALLER@test.ex R=client T=send_to_server1 H=127.0.0.1 [127.0.0.1] X=TLS1.x:ke-RSA-AES256-SHAnnn:xxx CV=no DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" C="250 OK id=10HmbA-0005vi-00"
 LOG: MAIN
-  -> xyz@test.ex R=client T=send_to_server1 H=127.0.0.1 [127.0.0.1] X=TLSv1:AES256-SHA:256 DN="/C=UK/L=Cambridge/O=University of Cambridge/OU=Computing Service/CN=Philip Hazel"
+  -> xyz@test.ex R=client T=send_to_server1 H=127.0.0.1 [127.0.0.1] X=TLS1.x:ke-RSA-AES256-SHAnnn:xxx CV=no DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" C="250 OK id=10HmbA-0005vi-00"
 Connecting to ip4.ip4.ip4.ip4 [ip4.ip4.ip4.ip4]:1225 ... connected
   SMTP<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
   SMTP>> EHLO myhost.test.ex
   SMTP<< 250-myhost.test.ex Hello the.local.host.name [ip4.ip4.ip4.ip4]
          250-SIZE 52428800
+         250-8BITMIME
          250-PIPELINING
          250-STARTTLS
          250 HELP
   SMTP>> STARTTLS
   SMTP<< 220 TLS go ahead
+LOG: MAIN
+  [ip4.ip4.ip4.ip4] SSL verify error: depth=0 error=self signed certificate cert=/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock
+LOG: MAIN
+  [ip4.ip4.ip4.ip4] SSL verify error: certificate name mismatch: DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" H="ip4.ip4.ip4.ip4"
   SMTP>> EHLO myhost.test.ex
   SMTP<< 250-myhost.test.ex Hello the.local.host.name [ip4.ip4.ip4.ip4]
          250-SIZE 52428800
+         250-8BITMIME
          250-PIPELINING
          250 HELP
   SMTP>> MAIL FROM:<CALLER@myhost.test.ex> SIZE=ssss
@@ -84,8 +104,9 @@ Connecting to ip4.ip4.ip4.ip4 [ip4.ip4.ip4.ip4]:1225 ... connected
   SMTP>> writing message and terminating "."
   SMTP<< 250 OK id=10HmbB-0005vi-00
   SMTP>> QUIT
+  SMTP(close)>>
 LOG: MAIN
-  => abcd@test.ex R=client T=send_to_server2 H=ip4.ip4.ip4.ip4 [ip4.ip4.ip4.ip4] X=TLSv1:AES256-SHA:256 DN="/C=UK/L=Cambridge/O=University of Cambridge/OU=Computing Service/CN=Philip Hazel"
+  => abcd@test.ex R=client T=send_to_server2 H=ip4.ip4.ip4.ip4 [ip4.ip4.ip4.ip4] X=TLS1.x:ke-RSA-AES256-SHAnnn:xxx CV=no DN="/C=UK/O=The Exim Maintainers/OU=Test Suite/CN=Phil Pennock" C="250 OK id=10HmbB-0005vi-00"
 LOG: MAIN
   Completed
 LOG: queue_run MAIN

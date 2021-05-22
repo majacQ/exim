@@ -1,10 +1,8 @@
-/* $Cambridge: exim/src/src/exim_dbmbuild.c,v 1.9 2009/11/16 19:50:36 nm4 Exp $ */
-
 /*************************************************
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -32,6 +30,7 @@ characters. */
 
 #include "exim.h"
 
+uschar * spool_directory = NULL;	/* dummy for dbstuff.h */
 
 #define max_insize   20000
 #define max_outsize 100000
@@ -90,11 +89,12 @@ Returns:   the value of the character escape
 */
 
 int
-string_interpret_escape(uschar **pp)
+string_interpret_escape(const uschar **pp)
 {
 int ch;
-uschar *p = *pp;
+const uschar *p = *pp;
 ch = *(++p);
+if (ch == '\0') return **pp;
 if (isdigit(ch) && ch != '8' && ch != '9')
   {
   ch -= '0';
@@ -153,6 +153,7 @@ uschar *bptr;
 uschar  keybuffer[256];
 uschar  temp_dbmname[512];
 uschar  real_dbmname[512];
+uschar  dirname[512];
 uschar *buffer = malloc(max_outsize);
 uschar *line = malloc(max_insize);
 
@@ -207,10 +208,16 @@ if (strlen(argv[arg+1]) > sizeof(temp_dbmname) - 20)
 Ustrcpy(temp_dbmname, argv[arg+1]);
 Ustrcat(temp_dbmname, ".dbmbuild_temp");
 
+Ustrcpy(dirname, temp_dbmname);
+if ((bptr = Ustrrchr(dirname, '/')))
+  *bptr = '\0';
+else
+  Ustrcpy(dirname, ".");
+
 /* It is apparently necessary to open with O_RDWR for this to work
 with gdbm-1.7.3, though no reading is actually going to be done. */
 
-EXIM_DBOPEN(temp_dbmname, O_RDWR|O_CREAT|O_EXCL, 0644, &d);
+EXIM_DBOPEN(temp_dbmname, dirname, O_RDWR|O_CREAT|O_EXCL, 0644, &d);
 
 if (d == NULL)
   {
@@ -331,7 +338,7 @@ while (Ufgets(line, max_insize, f) != NULL)
       keystart = t;
       while (*s != 0 && *s != '\"')
         {
-        if (*s == '\\') *t++ = string_interpret_escape(&s);
+        if (*s == '\\') *t++ = string_interpret_escape((const uschar **)&s);
           else *t++ = *s;
         s++;
         }
@@ -480,9 +487,11 @@ if (yield == 0 || yield == 1)
 else
   {
   printf("dbmbuild abandoned\n");
-  #if defined(USE_DB) || defined(USE_TDB) || defined(USE_GDBM)
+#if defined(USE_DB) || defined(USE_TDB) || defined(USE_GDBM)
+  /* We created it, so safe to delete despite the name coming from outside */
+  /* coverity[tainted_string] */
   Uunlink(temp_dbmname);
-  #else
+#else
   if (is_db)
     {
     sprintf(CS real_dbmname, "%s.db", temp_dbmname);
@@ -495,7 +504,7 @@ else
     sprintf(CS real_dbmname, "%s.pag", temp_dbmname);
     Uunlink(real_dbmname);
     }
-  #endif /* USE_DB || USE_TDB */
+#endif /* USE_DB || USE_TDB */
   }
 
 return yield;

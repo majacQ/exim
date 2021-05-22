@@ -17,6 +17,8 @@ LOG: smtp_connection MAIN
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<abc@domain.>
 LOG: smtp_syntax_error MAIN
@@ -27,7 +29,7 @@ SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from CALLER closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>
 exim: bad -f address "abc@somewhere.": domain is malformed (trailing dot not allowed)
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
@@ -48,11 +50,15 @@ LOG: smtp_connection MAIN
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<abc@domain.>
 processing "accept"
-accept: condition test succeeded
+accept: condition test succeeded in inline ACL
+end of inline ACL: ACCEPT
 SMTP>> 250 Accepted
+DSN: orcpt: NULL  flags: 0
 SMTP<< data
 SMTP>> 354 Enter message, ending with "." on a line by itself
 search_tidyup called
@@ -67,6 +73,7 @@ T To: abc@domain.
 I Message-Id: <E10HmaY-0005vi-00@myhost.test.ex>
   Date: Tue, 2 Mar 1999 09:44:33 +0000
 
+Data file name: TESTSUITE/spool//input//10HmaY-0005vi-00-D
 Data file written for message 10HmaY-0005vi-00
 >>Generated Received: header line
 P Received: from CALLER by myhost.test.ex with local-smtp (Exim x.yz)
@@ -75,10 +82,14 @@ P Received: from CALLER by myhost.test.ex with local-smtp (Exim x.yz)
 using ACL "check_data"
 processing "accept"
 check verify = header_syntax
-accept: condition test succeeded
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
-Writing spool header file
+accept: condition test succeeded in ACL "check_data"
+end of ACL "check_data": ACCEPT
+Writing spool header file: TESTSUITE/spool//input//hdr.pppp
+DSN: Write SPOOL :-dsn_envid NULL
+DSN: Write SPOOL :-dsn_ret 0
+DSN: Flags :0
+DSN: **** SPOOL_OUT - address: |abc@domain| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+Renaming spool header file: TESTSUITE/spool//input//10HmaY-0005vi-00-H
 Size of headers = sss
 LOG: MAIN
   <= <> U=CALLER P=local-smtp S=sss
@@ -90,7 +101,7 @@ SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from CALLER closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -110,11 +121,15 @@ LOG: smtp_connection MAIN
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<abc@xyz>
 processing "accept"
-accept: condition test succeeded
+accept: condition test succeeded in inline ACL
+end of inline ACL: ACCEPT
 SMTP>> 250 Accepted
+DSN: orcpt: NULL  flags: 0
 SMTP<< data
 SMTP>> 354 Enter message, ending with "." on a line by itself
 search_tidyup called
@@ -129,6 +144,7 @@ T To: abc@xyz.
 I Message-Id: <E10HmaX-0005vi-00@myhost.test.ex>
   Date: Tue, 2 Mar 1999 09:44:33 +0000
 
+Data file name: TESTSUITE/spool//input//10HmaX-0005vi-00-D
 Data file written for message 10HmaX-0005vi-00
 >>Generated Received: header line
 P Received: from CALLER by myhost.test.ex with local-smtp (Exim x.yz)
@@ -137,7 +153,7 @@ P Received: from CALLER by myhost.test.ex with local-smtp (Exim x.yz)
 using ACL "check_data"
 processing "accept"
 check verify = header_syntax
-accept: condition test failed
+accept: condition test failed in ACL "check_data"
 end of ACL "check_data": implicit DENY
 SMTP>> 550 Administrative prohibition
 LOG: MAIN REJECT
@@ -148,4 +164,4 @@ SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from CALLER closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>

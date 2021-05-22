@@ -1,5 +1,4 @@
 #! /bin/sh
-# $Cambridge: exim/src/scripts/exim_install,v 1.3 2009/10/30 15:14:04 nm4 Exp $
 
 # Script to install Exim binaries in BIN_DIRECTORY, which is defined in
 # the local Makefile. It expects to be run in a build directory. It needs
@@ -218,13 +217,15 @@ while [ $# -gt 0 ]; do
   # The exim binary is handled specially
 
   if [ $name = exim${EXE} ]; then
-    version=exim-`./exim -bV -C /dev/null | \
+    exim="./exim -bV -C /dev/null"
+    version=exim-`$exim 2>/dev/null | \
       awk '/Exim version/ { OFS=""; print $3,"-",substr($4,2,length($4)-1) }'`${EXE}
 
     if [ "${version}" = "exim-${EXE}" ]; then
       echo $com ""
-      echo $com "*** Could not run ./exim to find version number ***"
+      echo $com "*** Could not run $exim to find version number ***"
       echo $com "*** Exim installation ${ver}failed ***"
+      $exim
       exit 1
     fi
 

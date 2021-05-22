@@ -1,12 +1,7 @@
 # Exim test configuration 0191
 
-exim_path = EXIM_PATH
-host_lookup_order = bydns
-rfc1413_query_timeout = 0s
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -34,7 +29,8 @@ smtp:
   driver = smtp
   port = PORT_S
   transport_filter = \
-    /bin/sh -c "cat >/dev/null; /bin/echo -n Line without end"
+    /bin/sh -c \
+    "cat >/dev/null; printf Line-without-end || /bin/echo -n Line-without-end"
 
 
 # End
