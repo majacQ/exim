@@ -488,6 +488,12 @@ if (recipients_count >= recipients_list_max)
   {
   recipient_item *oldlist = recipients_list;
   int oldmax = recipients_list_max;
+
+  const int safe_recipients_limit = INT_MAX / 2 / sizeof(recipient_item);
+  if (recipients_list_max < 0 || recipients_list_max >= safe_recipients_limit)
+    {
+    log_write(0, LOG_MAIN|LOG_PANIC_DIE, "Too many recipients: %d", recipients_list_max);
+    }
   recipients_list_max = recipients_list_max ? 2*recipients_list_max : 50;
   recipients_list = store_get(recipients_list_max * sizeof(recipient_item));
   if (oldlist != NULL)
@@ -1827,8 +1833,11 @@ for (;;)
   if (ptr >= header_size - 4)
     {
     int oldsize = header_size;
-    /* header_size += 256; */
+
+    if (header_size >= INT_MAX/2)
+      goto OVERSIZE;
     header_size *= 2;
+
     if (!store_extend(next->text, oldsize, header_size))
       next->text = store_newblock(next->text, header_size, ptr);
     }
@@ -1934,6 +1943,7 @@ for (;;)
 
   if (message_size >= header_maxsize)
     {
+OVERSIZE:
     next->text[ptr] = 0;
     next->slen = ptr;
     next->type = htype_other;
@@ -2005,7 +2015,8 @@ for (;;)
     if (nextch == ' ' || nextch == '\t')
       {
       next->text[ptr++] = nextch;
-      message_size++;
+      if (++message_size >= header_maxsize)
+	goto OVERSIZE;
       continue;                      /* Iterate the loop */
       }
     else if (nextch != EOF) (receive_ungetc)(nextch);   /* For next time */
@@ -4065,7 +4076,7 @@ if (message_logs && !blackholed_by)
   {
   int fd;
   uschar * m_name = spool_fname(US"msglog", message_subdir, message_id, US"");
-  
+
   if (  (fd = Uopen(m_name, O_WRONLY|O_APPEND|O_CREAT, SPOOL_MODE)) < 0
      && errno == ENOENT
      )
@@ -4224,7 +4235,7 @@ if(!smtp_reply)
   if (f.deliver_freeze) log_write(0, LOG_MAIN, "frozen by %s", frozen_by);
   if (f.queue_only_policy) log_write(L_delay_delivery, LOG_MAIN,
     "no immediate delivery: queued%s%s by %s",
-    *queue_name ? " in " : "", *queue_name ? CS queue_name : "",       
+    *queue_name ? " in " : "", *queue_name ? CS queue_name : "",
     queued_by);
   }
 f.receive_call_bombout = FALSE;

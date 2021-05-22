@@ -2,7 +2,7 @@
  *  Author: Viktor Dukhovni
  *  License: THIS CODE IS IN THE PUBLIC DOMAIN.
  *
- * Copyright (c) The Exim Maintainers 2014 - 2018
+ * Copyright (c) The Exim Maintainers 2014 - 2019
  */
 #include <stdio.h>
 #include <string.h>
@@ -25,9 +25,18 @@
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
 # define X509_up_ref(x) CRYPTO_add(&((x)->references), 1, CRYPTO_LOCK_X509)
 #endif
+
+/* LibreSSL 2.9.0 and later - 2.9.0 has removed a number of macros ... */
+#ifdef LIBRESSL_VERSION_NUMBER
+# if LIBRESSL_VERSION_NUMBER >= 0x2090000fL
+#  define EXIM_HAVE_ASN1_MACROS
+# endif
+#endif
+/* OpenSSL */
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
 # define EXIM_HAVE_ASN1_MACROS
 # define EXIM_OPAQUE_X509
+/* Older OpenSSL and all LibreSSL */
 #else
 # define X509_STORE_CTX_get_verify(ctx)		(ctx)->verify
 # define X509_STORE_CTX_get_verify_cb(ctx)	(ctx)->verify_cb
@@ -414,7 +423,7 @@ set_issuer_name(X509 *cert, AUTHORITY_KEYID *akid, X509_NAME *subj)
 X509_NAME *name = akid_issuer_name(akid);
 
 /*
- * If subject's akid specifies an authority key identifer issuer name, we
+ * If subject's akid specifies an authority key identifier issuer name, we
  * must use that.
  */
 return X509_set_issuer_name(cert,

@@ -67,6 +67,9 @@ require current GnuTLS, then we'll drop support for the ancient libraries).
 #if GNUTLS_VERSION_NUMBER >= 0x030109
 # define SUPPORT_CORK
 #endif
+#if GNUTLS_VERSION_NUMBER >= 0x03010a
+# define SUPPORT_GNUTLS_SESS_DESC
+#endif
 #if GNUTLS_VERSION_NUMBER >= 0x030506 && !defined(DISABLE_OCSP)
 # define SUPPORT_SRV_OCSP_STACK
 #endif
@@ -229,7 +232,7 @@ static gnutls_dh_params_t dh_server_params = NULL;
 
 static const int ssl_session_timeout = 200;
 
-static const char * const exim_default_gnutls_priority = "NORMAL";
+static const uschar * const exim_default_gnutls_priority = US"NORMAL";
 
 /* Guard library core initialisation */
 
@@ -1133,6 +1136,14 @@ else
 #endif
     gnutls_certificate_set_x509_trust_file(state->x509_cred,
       CS state->exp_tls_verify_certificates, GNUTLS_X509_FMT_PEM);
+
+#ifdef SUPPORT_CA_DIR
+  /* Mimic the behaviour with OpenSSL of not advertising a usable-cert list
+  when using the directory-of-certs config model. */
+
+  if ((statbuf.st_mode & S_IFMT) == S_IFDIR)
+    gnutls_certificate_send_x509_rdn_sequence(state->session, 1);
+#endif
   }
 
 if (cert_count < 0)
@@ -1278,7 +1289,6 @@ int rc;
 size_t sz;
 const char *errpos;
 uschar *p;
-BOOL want_default_priorities;
 
 if (!exim_gnutls_base_init_done)
   {
@@ -1304,7 +1314,7 @@ if (!exim_gnutls_base_init_done)
   DEBUG(D_tls)
     {
     gnutls_global_set_log_function(exim_gnutls_logger_cb);
-    /* arbitrarily chosen level; bump upto 9 for more */
+    /* arbitrarily chosen level; bump up to 9 for more */
     gnutls_global_set_log_level(EXIM_GNUTLS_LIBRARY_LOG_LEVEL);
     }
 #endif
@@ -1387,32 +1397,24 @@ and replaces gnutls_require_kx, gnutls_require_mac & gnutls_require_protocols.
 This was backwards incompatible, but means Exim no longer needs to track
 all algorithms and provide string forms for them. */
 
-want_default_priorities = TRUE;
-
+p = NULL;
 if (state->tls_require_ciphers && *state->tls_require_ciphers)
   {
   if (!expand_check_tlsvar(tls_require_ciphers, errstr))
     return DEFER;
   if (state->exp_tls_require_ciphers && *state->exp_tls_require_ciphers)
     {
-    DEBUG(D_tls) debug_printf("GnuTLS session cipher/priority \"%s\"\n",
-        state->exp_tls_require_ciphers);
-
-    rc = gnutls_priority_init(&state->priority_cache,
-        CS state->exp_tls_require_ciphers, &errpos);
-    want_default_priorities = FALSE;
     p = state->exp_tls_require_ciphers;
+    DEBUG(D_tls) debug_printf("GnuTLS session cipher/priority \"%s\"\n", p);
     }
   }
-if (want_default_priorities)
+if (!p)
   {
+  p = exim_default_gnutls_priority;
   DEBUG(D_tls)
-    debug_printf("GnuTLS using default session cipher/priority \"%s\"\n",
-        exim_default_gnutls_priority);
-  rc = gnutls_priority_init(&state->priority_cache,
-      exim_default_gnutls_priority, &errpos);
-  p = US exim_default_gnutls_priority;
+    debug_printf("GnuTLS using default session cipher/priority \"%s\"\n", p);
   }
+rc = gnutls_priority_init(&state->priority_cache, CCS p, &errpos);
 
 exim_gnutls_err_check(rc, string_sprintf(
       "gnutls_priority_init(%s) failed at offset %ld, \"%.6s..\"",
@@ -1496,23 +1498,61 @@ state->peerdn = NULL;
 cipher = gnutls_cipher_get(state->session);
 protocol = gnutls_protocol_get_version(state->session);
 mac = gnutls_mac_get(state->session);
-kx = gnutls_kx_get(state->session);
+kx =
+#ifdef GNUTLS_TLS1_3
+    protocol >= GNUTLS_TLS1_3 ? 0 :
+#endif
+  gnutls_kx_get(state->session);
 
-string_format(cipherbuf, sizeof(cipherbuf),
-    "%s:%s:%d",
-    gnutls_protocol_get_name(protocol),
-    gnutls_cipher_suite_get_name(kx, cipher, mac),
-    (int) gnutls_cipher_get_key_size(cipher) * 8);
-
-/* I don't see a way that spaces could occur, in the current GnuTLS
-code base, but it was a concern in the old code and perhaps older GnuTLS
-releases did return "TLS 1.0"; play it safe, just in case. */
-for (p = cipherbuf; *p != '\0'; ++p)
-  if (isspace(*p))
-    *p = '-';
 old_pool = store_pool;
-store_pool = POOL_PERM;
-state->ciphersuite = string_copy(cipherbuf);
+  {
+  store_pool = POOL_PERM;
+
+#ifdef SUPPORT_GNUTLS_SESS_DESC
+    {
+    gstring * g = NULL;
+    uschar * s = US gnutls_session_get_desc(state->session), c;
+
+    /* Nikos M suggests we use this by preference.  It returns like:
+    (TLS1.3)-(ECDHE-SECP256R1)-(RSA-PSS-RSAE-SHA256)-(AES-256-GCM)
+
+    For partial back-compat, put a colon after the TLS version, replace the
+    )-( grouping with __, replace in-group - with _ and append the :keysize. */
+
+    /* debug_printf("peer_status: gnutls_session_get_desc %s\n", s); */
+
+    for (s++; (c = *s) && c != ')'; s++) g = string_catn(g, s, 1);
+    g = string_catn(g, US":", 1);
+    if (*s) s++;		/* now on _ between groups */
+    while ((c = *s))
+      {
+      for (*++s && ++s; (c = *s) && c != ')'; s++) g = string_catn(g, c == '-' ? US"_" : s, 1);
+      /* now on ) closing group */
+      if ((c = *s) && *++s == '-') g = string_catn(g, US"__", 2);
+      /* now on _ between groups */
+      }
+    g = string_catn(g, US":", 1);
+    g = string_cat(g, string_sprintf("%d", (int) gnutls_cipher_get_key_size(cipher) * 8));
+    state->ciphersuite = string_from_gstring(g);
+    }
+#else
+  state->ciphersuite = string_sprintf("%s:%s:%d",
+      gnutls_protocol_get_name(protocol),
+      gnutls_cipher_suite_get_name(kx, cipher, mac),
+      (int) gnutls_cipher_get_key_size(cipher) * 8);
+
+  /* I don't see a way that spaces could occur, in the current GnuTLS
+  code base, but it was a concern in the old code and perhaps older GnuTLS
+  releases did return "TLS 1.0"; play it safe, just in case. */
+
+  for (uschar * p = state->ciphersuite; *p; p++) if (isspace(*p)) *p = '-';
+#endif
+
+/* debug_printf("peer_status: ciphersuite %s\n", state->ciphersuite); */
+
+  state->tlsp->cipher = state->ciphersuite;
+  state->tlsp->bits = gnutls_cipher_get_key_size(cipher) * 8;
+  }
 store_pool = old_pool;
 state->tlsp->cipher = state->ciphersuite;
 
@@ -2459,7 +2499,7 @@ if (!verify_certificate(state, errstr))
   }
 
 #ifndef DISABLE_OCSP
-if (require_ocsp)
+if (request_ocsp)
   {
   DEBUG(D_tls)
     {
@@ -2483,10 +2523,14 @@ if (require_ocsp)
     {
     tlsp->ocsp = OCSP_FAILED;
     tls_error(US"certificate status check failed", NULL, state->host, errstr);
-    return NULL;
+    if (require_ocsp)
+      return FALSE;
     }
-  DEBUG(D_tls) debug_printf("Passed OCSP checking\n");
-  tlsp->ocsp = OCSP_VFIED;
+  else
+    {
+    DEBUG(D_tls) debug_printf("Passed OCSP checking\n");
+    tlsp->ocsp = OCSP_VFIED;
+    }
   }
 #endif
 
@@ -2525,8 +2569,9 @@ void
 tls_close(void * ct_ctx, int shutdown)
 {
 exim_gnutls_state_st * state = ct_ctx ? ct_ctx : &state_server;
+tls_support * tlsp = state->tlsp;
 
-if (!state->tlsp || state->tlsp->active.sock < 0) return;  /* TLS was not active */
+if (!tlsp || tlsp->active.sock < 0) return;  /* TLS was not active */
 
 if (shutdown)
   {
@@ -2538,12 +2583,26 @@ if (shutdown)
   ALARM_CLR(0);
   }
 
+if (!ct_ctx)	/* server */
+  {
+  receive_getc =	smtp_getc;
+  receive_getbuf =	smtp_getbuf;
+  receive_get_cache =	smtp_get_cache;
+  receive_ungetc =	smtp_ungetc;
+  receive_feof =	smtp_feof;
+  receive_ferror =	smtp_ferror;
+  receive_smtp_buffered = smtp_buffered;
+  }
+
 gnutls_deinit(state->session);
 gnutls_certificate_free_credentials(state->x509_cred);
 
+tlsp->active.sock = -1;
+tlsp->active.tls_ctx = NULL;
+/* Leave bits, peercert, cipher, peerdn, certificate_verified set, for logging */
+tls_channelbinding_b64 = NULL;
 
-state->tlsp->active.sock = -1;
-state->tlsp->active.tls_ctx = NULL;
+
 if (state->xfer_buffer) store_free(state->xfer_buffer);
 memcpy(state, &exim_gnutls_state_init, sizeof(exim_gnutls_state_init));
 }
@@ -2562,8 +2621,12 @@ DEBUG(D_tls) debug_printf("Calling gnutls_record_recv(%p, %p, %u)\n",
 
 sigalrm_seen = FALSE;
 if (smtp_receive_timeout > 0) ALARM(smtp_receive_timeout);
-inbytes = gnutls_record_recv(state->session, state->xfer_buffer,
-  MIN(ssl_xfer_buffer_size, lim));
+
+do
+  inbytes = gnutls_record_recv(state->session, state->xfer_buffer,
+    MIN(ssl_xfer_buffer_size, lim));
+while (inbytes == GNUTLS_E_AGAIN);
+
 if (smtp_receive_timeout > 0) ALARM_CLR(0);
 
 if (had_command_timeout)		/* set by signal handler */
@@ -2589,28 +2652,7 @@ if (sigalrm_seen)
 else if (inbytes == 0)
   {
   DEBUG(D_tls) debug_printf("Got TLS_EOF\n");
-
-  receive_getc = smtp_getc;
-  receive_getbuf = smtp_getbuf;
-  receive_get_cache = smtp_get_cache;
-  receive_ungetc = smtp_ungetc;
-  receive_feof = smtp_feof;
-  receive_ferror = smtp_ferror;
-  receive_smtp_buffered = smtp_buffered;
-
-  gnutls_deinit(state->session);
-  gnutls_certificate_free_credentials(state->x509_cred);
-
-  state->session = NULL;
-  state->tlsp->active.sock = -1;
-  state->tlsp->active.tls_ctx = NULL;
-  state->tlsp->bits = 0;
-  state->tlsp->certificate_verified = FALSE;
-  tls_channelbinding_b64 = NULL;
-  state->tlsp->cipher = NULL;
-  state->tlsp->peercert = NULL;
-  state->tlsp->peerdn = NULL;
-
+  tls_close(NULL, TLS_NO_SHUTDOWN);
   return FALSE;
   }
 
@@ -2618,7 +2660,7 @@ else if (inbytes == 0)
 
 else if (inbytes < 0)
   {
-debug_printf("%s: err from gnutls_record_recv(\n", __FUNCTION__);
+  DEBUG(D_tls) debug_printf("%s: err from gnutls_record_recv(\n", __FUNCTION__);
   record_io_error(state, (int) inbytes, US"recv", NULL);
   state->xfer_error = TRUE;
   return FALSE;
@@ -2641,7 +2683,7 @@ Only used by the server-side TLS.
 
 This feeds DKIM and should be used for all message-body reads.
 
-Arguments:  lim		Maximum amount to read/bufffer
+Arguments:  lim		Maximum amount to read/buffer
 Returns:    the next character or EOF
 */
 
@@ -2740,17 +2782,20 @@ DEBUG(D_tls)
   debug_printf("Calling gnutls_record_recv(%p, %p, " SIZE_T_FMT ")\n",
       state->session, buff, len);
 
-inbytes = gnutls_record_recv(state->session, buff, len);
+do
+  inbytes = gnutls_record_recv(state->session, buff, len);
+while (inbytes == GNUTLS_E_AGAIN);
+
 if (inbytes > 0) return inbytes;
 if (inbytes == 0)
   {
   DEBUG(D_tls) debug_printf("Got TLS_EOF\n");
   }
 else
-{
-debug_printf("%s: err from gnutls_record_recv(\n", __FUNCTION__);
-record_io_error(state, (int)inbytes, US"recv", NULL);
-}
+  {
+  DEBUG(D_tls) debug_printf("%s: err from gnutls_record_recv(\n", __FUNCTION__);
+  record_io_error(state, (int)inbytes, US"recv", NULL);
+  }
 
 return -1;
 }
@@ -2792,7 +2837,10 @@ while (left > 0)
   {
   DEBUG(D_tls) debug_printf("gnutls_record_send(SSL, %p, " SIZE_T_FMT ")\n",
       buff, left);
-  outbytes = gnutls_record_send(state->session, buff, left);
+
+  do
+    outbytes = gnutls_record_send(state->session, buff, left);
+  while (outbytes == GNUTLS_E_AGAIN);
 
   DEBUG(D_tls) debug_printf("outbytes=" SSIZE_T_FMT "\n", outbytes);
   if (outbytes < 0)

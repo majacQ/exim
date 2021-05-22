@@ -888,6 +888,162 @@ while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
 }
 
 
+static void
+set_pid_file_path(void)
+{
+if (override_pid_file_path)
+  pid_file_path = override_pid_file_path;
+
+if (!*pid_file_path)
+  pid_file_path = string_sprintf("%s/exim-daemon.pid", spool_directory);
+
+if (pid_file_path[0] != '/')
+  log_write(0, LOG_PANIC_DIE, "pid file path %s must be absolute\n", pid_file_path);
+}
+
+
+enum pid_op { PID_WRITE, PID_CHECK, PID_DELETE };
+
+/* Do various pid file operations as safe as possible. Ideally we'd just
+drop the privileges for creation of the pid file and not care at all about removal of
+the file. FIXME.
+Returns: true on success, false + errno==EACCES otherwise
+*/
+static BOOL
+operate_on_pid_file(const enum pid_op operation, const pid_t pid)
+{
+char pid_line[sizeof(int) * 3 + 2];
+const int pid_len = snprintf(pid_line, sizeof(pid_line), "%d\n", (int)pid);
+BOOL lines_match = FALSE;
+
+char * path = NULL;
+char * base = NULL;
+char * dir = NULL;
+
+const int dir_flags = O_RDONLY | O_NONBLOCK;
+const int base_flags = O_NOFOLLOW | O_NONBLOCK;
+const mode_t base_mode = 0644;
+struct stat sb;
+
+int cwd_fd = -1;
+int dir_fd = -1;
+int base_fd = -1;
+
+BOOL success = FALSE;
+errno = EACCES;
+
+set_pid_file_path();
+if (!f.running_in_test_harness && real_uid != root_uid && real_uid != exim_uid) goto cleanup;
+if (pid_len < 2 || pid_len >= (int)sizeof(pid_line)) goto cleanup;
+
+path = CS string_copy(pid_file_path);
+if ((base = Ustrrchr(path, '/')) == NULL) /* should not happen, but who knows */
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE, "pid file path \"%s\" does not contain a '/'", pid_file_path);
+
+dir = (base != path) ? path : "/";
+*base++ = '\0';
+
+if (!dir || !*dir || *dir != '/') goto cleanup;
+if (!base || !*base || strchr(base, '/') != NULL) goto cleanup;
+
+cwd_fd = open(".", dir_flags);
+if (cwd_fd < 0 || fstat(cwd_fd, &sb) != 0 || !S_ISDIR(sb.st_mode)) goto cleanup;
+dir_fd = open(dir, dir_flags);
+if (dir_fd < 0 || fstat(dir_fd, &sb) != 0 || !S_ISDIR(sb.st_mode)) goto cleanup;
+
+/* emulate openat */
+if (fchdir(dir_fd) != 0) goto cleanup;
+base_fd = open(base, O_RDONLY | base_flags);
+if (fchdir(cwd_fd) != 0)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE, "can't return to previous working dir: %s", strerror(errno));
+
+if (base_fd >= 0)
+  {
+  char line[sizeof(pid_line)];
+  ssize_t len = -1;
+
+  if (fstat(base_fd, &sb) != 0 || !S_ISREG(sb.st_mode)) goto cleanup;
+  if ((sb.st_mode & 07777) != base_mode || sb.st_nlink != 1) goto cleanup;
+  if (sb.st_size < 2 || sb.st_size >= (off_t)sizeof(line)) goto cleanup;
+
+  len = read(base_fd, line, sizeof(line));
+  if (len != (ssize_t)sb.st_size) goto cleanup;
+  line[len] = '\0';
+
+  if (strspn(line, "0123456789") != (size_t)len-1) goto cleanup;
+  if (line[len-1] != '\n') goto cleanup;
+  lines_match = (len == pid_len && strcmp(line, pid_line) == 0);
+  }
+
+if (operation == PID_WRITE)
+  {
+  if (!lines_match)
+    {
+    if (base_fd >= 0)
+      {
+      int error = -1;
+      /* emulate unlinkat */
+      if (fchdir(dir_fd) != 0) goto cleanup;
+      error = unlink(base);
+      if (fchdir(cwd_fd) != 0)
+        log_write(0, LOG_MAIN|LOG_PANIC_DIE, "can't return to previous working dir: %s", strerror(errno));
+      if (error) goto cleanup;
+      (void)close(base_fd);
+      base_fd = -1;
+     }
+    /* emulate openat */
+    if (fchdir(dir_fd) != 0) goto cleanup;
+    base_fd = open(base, O_WRONLY | O_CREAT | O_EXCL | base_flags, base_mode);
+    if (fchdir(cwd_fd) != 0)
+        log_write(0, LOG_MAIN|LOG_PANIC_DIE, "can't return to previous working dir: %s", strerror(errno));
+    if (base_fd < 0) goto cleanup;
+    if (fchmod(base_fd, base_mode) != 0) goto cleanup;
+    if (write(base_fd, pid_line, pid_len) != pid_len) goto cleanup;
+    DEBUG(D_any) debug_printf("pid written to %s\n", pid_file_path);
+    }
+  }
+else
+  {
+  if (!lines_match) goto cleanup;
+  if (operation == PID_DELETE)
+    {
+    int error = -1;
+    /* emulate unlinkat */
+    if (fchdir(dir_fd) != 0) goto cleanup;
+    error = unlink(base);
+    if (fchdir(cwd_fd) != 0)
+        log_write(0, LOG_MAIN|LOG_PANIC_DIE, "can't return to previous working dir: %s", strerror(errno));
+    if (error) goto cleanup;
+    }
+  }
+
+success = TRUE;
+errno = 0;
+
+cleanup:
+if (cwd_fd >= 0) (void)close(cwd_fd);
+if (dir_fd >= 0) (void)close(dir_fd);
+if (base_fd >= 0) (void)close(base_fd);
+return success;
+}
+
+
+/* Remove the daemon's pidfile.  Note: runs with root privilege,
+as a direct child of the daemon.  Does not return. */
+
+void
+delete_pid_file(void)
+{
+const BOOL success = operate_on_pid_file(PID_DELETE, getppid());
+
+DEBUG(D_any)
+  debug_printf("delete pid file %s %s: %s\n", pid_file_path,
+    success ? "success" : "failure", strerror(errno));
+
+exim_exit(EXIT_SUCCESS, US"");
+}
+
+
 
 /*************************************************
 *              Exim Daemon Mainline              *
@@ -1540,28 +1696,14 @@ The variable daemon_write_pid is used to control this. */
 
 if (f.running_in_test_harness || write_pid)
   {
-  FILE *f;
-
-  if (override_pid_file_path)
-    pid_file_path = override_pid_file_path;
-
-  if (pid_file_path[0] == 0)
-    pid_file_path = string_sprintf("%s/exim-daemon.pid", spool_directory);
-
-  if ((f = modefopen(pid_file_path, "wb", 0644)))
-    {
-    (void)fprintf(f, "%d\n", (int)getpid());
-    (void)fclose(f);
-    DEBUG(D_any) debug_printf("pid written to %s\n", pid_file_path);
-    }
-  else
-    DEBUG(D_any)
-      debug_printf("%s\n", string_open_failed(errno, "pid file %s",
-        pid_file_path));
+  const enum pid_op operation = (f.running_in_test_harness
+     || real_uid == root_uid
+     || (real_uid == exim_uid && !override_pid_file_path)) ? PID_WRITE : PID_CHECK;
+  if (!operate_on_pid_file(operation, getpid()))
+    DEBUG(D_any) debug_printf("%s pid file %s: %s\n", (operation == PID_WRITE) ? "write" : "check", pid_file_path, strerror(errno));
   }
 
 /* Set up the handler for SIGHUP, which causes a restart of the daemon. */
-
 sighup_seen = FALSE;
 signal(SIGHUP, sighup_handler);
 
@@ -1627,8 +1769,8 @@ else if (f.daemon_listen)
   int i, j;
   int smtp_ports = 0;
   int smtps_ports = 0;
-  ip_address_item * ipa, * i2;
-  uschar * p = big_buffer;
+  ip_address_item * ipa;
+  uschar * p;
   uschar * qinfo = queue_interval > 0
     ? string_sprintf("-q%s", readconf_printtime(queue_interval))
     : US"no queue runs";
@@ -1640,27 +1782,19 @@ else if (f.daemon_listen)
   deprecated protocol that starts TLS without using STARTTLS), and others
   listening for standard SMTP. Keep their listings separate. */
 
-  for (j = 0; j < 2; j++)
+  for (int j = 0, i; j < 2; j++)
     {
     for (i = 0, ipa = addresses; i < 10 && ipa; i++, ipa = ipa->next)
       {
       /* First time round, look for SMTP ports; second time round, look for
-      SMTPS ports. For the first one of each, insert leading text. */
+      SMTPS ports. Build IP+port strings. */
 
       if (host_is_tls_on_connect_port(ipa->port) == (j > 0))
 	{
 	if (j == 0)
-	  {
-	  if (smtp_ports++ == 0)
-	    {
-	    memcpy(p, "SMTP on", 8);
-	    p += 7;
-	    }
-	  }
+	  smtp_ports++;
 	else
-	  if (smtps_ports++ == 0)
-	    p += sprintf(CS p, "%sSMTPS on",
-	      smtp_ports == 0 ? "" : " and for ");
+	  smtps_ports++;
 
 	/* Now the information about the port (and sometimes interface) */
 
@@ -1669,40 +1803,67 @@ else if (f.daemon_listen)
 	  if (ipa->next && ipa->next->address[0] == 0 &&
 	      ipa->next->port == ipa->port)
 	    {
-	    p += sprintf(CS p, " port %d (IPv6 and IPv4)", ipa->port);
-	    ipa = ipa->next;
+	    ipa->log = string_sprintf(" port %d (IPv6 and IPv4)", ipa->port);
+	    (ipa = ipa->next)->log = NULL;
 	    }
 	  else if (ipa->v6_include_v4)
-	    p += sprintf(CS p, " port %d (IPv6 with IPv4)", ipa->port);
+	    ipa->log = string_sprintf(" port %d (IPv6 with IPv4)", ipa->port);
 	  else
-	    p += sprintf(CS p, " port %d (IPv6)", ipa->port);
+	    ipa->log = string_sprintf(" port %d (IPv6)", ipa->port);
 	  }
 	else if (ipa->address[0] == 0)			/* v4 wildcard */
-	  p += sprintf(CS p, " port %d (IPv4)", ipa->port);
+	  ipa->log = string_sprintf(" port %d (IPv4)", ipa->port);
 	else				/* check for previously-seen IP */
 	  {
+	  ip_address_item * i2;
 	  for (i2 = addresses; i2 != ipa; i2 = i2->next)
 	    if (  host_is_tls_on_connect_port(i2->port) == (j > 0)
 	       && Ustrcmp(ipa->address, i2->address) == 0
 	       )
 	      {				/* found; append port to list */
-	      if (p[-1] == '}') p--;
-	      while (isdigit(*--p)) ;
-	      p +=  1 + sprintf(CS p+1, "%s%d,%d}", *p == ',' ? "" : "{",
-		i2->port, ipa->port);
+	      for (p = i2->log; *p; ) p++;	/* end of existing string */
+	      if (*--p == '}') *p = '\0';	/* drop EOL */
+	      while (isdigit(*--p)) ;		/* char before port */
+
+	      i2->log = *p == ':'		/* no list yet? */
+		? string_sprintf("%.*s{%s,%d}",
+		  (int)(p - i2->log + 1), i2->log, p+1, ipa->port)
+		: string_sprintf("%s,%d}", i2->log, ipa->port);
+	      ipa->log = NULL;
 	      break;
 	      }
 	  if (i2 == ipa)		/* first-time IP */
-	    p += sprintf(CS p, " [%s]:%d", ipa->address, ipa->port);
+	    ipa->log = string_sprintf(" [%s]:%d", ipa->address, ipa->port);
 	  }
 	}
       }
+    }
+
+  p = big_buffer;
+  for (int j = 0, i; j < 2; j++)
+    {
+    /* First time round, look for SMTP ports; second time round, look for
+    SMTPS ports. For the first one of each, insert leading text. */
+
+    if (j == 0)
+      {
+      if (smtp_ports > 0)
+	p += sprintf(CS p, "SMTP on");
+      }
+    else
+      if (smtps_ports > 0)
+	p += sprintf(CS p, "%sSMTPS on",
+	  smtp_ports == 0 ? "" : " and for ");
+
+    /* Now the information about the port (and sometimes interface) */
+
+    for (i = 0, ipa = addresses; i < 10 && ipa; i++, ipa = ipa->next)
+      if (host_is_tls_on_connect_port(ipa->port) == (j > 0))
+	if (ipa->log)
+	  p += sprintf(CS p, "%s",  ipa->log);
 
     if (ipa)
-      {
-      memcpy(p, " ...", 5);
-      p += 4;
-      }
+      p += sprintf(CS p, " ...");
     }
 
   log_write(0, LOG_MAIN,

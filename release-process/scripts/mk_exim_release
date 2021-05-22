@@ -11,6 +11,7 @@ use File::Temp;
 use Getopt::Long;
 use IO::File;
 use Pod::Usage;
+use Digest::SHA;
 use if $ENV{DEBUG} => 'Smart::Comments';
 
 my $ME = basename $0;
@@ -67,6 +68,11 @@ package Context {
         $context->{v}{minor} = $+{minor};
         $context->{v}{security} = $+{security};
         $context->{v}{rc} = $+{rc};
+
+        die "$ME: This script doesn't work for versions prior 4.92-RCx. "
+           ."Please checkout an older version.\n"
+            if $context->{v}{major} < 4
+            or $context->{v}{major} == 4 && $context->{v}{minor} < 92;
 
         ### v: $context->{v}
 
@@ -257,7 +263,6 @@ __
         }
 
         $context->copy_docbook_files;
-        $context->build_html_documentation if $context->{web};
     }
 
     sub copy_docbook_files {
@@ -304,6 +309,18 @@ __
         print "[$cwd] Executing @cmd\n";
         0 == system @cmd or exit $? >> 8;
 
+    }
+
+    sub sign {
+        my $context = shift;
+        foreach my $tar (glob "$context->{d}{pkg_tars}/*") {
+            system gpg =>
+            '--quiet', '--batch',
+            defined $context->{gpg}{key}
+                ? ('--local-user' => $context->{gpg}{key})
+                : (),
+            '--detach-sig', '--armor', $tar;
+        }
     }
 
     sub move_to_outdir {
@@ -408,32 +425,58 @@ __
         # those are artifacts of use of tar for backups and have no place in
         # software release packaging; if someone extracts as root, then they should
         # get sane file ownerships.
-        my $ownership = "";
-        if (`tar --help 2>&1` =~ /^\s*--owner=/m) {
-            $ownership .= " --owner=$context->{tar_perms}{user} --group=$context->{tar_perms}{group}";
+        my @ownership = (
+            '--owner' => $context->{tar_perms}{user},
+            '--group' => $context->{tar_perms}{group},
             # on this GNU tar, --numeric-owner works during creation too
-            $ownership .= " --numeric-owner";
-        }
+            '--numeric-owner'
+        ) if qx/tar --help 2>&1/ =~ /^\s*--owner=/m;
 
         # See also environment variables set in main, tuning compression levels
-        my @COMPRESSIONS = (
-            # compressors-dict-key, file-extension, flags-as-string
-            [ "gzip", "gz", "--gzip" ],
-            [ "bzip2", "bz2", "--bzip2" ],
-            [ "lzip", "lz", "--lzip" ],
-            [ "xz", "xz", "--xz" ],
+        my %COMPRESSION = (
+            gzip  => { extension => 'gz',  flags => '--gzip' },
+            bzip2 => { extension => 'bz2', flags => '--bzip2' },
+            lzip  => { extension => 'lz',  flags => '--lzip' },
+            xz    => { extension => 'xz',  flags => '--xz' },
         );
+
+
+        my (%size, %sha256);
 
         foreach my $dir ( glob( catdir( $pkg_trees, ( 'exim*-' . $context->{v}{release} ) ) ) ) {
             my $dirname = ( splitdir($dir) )[-1];
-            foreach my $comp (@COMPRESSIONS) {
-                my ($compkey, $extension, $flags) = @{$comp};
-                next unless $context->{compressors}{$compkey};
-                print "Creating: ${pkg_tars}/${dirname}.tar.${extension}\n" if $verbose || $debug;
-                0 == system("$tar cf ${pkg_tars}/${dirname}.tar.${extension} ${flags} ${ownership} -C ${pkg_trees} ${dirname}")
+            foreach my $comp (keys %COMPRESSION) {
+                next unless $context->{compressors}{$comp};
+
+                my $basename = "$dirname.tar.$COMPRESSION{$comp}{extension}";
+                my $outfile = catfile $pkg_tars, $basename;
+
+                print "Creating: $outfile\n" if $verbose || $debug;
+                0 == system($tar,
+                    cf => $outfile,
+                        $COMPRESSION{$comp}{flags},
+                        @ownership, -C => $pkg_trees, $dirname)
                     or exit $? >> 8;
+
+                # calculate size and md5sum
+                $size{$basename} = -s $outfile;
+                $sha256{$basename} = do {
+                    my $sha = Digest::SHA->new(256);
+                    $sha->addfile($outfile);
+                    $sha->hexdigest;
+                };
             }
         }
+
+        # write the sizes file
+        open my $sizes, '>', $_ = catfile $pkg_tars, 'sizes.txt'
+            or die "$ME: Can't open `$_': $!\n";
+
+        print $sizes join "\n",
+            (map { "SIZE($_) = $size{$_}" } sort keys %size),
+            (map { "SHA256($_) = $sha256{$_}" } sort keys %sha256);
+
+        close($sizes) or die "$ME: Can't close $_: $!\n";
     }
 
     sub do_cleanup {
@@ -468,6 +511,10 @@ MAIN: {
         web          => 1,
         delete       => 0,
         cleanup      => 1,
+        gpg => {
+            sign         => 1,
+            key          => undef,
+        },
     );
 
     ##$ENV{'PATH'} = '/opt/local/bin:' . $ENV{'PATH'};
@@ -483,6 +530,8 @@ MAIN: {
         $context,
         qw(workspace|tmp=s outdir=s website_base|webgen_base=s tar_cmd=s make_cmd=s docs|build-docs! web|build-web!
            delete! cleanup!),
+        'sign!'         => \$context->{gpg}{sign},
+        'key=s'         => \$context->{gpg}{key},
         'lzip!'         => \$context->{compressors}{lzip},
         'verbose!'      => \$verbose,
         'debug!'        => \$debug,
@@ -490,11 +539,20 @@ MAIN: {
         'man!'          => sub { pod2usage(-verbose => 2, -exit => 0, -noperldoc => system('perldoc -V >/dev/null 2>&1')) },
     ) and @ARGV == 2 or pod2usage;
 
+    -f '.exim-project-root'
+        or die "$ME: please call this script from the root of the Exim project sources\n";
 
     $context->{OUTDIR} = pop @ARGV;
 
-    -f '.exim-project-root'
-        or die "$ME: please call this script from the root of the Exim project sources\n";
+    if ($context->{gpg}{sign}) {
+        $context->{gpg}{key} //= do { chomp($_ = qx/git config user.signingkey/); $_ }
+            || $ENV{EXIM_KEY}
+            || do {
+                warn "$ME: No GPG key, using default\n";
+                undef;
+            }
+    }
+
 
     warn "$ME: changed umask to 022\n" if umask(022) != 022;
 
@@ -505,11 +563,13 @@ MAIN: {
     $context->unpack_tree;
     $context->make_version_script;
     $context->build_documentation if $context->{docs};
+    $context->build_html_documentation if $context->{docs} && $context->{web};
 
     $context->build_src_package_directory;
     $context->build_doc_packages_directory if $context->{docs};
 
     $context->create_tar_files;
+    $context->sign if $context->{gpg}{sign};
     $context->move_to_outdir;
     $context->do_cleanup if $context->{cleanup};
 
@@ -588,6 +648,25 @@ Display man page and exit cleanly. (default: don't do that)
 
 Use to override the path to the C<tar> command.  Need GNU tar in case
 I<lzip> is selected. (default: C<gtar>, if not found, use C<tar>)
+
+=item B<--[no]sign>
+
+Sign the created archive files (and the sizes.txt). (default: sign)
+
+=item B<--key> I<GPG key>
+
+Use this GPG key for signing. If nothing is specified the first one of this list
+is used:
+
+=over 8
+
+=item - git config user.signingkey
+
+=item - environment C<EXIM_KEY>
+
+=item - default GPG key
+
+=back
 
 =item B<--[no]web>
 

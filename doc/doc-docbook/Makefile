@@ -11,7 +11,7 @@ notarget:;    @echo "** You must specify a target, in the form x.y, where x is '
 # Generate all the documentation files...
 #
 ## removed info files as I cannot generate them -  spec.info filter.info
-## removed html files as superceded by new website code
+## removed html files as superseded by new website code
 everything:		spec.pdf 	spec.ps  	spec.txt \
 				filter.pdf 	filter.ps filter.txt \
 				exim.8
@@ -33,7 +33,7 @@ local_params: FORCE GenLocalParams
 	trap 'rm -f $$tmp' EXIT; \
 	tmp=`mktemp`; \
 	./GenLocalParams $$tmp; \
-	cmp -s $@ $$tmp || mv $$tmp $@
+	cmp -s $@ $$tmp || mv -f $$tmp $@
 
 ############################### FILTER #################################
 
@@ -117,7 +117,7 @@ filter.info:  filter-info.xml
 ################################ SPEC ##################################
 
 spec.xml:      spec.xfpt local_params
-	       xfpt $<
+	       xfpt spec.xfpt
 
 spec-pr.xml:   spec.xml Pre-xml
 	       ./Pre-xml -optbreak <spec.xml >spec-pr.xml
@@ -176,18 +176,18 @@ spec.pdf: sdop-spec.pdf
 
 spec-txt.html:     spec-txt.xml \
 		MyStyle-txt-html.xsl MyStyle-html.xsl MyStyle.xsl
-	      xmlto -x MyStyle-txt-html.xsl html-nochunks $<
+	      xmlto -x MyStyle-txt-html.xsl html-nochunks spec-txt.xml
 
 spec.utf8:	spec-txt.html Tidytxt
 		@grep -iq 'LC_CTYPE=.*utf-\?8' local_params || { \
 			echo 'your current locale does not support UTF-8' >&2; \
 			false; }
 		command -v w3m >/dev/null
-		w3m -dump $< | ./Tidytxt -utf8 >$@
+		w3m -dump spec-txt.html | ./Tidytxt -utf8 >$@
 
 spec.txt: spec-txt.html Tidytxt
 	      command -v w3m >/dev/null
-	      LC_ALL=C w3m -dump $< | ./Tidytxt >$@
+	      LC_ALL=C w3m -dump spec-txt.html | ./Tidytxt >$@
 	      ./SanityTestText spec.txt
 
 

@@ -224,6 +224,8 @@ interpreted in strings.
 Arguments:
   pp       points a pointer to the initiating "\" in the string;
            the pointer gets updated to point to the final character
+           If the backslash is the last character in the string, it
+           is not interpreted.
 Returns:   the value of the character escape
 */
 
@@ -236,6 +238,7 @@ const uschar *hex_digits= CUS"0123456789abcdef";
 int ch;
 const uschar *p = *pp;
 ch = *(++p);
+if (ch == '\0') return **pp;
 if (isdigit(ch) && ch != '8' && ch != '9')
   {
   ch -= '0';
@@ -1129,7 +1132,7 @@ store_reset(g->s + (g->size = g->ptr + 1));
 Arguments:
   g		the growable-string
   p		current end of data
-  count		amount to grow by
+  count		amount to grow by, offset from p
 */
 
 static void
@@ -1144,6 +1147,18 @@ To try to keep things reasonable, we use increments whose size depends on the
 existing length of the string. */
 
 unsigned inc = oldsize < 4096 ? 127 : 1023;
+
+if (g->ptr < 0 || g->ptr > g->size || g->size >= INT_MAX/2)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in gstring_grow (ptr %d size %d)", g->ptr, g->size);
+
+if (count <= 0) return;
+
+if (count >= INT_MAX/2 - g->ptr)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in gstring_grow (ptr %d count %d)", g->ptr, count);
+
+
 g->size = ((p + count + inc) & ~inc) + 1;
 
 /* Try to extend an existing allocation. If the result of calling
@@ -1191,6 +1206,10 @@ string_catn(gstring * g, const uschar *s, int count)
 {
 int p;
 
+if (count < 0)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in string_catn (count %d)", count);
+
 if (!g)
   {
   unsigned inc = count < 4096 ? 127 : 1023;
@@ -1198,8 +1217,13 @@ if (!g)
   g = string_get(size);
   }
 
+if (g->ptr < 0 || g->ptr > g->size)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+      "internal error in string_catn (ptr %d size %d)", g->ptr, g->size);
+
 p = g->ptr;
-if (p + count >= g->size)
+
+if (count >= g->size - p)
   gstring_grow(g, p, count);
 
 /* Because we always specify the exact number of characters to copy, we can
@@ -1210,8 +1234,8 @@ memcpy(g->s + p, s, count);
 g->ptr = p + count;
 return g;
 }
- 
- 
+
+
 gstring *
 string_cat(gstring *string, const uschar *s)
 {
@@ -1587,7 +1611,7 @@ while (*fp)
 	}
       else if (g->ptr >= lim - width)
 	{
-	gstring_grow(g, g->ptr, width - (lim - g->ptr));
+	gstring_grow(g, g->ptr, width);
 	lim = g->size - 1;
 	gp = CS g->s + g->ptr;
 	}

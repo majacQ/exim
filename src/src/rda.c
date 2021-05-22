@@ -492,7 +492,7 @@ return TRUE;
 /* This function is passed a forward list string (unexpanded) or the name of a
 file (unexpanded) whose contents are the forwarding list. The list may in fact
 be a filter program if it starts with "#Exim filter" or "#Sieve filter". Other
-types of filter, with different inital tag strings, may be introduced in due
+types of filter, with different initial tag strings, may be introduced in due
 course.
 
 The job of the function is to process the forwarding list or filter. It is
@@ -623,9 +623,13 @@ search_tidyup();
 if ((pid = fork()) == 0)
   {
   header_line *waslast = header_last;   /* Save last header */
+  int fd_flags = -1;
 
   fd = pfd[pipe_write];
   (void)close(pfd[pipe_read]);
+
+  if ((fd_flags = fcntl(fd, F_GETFD)) == -1) goto bad;
+  if (fcntl(fd, F_SETFD, fd_flags | FD_CLOEXEC) == -1) goto bad;
   exim_setugid(ugid->uid, ugid->gid, FALSE, rname);
 
   /* Addresses can get rewritten in filters; if we are not root or the exim

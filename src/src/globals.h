@@ -173,6 +173,7 @@ extern struct global_flags {
  BOOL   authentication_local		:1; /* TRUE if non-smtp (implicit authentication) */
 
  BOOL   background_daemon		:1; /* Set FALSE to keep in foreground */
+ BOOL   bdat_readers_wanted		:1; /* BDAT-handling to be pushed on readfunc stack */
 
  BOOL   chunking_offered		:1;
  BOOL   config_changed			:1; /* True if -C used */
@@ -490,7 +491,7 @@ extern BOOL    disable_fsync;          /* Not for normal use */
 extern BOOL    disable_ipv6;           /* Don't do any IPv6 things */
 
 #ifndef DISABLE_DKIM
-extern unsigned dkim_collect_input;    /* Runtime count of dkim signtures; tracks wether SMTP input is fed to DKIM validation */
+extern unsigned dkim_collect_input;    /* Runtime count of dkim signtures; tracks whether SMTP input is fed to DKIM validation */
 extern uschar *dkim_cur_signer;        /* Expansion variable, holds the current "signer" domain or identity during a acl_smtp_dkim run */
 extern int     dkim_key_length;        /* Expansion variable, length of signing key in bits */
 extern void   *dkim_signatures;	       /* Actually a (pdkim_signature *) but most files do not need to know */
