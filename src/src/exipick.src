@@ -1,7 +1,12 @@
 #!PERL_COMMAND
+# Copyright (c) 1995 - 2018 University of Cambridge.
+# See the file NOTICE for conditions of use and distribution.
 
-# This variable should be set by the building process to Exim's spool directory.
-my $spool = 'SPOOL_DIRECTORY';
+
+# This variables should be set by the building process
+my $spool = 'SPOOL_DIRECTORY';	# may be overridden later
+my $exim  = 'BIN_DIRECTORY/exim';
+
 # Need to set this dynamically during build, but it's not used right now anyway.
 my $charset = 'ISO-8859-1';
 
@@ -10,7 +15,9 @@ my $charset = 'ISO-8859-1';
 #       http://www.exim.org/eximwiki/ToolExipickManPage
 
 use strict;
+BEGIN { pop @INC if $INC[-1] eq '.' };
 use Getopt::Long;
+use File::Basename;
 
 my($p_name)   = $0 =~ m|/?([^/]+)$|;
 my $p_version = "20100323.0";
@@ -39,6 +46,7 @@ $| = 1; # unbuffer STDOUT
 Getopt::Long::Configure("bundling_override");
 GetOptions(
   'spool=s'     => \$G::spool,      # exim spool dir
+  'C|Config=s'  => \$G::config,     # use alternative Exim configuration file
   'input-dir=s' => \$G::input_dir,  # name of the "input" dir
   'finput'      => \$G::finput,     # same as "--input-dir Finput"
   'bp'          => \$G::mailq_bp,   # List the queue (noop - default)
@@ -76,10 +84,16 @@ GetOptions(
   'show-vars=s' => \$G::show_vars,  # display the contents of these vars
   'just-vars'   => \$G::just_vars,  # only display vars, no other info
   'show-rules'  => \$G::show_rules, # display compiled match rules
-  'show-tests'  => \$G::show_tests  # display tests as applied to each message
+  'show-tests'  => \$G::show_tests, # display tests as applied to each message
+  'version'     => sub {
+        print basename($0) . ": $0\n",
+            "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+            "perl(runtime): $]\n";
+            exit 0;
+  },
 ) || exit(1);
 
-# if both freeze and thaw specified, only thaw as it is less desctructive
+# if both freeze and thaw specified, only thaw as it is less destructive
 $G::freeze = undef               if ($G::freeze && $G::thaw);
 freeze_start()                   if ($G::freeze);
 thaw_start()                     if ($G::thaw);
@@ -111,7 +125,9 @@ $G::and             = $G::and;             # shut up -w
 $G::msg_ids         = {};                  # short circuit when crit is only MID
 $G::caseless        = $G::caseful ? 0 : 1; # nocase by default, case if both
 @G::recipients_crit = ();                  # holds per-recip criteria
-$spool              = $G::spool if ($G::spool);
+$spool              = defined $G::spool ? $G::spool
+		      : do { chomp($_ = `$exim @{[defined $G::config ? "-C $G::config" : '']} -n -bP spool_directory`)
+                             and $_ or $spool };
 my $input_dir       = $G::input_dir || ($G::finput ? "Finput" : "input");
 my $count_only      = 1 if ($G::mailq_bpc  || $G::qgrep_c);
 my $unsorted        = 1 if ($G::mailq_bpr  || $G::mailq_bpra ||
@@ -381,7 +397,7 @@ sub process_criteria {
     } else {
       $c[-1]{cmp} .= $G::negate ? " ? 0 : 1" : " ? 1 : 0";
     }
-    # support the each_* psuedo variables.  Steal the criteria off of the
+    # support the each_* pseudo variables.  Steal the criteria off of the
     # queue for special processing later
     if ($c[-1]{var} =~ /^each_(recipients(_(un)?del)?)$/) {
       my $var = $1;
@@ -757,7 +773,7 @@ sub _decode_2047 {
               $i += 2;
             }
           }
-          elsif ($ow[$i] =~ /\s/) { # whitspace is illegal
+          elsif ($ow[$i] =~ /\s/) { # whitespace is illegal
             $e = 1;
             last;
           }
@@ -1349,6 +1365,11 @@ Same as '-bpu --unsorted' (exim)
 
 Same as -bp, but only show undelivered messages (exim)
 
+=item -C | --config <config>
+
+Use <config> to determine the proper spool directory. (See C<--spool>
+or C<--input> for alternative ways to specify the directories to operate on.)
+
 =item -c
 
 Show a count of matching messages (exiqgrep)
@@ -1387,7 +1408,7 @@ Display only the message IDs (exiqgrep)
 
 =item --input-dir <inputname>
 
-Set the name of the directory under the spool directory.  By defaut this is "input".  If this starts with '/', the value of --spool is ignored.  See also --finput.
+Set the name of the directory under the spool directory.  By default this is "input".  If this starts with '/', the value of --spool is ignored.  See also --finput.
 
 =item -l
 
@@ -1427,7 +1448,7 @@ Same as '$shown_message_size eq <string>' (exiqgrep)
 
 =item --spool <path>
 
-Set the path to the exim spool to use.  This value will have the argument to --input or 'input' appended, or be ignored if --input is a full path.
+Set the path to the exim spool to use.  This value will have the argument to --input or 'input' appended, or be ignored if --input is a full path. If not specified, exipick uses the value from C<exim [-C config] -n -bP spool_directory>, and if this call fails, the  F</opt/exim/spool> from build time (F<Local/Makefile>) is used. See also --config.
 
 =item --show-rules
 
@@ -1583,7 +1604,7 @@ TRUE if, under normal circumstances, Exim will not try to deliver the message.
 
 =item S + $each_recipients
 
-This is a psuedo variable which allows you to apply a test against each address in $recipients individually.  Whereas '$recipients =~ /@aol.com/' will match if any recipient address contains aol.com, '$each_recipients =~ /@aol.com$/' will only be true if every recipient matches that pattern.  Note that this obeys --and or --or being set.  Using it with --or is very similar to just matching against $recipients, but with the added benefit of being able to use anchors at the beginning and end of each recipient address.
+This is a pseudo variable which allows you to apply a test against each address in $recipients individually.  Whereas '$recipients =~ /@aol.com/' will match if any recipient address contains aol.com, '$each_recipients =~ /@aol.com$/' will only be true if every recipient matches that pattern.  Note that this obeys --and or --or being set.  Using it with --or is very similar to just matching against $recipients, but with the added benefit of being able to use anchors at the beginning and end of each recipient address.
 
 =item S + $each_recipients_del
 

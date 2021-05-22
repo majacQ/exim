@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -133,6 +133,21 @@ address can appear in the tables drtables.c. */
 int redirect_router_options_count =
   sizeof(redirect_router_options)/sizeof(optionlist);
 
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+redirect_router_options_block redirect_router_option_defaults = {0};
+void redirect_router_init(router_instance *rblock) {}
+int redirect_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
+
+
 /* Default private options block for the redirect router. */
 
 redirect_router_options_block redirect_router_option_defaults = {
@@ -208,11 +223,11 @@ than false, there is likely to be a problem. */
 if (ob->one_time)
   {
   ob->forbid_pipe = ob->forbid_file = ob->forbid_filter_reply = TRUE;
-  if (rblock->extra_headers != NULL || rblock->remove_headers != NULL)
+  if (rblock->extra_headers || rblock->remove_headers)
     log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s router:\n  "
       "\"headers_add\" and \"headers_remove\" are not permitted with "
       "\"one_time\"", rblock->name);
-  if (rblock->unseen || rblock->expand_unseen != NULL)
+  if (rblock->unseen || rblock->expand_unseen)
     log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s router:\n  "
       "\"unseen\" may not be used with \"one_time\"", rblock->name);
   }
@@ -224,7 +239,7 @@ or if owngroups is set. */
 
 if (ob->check_owner == TRUE_UNSET)
   ob->check_owner = rblock->check_local_user ||
-                    (ob->owners != NULL && ob->owners[0] != 0);
+                    (ob->owners && ob->owners[0] != 0);
 
 if (ob->check_group == TRUE_UNSET)
   ob->check_group = (rblock->check_local_user && (ob->modemask & 020) == 0) ||
@@ -232,7 +247,7 @@ if (ob->check_group == TRUE_UNSET)
 
 /* If explicit qualify domain set, the preserve option is locked out */
 
-if (ob->qualify_domain != NULL && ob->qualify_preserve_domain)
+if (ob->qualify_domain && ob->qualify_preserve_domain)
   log_write(0, LOG_PANIC_DIE|LOG_CONFIG_FOR, "%s router:\n  "
     "only one of \"qualify_domain\" or \"qualify_preserve_domain\" must be set",
     rblock->name);
@@ -325,7 +340,7 @@ add_generated(router_instance *rblock, address_item **addr_new,
 redirect_router_options_block *ob =
   (redirect_router_options_block *)(rblock->options_block);
 
-while (generated != NULL)
+while (generated)
   {
   address_item *parent;
   address_item *next = generated;
@@ -333,11 +348,10 @@ while (generated != NULL)
 
   generated = next->next;
   next->parent = addr;
-  orflag(next, addr, af_ignore_error);
   next->start_router = rblock->redirect_router;
-  if (addr->child_count == SHRT_MAX)
+  if (addr->child_count == USHRT_MAX)
     log_write(0, LOG_MAIN|LOG_PANIC_DIE, "%s router generated more than %d "
-      "child addresses for <%s>", rblock->name, SHRT_MAX, addr->address);
+      "child addresses for <%s>", rblock->name, USHRT_MAX, addr->address);
   addr->child_count++;
 
   next->next = *addr_new;
@@ -345,9 +359,9 @@ while (generated != NULL)
 
   /* Don't do the "one_time" thing for the first pass of a 2-stage queue run. */
 
-  if (ob->one_time && !queue_2stage)
+  if (ob->one_time && !f.queue_2stage)
     {
-    for (parent = addr; parent->parent != NULL; parent = parent->parent);
+    for (parent = addr; parent->parent; parent = parent->parent) ;
     next->onetime_parent = parent->address;
     }
 
@@ -358,28 +372,27 @@ while (generated != NULL)
   unless the ancestor was routed by a case-sensitive router. */
 
   if (ob->check_ancestor)
-    {
-    for (parent = addr; parent != NULL; parent = parent->parent)
-      {
-      if (((parent->router != NULL && parent->router->caseful_local_part)?
-           Ustrcmp(next->address, parent->address)
-           :
-           strcmpic(next->address, parent->address)
+    for (parent = addr; parent; parent = parent->parent)
+      if ((parent->router && parent->router->caseful_local_part
+	   ? Ustrcmp(next->address, parent->address)
+           : strcmpic(next->address, parent->address)
           ) == 0)
         {
         DEBUG(D_route) debug_printf("generated parent replaced by child\n");
         next->address = string_copy(addr->address);
         break;
         }
-      }
-    }
 
   /* A user filter may, under some circumstances, set up an errors address.
   If so, we must take care to re-instate it when we copy in the propagated
   data so that it overrides any errors_to setting on the router. */
 
-  next->prop = *addr_prop;
-  if (errors_address != NULL) next->prop.errors_address = errors_address;
+    {
+    BOOL ignore_error = next->prop.ignore_error;
+    next->prop = *addr_prop;
+    next->prop.ignore_error = ignore_error || addr->prop.ignore_error;
+    }
+  if (errors_address) next->prop.errors_address = errors_address;
 
   /* For pipes, files, and autoreplies, record this router as handling them,
   because they don't go through the routing process again. Then set up uid,
@@ -452,8 +465,9 @@ while (generated != NULL)
     }
 
 #ifdef SUPPORT_I18N
-    next->prop.utf8_msg = string_is_utf8(next->address)
-      || (sender_address && string_is_utf8(sender_address));
+    if (!next->prop.utf8_msg)
+      next->prop.utf8_msg = string_is_utf8(next->address)
+        || (sender_address && string_is_utf8(sender_address));
 #endif
 
   DEBUG(D_route)
@@ -553,11 +567,17 @@ addr_prop.remove_headers = NULL;
 #ifdef EXPERIMENTAL_SRS
 addr_prop.srs_sender = NULL;
 #endif
+#ifdef SUPPORT_I18N
+addr_prop.utf8_msg = addr->prop.utf8_msg;
+addr_prop.utf8_downcvt = addr->prop.utf8_downcvt;
+addr_prop.utf8_downcvt_maybe = addr->prop.utf8_downcvt_maybe;
+#endif
+
 
 /* When verifying and testing addresses, the "logwrite" command in filters
 must be bypassed. */
 
-if (verify == v_none && !address_test_mode) options |= RDO_REALLOG;
+if (verify == v_none && !f.address_test_mode) options |= RDO_REALLOG;
 
 /* Sort out the fixed or dynamic uid/gid. This uid is used (a) for reading the
 file (and interpreting a filter) and (b) for running the transports for
@@ -649,8 +669,8 @@ if (!ugid.gid_set && pw != NULL)
 //          eximsrs_db_set(FALSE, NULL);
 */
 
-        if(ob->srs_alias != NULL ? (usedomain = expand_string(ob->srs_alias)) == NULL : 1)
-          usedomain = deliver_domain;
+        if (!(usedomain = ob->srs_alias ? expand_string(ob->srs_alias) : NULL))
+          usedomain = string_copy(deliver_domain);
 
         if((n_srs = eximsrs_forward(&res, sender_address, usedomain)) == OK)
         {
@@ -766,7 +786,7 @@ switch (frc)
   high so that their completion does not mark the original address done. */
 
   case FF_FREEZE:
-  if (!deliver_manual_thaw)
+  if (!f.deliver_manual_thaw)
     {
     if ((xrc = sort_errors_and_headers(rblock, addr, verify, &addr_prop))
       != OK) return xrc;
@@ -835,7 +855,7 @@ if (eblock != NULL)
   if (!moan_skipped_syntax_errors(
         rblock->name,                            /* For message content */
         eblock,                                  /* Ditto */
-        (verify != v_none || address_test_mode)?
+        (verify != v_none || f.address_test_mode)?
           NULL : ob->syntax_errors_to,           /* Who to mail */
         generated != NULL,                       /* True if not all failed */
         ob->syntax_errors_text))                 /* Custom message */
@@ -867,7 +887,7 @@ generated anything. Log what happened to this address, and return DISCARD. */
 
 if (frc == FF_DELIVERED)
   {
-  if (generated == NULL && verify == v_none && !address_test_mode)
+  if (generated == NULL && verify == v_none && !f.address_test_mode)
     {
     log_write(0, LOG_MAIN, "=> %s <%s> R=%s", discarded, addr->address,
       rblock->name);
@@ -896,10 +916,8 @@ else
   next->next = *addr_new;
   *addr_new = next;
 
-  /* Copy relevant flags (af_propagate is a name for the set), and set the
-  data that propagates. */
+  /* Set the data that propagates. */
 
-  copyflag(next, addr, af_propagate);
   next->prop = addr_prop;
 
   DEBUG(D_route) debug_printf("%s router autogenerated %s\n%s%s%s",
@@ -920,4 +938,5 @@ addr->next = *addr_succeed;
 return yield;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/redirect.c */

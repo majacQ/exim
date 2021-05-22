@@ -18,7 +18,10 @@
 # Version 1.2
 
 use strict;
+BEGIN { pop @INC if $INC[-1] eq '.' };
+
 use Getopt::Std;
+use File::Basename;
 
 # Have this variable point to your exim binary.
 my $exim = 'BIN_DIRECTORY/exim';
@@ -42,6 +45,13 @@ if ($^O eq 'darwin') { # aka MacOS X
  } else {
   $base = 62;
 };
+
+if ($ARGV[0] eq '--version') {
+    print basename($0) . ": $0\n",
+        "build: EXIM_RELEASE_VERSIONEXIM_VARIANT_VERSION\n",
+        "perl(runtime): $]\n";
+        exit 0;
+}
 
 getopts('hf:r:y:o:s:C:zxlibRca',\%opt);
 if ($ARGV[0]) { &help; exit;}
@@ -87,7 +97,7 @@ EOF
 }
 
 sub collect() {
-	open(QUEUE,"$exim $eargs |") or die("Error openning pipe: $!\n");
+	open(QUEUE,"$exim $eargs |") or die("Error opening pipe: $!\n");
 	while(<QUEUE>) {
 		chomp();
 		my $line = $_;

@@ -2,8 +2,10 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Tom Kistner <tom@duncanthrax.net> 2003 - 2015 */
-/* License: GPL */
+/* Copyright (c) Tom Kistner <tom@duncanthrax.net> 2003 - 2015
+ * License: GPL
+ * Copyright (c) The Exim Maintainers 2016 - 2018
+ */
 
 /* Code for calling spamassassin's spamd. Called from acl.c. */
 
@@ -139,7 +141,7 @@ long rnd, weights;
 unsigned pri;
 static BOOL srandomed = FALSE;
 
-/* seedup, if we have only 1 server */
+/* speedup, if we have only 1 server */
 if (num_servers == 1)
   return (spamds[0]->is_failed ? -1 : 0);
 
@@ -191,7 +193,7 @@ uschar *user_name;
 uschar user_name_buffer[128];
 unsigned long mbox_size;
 FILE *mbox_file;
-int spamd_sock = -1;
+client_conn_ctx spamd_cctx = {.sock = -1};
 uschar spamd_buffer[32600];
 int i, j, offset, result;
 uschar spamd_version[8];
@@ -249,7 +251,7 @@ if (*spamd_address == '$')
 else
   spamd_address_work = spamd_address;
 
-DEBUG(D_acl) debug_printf("spamd: addrlist '%s'\n", spamd_address_work);
+DEBUG(D_acl) debug_printf_indent("spamd: addrlist '%s'\n", spamd_address_work);
 
 /* check if previous spamd_address was expanded and has changed. dump cached results if so */
 if (  spam_ok
@@ -263,11 +265,9 @@ if (spam_ok && Ustrcmp(prev_user_name, user_name) == 0)
   return override ? OK : spam_rc;
 
 /* make sure the eml mbox file is spooled up */
-mbox_file = spool_mbox(&mbox_size, NULL);
 
-if (mbox_file == NULL)
-  {
-  /* error while spooling */
+if (!(mbox_file = spool_mbox(&mbox_size, NULL, NULL)))
+  {								/* error while spooling */
   log_write(0, LOG_MAIN|LOG_PANIC,
 	 "%s error while creating mbox spool file", loglabel);
   return DEFER;
@@ -285,15 +285,14 @@ start = time(NULL);
   /* Check how many spamd servers we have
      and register their addresses */
   sep = 0;				/* default colon-sep */
-  while ((address = string_nextinlist(&spamd_address_list_ptr, &sep,
-				      NULL, 0)) != NULL)
+  while ((address = string_nextinlist(&spamd_address_list_ptr, &sep, NULL, 0)))
     {
     const uschar * sublist;
     int sublist_sep = -(int)' ';	/* default space-sep */
     unsigned args;
     uschar * s;
 
-    DEBUG(D_acl) debug_printf("spamd: addr entry '%s'\n", address);
+    DEBUG(D_acl) debug_printf_indent("spamd: addr entry '%s'\n", address);
     sd = (spamd_address_container *)store_get(sizeof(spamd_address_container));
 
     for (sublist = address, args = 0, spamd_param_init(sd);
@@ -301,7 +300,7 @@ start = time(NULL);
 	 args++
 	 )
       {
-	DEBUG(D_acl) debug_printf("spamd:  addr parm '%s'\n", s);
+	DEBUG(D_acl) debug_printf_indent("spamd:  addr parm '%s'\n", s);
 	switch (args)
 	{
 	case 0:   sd->hostspec = s;
@@ -340,18 +339,19 @@ start = time(NULL);
     {
     uschar * errstr;
 
-    DEBUG(D_acl) debug_printf("spamd: trying server %s\n", sd->hostspec);
+    DEBUG(D_acl) debug_printf_indent("spamd: trying server %s\n", sd->hostspec);
 
     for (;;)
       {
-      if (  (spamd_sock = ip_streamsocket(sd->hostspec, &errstr, 5)) >= 0
+      /*XXX could potentially use TFO early-data here */
+      if (  (spamd_cctx.sock = ip_streamsocket(sd->hostspec, &errstr, 5)) >= 0
          || sd->retry <= 0
 	 )
 	break;
-      DEBUG(D_acl) debug_printf("spamd: server %s: retry conn\n", sd->hostspec);
+      DEBUG(D_acl) debug_printf_indent("spamd: server %s: retry conn\n", sd->hostspec);
       while (sd->retry > 0) sd->retry = sleep(sd->retry);
       }
-    if (spamd_sock >= 0)
+    if (spamd_cctx.sock >= 0)
       break;
 
     log_write(0, LOG_MAIN, "%s spamd: %s", loglabel, errstr);
@@ -367,37 +367,32 @@ start = time(NULL);
     }
   }
 
-if (spamd_sock == -1)
-  {
-  log_write(0, LOG_MAIN|LOG_PANIC,
-      "programming fault, spamd_sock unexpectedly unset");
-  goto defer;
-  }
-
-(void)fcntl(spamd_sock, F_SETFL, O_NONBLOCK);
-/* now we are connected to spamd on spamd_sock */
+(void)fcntl(spamd_cctx.sock, F_SETFL, O_NONBLOCK);
+/* now we are connected to spamd on spamd_cctx.sock */
 if (sd->is_rspamd)
-  {				/* rspamd variant */
-  uschar *req_str;
-  const uschar * helo;
-  const uschar * fcrdns;
-  const uschar * authid;
+  {
+  gstring * req_str;
+  const uschar * s;
 
-  req_str = string_sprintf("CHECK RSPAMC/1.3\r\nContent-length: %lu\r\n"
-    "Queue-Id: %s\r\nFrom: <%s>\r\nRecipient-Number: %d\r\n",
-    mbox_size, message_id, sender_address, recipients_count);
+  req_str = string_append(NULL, 8,
+    "CHECK RSPAMC/1.3\r\nContent-length: ", string_sprintf("%lu\r\n", mbox_size),
+    "Queue-Id: ", message_id,
+    "\r\nFrom: <", sender_address,
+    ">\r\nRecipient-Number: ", string_sprintf("%d\r\n", recipients_count));
+
   for (i = 0; i < recipients_count; i ++)
-    req_str = string_sprintf("%sRcpt: <%s>\r\n", req_str, recipients_list[i].address);
-  if ((helo = expand_string(US"$sender_helo_name")) != NULL && *helo != '\0')
-    req_str = string_sprintf("%sHelo: %s\r\n", req_str, helo);
-  if ((fcrdns = expand_string(US"$sender_host_name")) != NULL && *fcrdns != '\0')
-    req_str = string_sprintf("%sHostname: %s\r\n", req_str, fcrdns);
-  if (sender_host_address != NULL)
-    req_str = string_sprintf("%sIP: %s\r\n", req_str, sender_host_address);
-  if ((authid = expand_string(US"$authenticated_id")) != NULL && *authid != '\0')
-    req_str = string_sprintf("%sUser: %s\r\n", req_str, authid);
-  req_str = string_sprintf("%s\r\n", req_str);
-  wrote = send(spamd_sock, req_str, Ustrlen(req_str), 0);
+    req_str = string_append(req_str, 3,
+      "Rcpt: <", recipients_list[i].address, ">\r\n");
+  if ((s = expand_string(US"$sender_helo_name")) && *s)
+    req_str = string_append(req_str, 3, "Helo: ", s, "\r\n");
+  if ((s = expand_string(US"$sender_host_name")) && *s)
+    req_str = string_append(req_str, 3, "Hostname: ", s, "\r\n");
+  if (sender_host_address)
+    req_str = string_append(req_str, 3, "IP: ", sender_host_address, "\r\n");
+  if ((s = expand_string(US"$authenticated_id")) && *s)
+    req_str = string_append(req_str, 3, "User: ", s, "\r\n");
+  req_str = string_catn(req_str, US"\r\n", 2);
+  wrote = send(spamd_cctx.sock, req_str->s, req_str->ptr, 0);
   }
 else
   {				/* spamassassin variant */
@@ -407,32 +402,32 @@ else
 	  user_name,
 	  mbox_size);
   /* send our request */
-  wrote = send(spamd_sock, spamd_buffer, Ustrlen(spamd_buffer), 0);
+  wrote = send(spamd_cctx.sock, spamd_buffer, Ustrlen(spamd_buffer), 0);
   }
 
 if (wrote == -1)
   {
-  (void)close(spamd_sock);
+  (void)close(spamd_cctx.sock);
   log_write(0, LOG_MAIN|LOG_PANIC,
        "%s spamd %s send failed: %s", loglabel, callout_address, strerror(errno));
   goto defer;
   }
 
 /* now send the file */
-/* spamd sometimes accepts conections but doesn't read data off
+/* spamd sometimes accepts connections but doesn't read data off
  * the connection.  We make the file descriptor non-blocking so
  * that the write will only write sufficient data without blocking
- * and we poll the desciptor to make sure that we can write without
+ * and we poll the descriptor to make sure that we can write without
  * blocking.  Short writes are gracefully handled and if the whole
- * trasaction takes too long it is aborted.
+ * transaction takes too long it is aborted.
  * Note: poll() is not supported in OSX 10.2 and is reported to be
  *       broken in more recent versions (up to 10.4).
  */
 #ifndef NO_POLL_H
-pollfd.fd = spamd_sock;
+pollfd.fd = spamd_cctx.sock;
 pollfd.events = POLLOUT;
 #endif
-(void)fcntl(spamd_sock, F_SETFL, O_NONBLOCK);
+(void)fcntl(spamd_cctx.sock, F_SETFL, O_NONBLOCK);
 do
   {
   read = fread(spamd_buffer,1,sizeof(spamd_buffer),mbox_file);
@@ -448,8 +443,8 @@ again:
     select_tv.tv_sec = 1;
     select_tv.tv_usec = 0;
     FD_ZERO(&select_fd);
-    FD_SET(spamd_sock, &select_fd);
-    result = select(spamd_sock+1, NULL, &select_fd, NULL, &select_tv);
+    FD_SET(spamd_cctx.sock, &select_fd);
+    result = select(spamd_cctx.sock+1, NULL, &select_fd, NULL, &select_tv);
 #endif
 /* End Erik's patch */
 
@@ -467,16 +462,16 @@ again:
 	log_write(0, LOG_MAIN|LOG_PANIC,
 	  "%s timed out writing spamd %s, socket", loglabel, callout_address);
 	}
-      (void)close(spamd_sock);
+      (void)close(spamd_cctx.sock);
       goto defer;
       }
 
-    wrote = send(spamd_sock,spamd_buffer + offset,read - offset,0);
+    wrote = send(spamd_cctx.sock,spamd_buffer + offset,read - offset,0);
     if (wrote == -1)
       {
       log_write(0, LOG_MAIN|LOG_PANIC,
 	  "%s %s on spamd %s socket", loglabel, callout_address, strerror(errno));
-      (void)close(spamd_sock);
+      (void)close(spamd_cctx.sock);
       goto defer;
       }
     if (offset + wrote != read)
@@ -492,43 +487,47 @@ if (ferror(mbox_file))
   {
   log_write(0, LOG_MAIN|LOG_PANIC,
     "%s error reading spool file: %s", loglabel, strerror(errno));
-  (void)close(spamd_sock);
+  (void)close(spamd_cctx.sock);
   goto defer;
   }
 
 (void)fclose(mbox_file);
 
 /* we're done sending, close socket for writing */
-shutdown(spamd_sock,SHUT_WR);
+if (!sd->is_rspamd)
+  shutdown(spamd_cctx.sock,SHUT_WR);
 
 /* read spamd response using what's left of the timeout.  */
 memset(spamd_buffer, 0, sizeof(spamd_buffer));
 offset = 0;
-while ((i = ip_recv(spamd_sock,
+while ((i = ip_recv(&spamd_cctx,
 		   spamd_buffer + offset,
 		   sizeof(spamd_buffer) - offset - 1,
-		   sd->timeout - time(NULL) + start)) > 0 )
+		   sd->timeout - time(NULL) + start)) > 0)
   offset += i;
+spamd_buffer[offset] = '\0';	/* guard byte */
 
 /* error handling */
 if (i <= 0 && errno != 0)
   {
   log_write(0, LOG_MAIN|LOG_PANIC,
        "%s error reading from spamd %s, socket: %s", loglabel, callout_address, strerror(errno));
-  (void)close(spamd_sock);
+  (void)close(spamd_cctx.sock);
   return DEFER;
   }
 
 /* reading done */
-(void)close(spamd_sock);
+(void)close(spamd_cctx.sock);
 
 if (sd->is_rspamd)
   {				/* rspamd variant of reply */
   int r;
-  if ((r = sscanf(CS spamd_buffer,
+  if (  (r = sscanf(CS spamd_buffer,
 	  "RSPAMD/%7s 0 EX_OK\r\nMetric: default; %7s %lf / %lf / %lf\r\n%n",
 	  spamd_version, spamd_short_result, &spamd_score, &spamd_threshold,
-	  &spamd_reject_score, &spamd_report_offset)) != 5)
+	  &spamd_reject_score, &spamd_report_offset)) != 5
+     || spamd_report_offset >= offset		/* verify within buffer */
+     )
     {
     log_write(0, LOG_MAIN|LOG_PANIC,
 	      "%s cannot parse spamd %s, output: %d", loglabel, callout_address, r);

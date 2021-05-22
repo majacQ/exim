@@ -8,10 +8,6 @@ trusted user
 admin user
 seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
-DSN: rr1 propagating DSN
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
-DSN: r3 propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=
 sender address = CALLER@test.ex
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -73,7 +69,7 @@ routed by r3 router
   envelope to: CALLER@test.ex
   transport: t1
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -84,10 +80,6 @@ trusted user
 admin user
 seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
-DSN: rr1 propagating DSN
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
-DSN: r3 propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=
 sender address = user1@fun.1
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -112,4 +104,4 @@ parse_forward_list: :fail: matched *@+funny_domains
 extract item: :fail: matched *@+funny_domains
 rr1 router forced address failure
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=2 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=2 >>>>>>>>>>>>>>>>

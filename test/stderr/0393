@@ -27,7 +27,8 @@ lock file created
 mailbox TESTSUITE/test-mail/userx is locked
 writing to file TESTSUITE/test-mail/userx
 writing data block fd=dddd size=sss timeout=0
-process pppp running as transport filter: write=dddd read=dddd
+process pppp running as transport filter: fd_write=dddd fd_read=dddd
+cannot use sendfile for body: spoolfile not wireformat
 writing data block fd=dddd size=sss timeout=0
 process pppp writing to transport filter
 copying from the filter
@@ -42,8 +43,8 @@ LOG: MAIN
   => userx <userx@test.ex> R=r1 T=t1
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
@@ -70,6 +71,7 @@ lock file created
 mailbox TESTSUITE/test-mail/userx is locked
 writing to file TESTSUITE/test-mail/userx
 writing data block fd=dddd size=sss timeout=0
+cannot use sendfile for body: spoolfile not wireformat
 writing data block fd=dddd size=sss timeout=0
 writing data block fd=dddd size=sss timeout=0
 appendfile yields 0 with errno=dd more_errno=dd
@@ -78,8 +80,8 @@ LOG: MAIN
   => userx <userx@test.ex> R=r1 T=t1
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
@@ -108,6 +110,7 @@ lock file created
 mailbox TESTSUITE/test-mail/userx is locked
 writing to file TESTSUITE/test-mail/userx
 writing data block fd=dddd size=sss timeout=0
+cannot use sendfile for body: spoolfile not wireformat
 writing data block fd=dddd size=sss timeout=0
 writing data block fd=dddd size=sss timeout=0
 appendfile yields 0 with errno=dd more_errno=dd
@@ -116,5 +119,5 @@ LOG: MAIN
   => userx <userx@test.ex> R=r1 T=t1
 LOG: MAIN
   Completed
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

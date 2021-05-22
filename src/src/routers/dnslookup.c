@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -20,6 +20,10 @@ optionlist dnslookup_router_options[] = {
       (void *)(offsetof(dnslookup_router_options_block, check_srv)) },
   { "fail_defer_domains", opt_stringptr,
       (void *)(offsetof(dnslookup_router_options_block, fail_defer_domains)) },
+  { "ipv4_only",          opt_stringptr,
+      (void *)(offsetof(dnslookup_router_options_block, ipv4_only)) },
+  { "ipv4_prefer",        opt_stringptr,
+      (void *)(offsetof(dnslookup_router_options_block, ipv4_prefer)) },
   { "mx_domains",         opt_stringptr,
       (void *)(offsetof(dnslookup_router_options_block, mx_domains)) },
   { "mx_fail_domains",    opt_stringptr,
@@ -44,19 +48,37 @@ address can appear in the tables drtables.c. */
 int dnslookup_router_options_count =
   sizeof(dnslookup_router_options)/sizeof(optionlist);
 
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+dnslookup_router_options_block dnslookup_router_option_defaults = {0};
+void dnslookup_router_init(router_instance *rblock) {}
+int dnslookup_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
+
+
+
 /* Default private options block for the dnslookup router. */
 
 dnslookup_router_options_block dnslookup_router_option_defaults = {
-  FALSE,           /* check_secondary_mx */
-  TRUE,            /* qualify_single */
-  FALSE,           /* search_parents */
-  TRUE,            /* rewrite_headers */
-  NULL,            /* widen_domains */
-  NULL,            /* mx_domains */
-  NULL,            /* mx_fail_domains */
-  NULL,            /* srv_fail_domains */
-  NULL,            /* check_srv */
-  NULL             /* fail_defer_domains */
+  .check_secondary_mx =	FALSE,
+  .qualify_single =	TRUE,
+  .search_parents =	FALSE,
+  .rewrite_headers =	TRUE,
+  .widen_domains =	NULL,
+  .mx_domains =		NULL,
+  .mx_fail_domains =	NULL,
+  .srv_fail_domains =	NULL,
+  .check_srv =		NULL,
+  .fail_defer_domains =	NULL,
+  .ipv4_only =		NULL,
+  .ipv4_prefer =	NULL,
 };
 
 
@@ -138,7 +160,7 @@ dnslookup_router_entry(
 host_item h;
 int rc;
 int widen_sep = 0;
-int whichrrs = HOST_FIND_BY_MX | HOST_FIND_BY_A;
+int whichrrs = HOST_FIND_BY_MX | HOST_FIND_BY_A | HOST_FIND_BY_AAAA;
 dnslookup_router_options_block *ob =
   (dnslookup_router_options_block *)(rblock->options_block);
 uschar *srv_service = NULL;
@@ -161,7 +183,7 @@ DEBUG(D_route)
 if (ob->check_srv)
   {
   if (  !(srv_service = expand_string(ob->check_srv))
-     && !expand_string_forcedfail)
+     && !f.expand_string_forcedfail)
     {
     addr->message = string_sprintf("%s router: failed to expand \"%s\": %s",
       rblock->name, ob->check_srv, expand_string_message);
@@ -239,6 +261,19 @@ for (;;)
     }
   else return DECLINE;
 
+  /* Check if we must request only. or prefer, ipv4 */
+
+  if (  ob->ipv4_only
+     && expand_check_condition(ob->ipv4_only, rblock->name, US"router"))
+    flags = flags & ~HOST_FIND_BY_AAAA | HOST_FIND_IPV4_ONLY;
+  else if (f.search_find_defer)
+    return DEFER;
+  if (  ob->ipv4_prefer
+     && expand_check_condition(ob->ipv4_prefer, rblock->name, US"router"))
+    flags |= HOST_FIND_IPV4_FIRST;
+  else if (f.search_find_defer)
+    return DEFER;
+
   /* Set up the rest of the initial host item. Others may get chained on if
   there is more than one IP address. We set it up here instead of outside the
   loop so as to re-initialize if a previous try succeeded but was rejected
@@ -254,7 +289,7 @@ for (;;)
 
   /* Unfortunately, we cannot set the mx_only option in advance, because the
   DNS lookup may extend an unqualified name. Therefore, we must do the test
-  subsequently. We use the same logic as that for widen_domains above to avoid
+  stoubsequently. We use the same logic as that for widen_domains above to avoid
   requesting a header rewrite that cannot work. */
 
   if (verify != v_sender || !ob->rewrite_headers || addr->parent)
@@ -263,9 +298,11 @@ for (;;)
     if (ob->search_parents) flags |= HOST_FIND_SEARCH_PARENTS;
     }
 
-  rc = host_find_bydns(&h, CUS rblock->ignore_target_hosts, flags, srv_service,
-    ob->srv_fail_domains, ob->mx_fail_domains,
-    &rblock->dnssec, &fully_qualified_name, &removed);
+  rc = host_find_bydns(&h, CUS rblock->ignore_target_hosts, flags,
+    srv_service, ob->srv_fail_domains, ob->mx_fail_domains,
+    &rblock->dnssec,
+    &fully_qualified_name, &removed);
+
   if (removed) setflag(addr, af_local_host_removed);
 
   /* If host found with only address records, test for the domain's being in
@@ -291,6 +328,11 @@ for (;;)
   /* Deferral returns forthwith, and anything other than failure breaks the
   loop. */
 
+  if (rc == HOST_FIND_SECURITY)
+    {
+    addr->message = US"host lookup done insecurely";
+    return DEFER;
+    }
   if (rc == HOST_FIND_AGAIN)
     {
     if (rblock->pass_on_timeout)
@@ -305,6 +347,22 @@ for (;;)
 
   if (rc != HOST_FIND_FAILED) break;
 
+  if (ob->fail_defer_domains)
+    switch(match_isinlist(fully_qualified_name,
+	  CUSS &ob->fail_defer_domains, 0,
+	  &domainlist_anchor, addr->domain_cache, MCL_DOMAIN, TRUE, NULL))
+      {
+      case DEFER:
+	addr->message = US"lookup defer for fail_defer_domains option";
+	return DEFER;
+
+      case OK:
+	DEBUG(D_route) debug_printf("%s router: matched fail_defer_domains\n",
+	  rblock->name);
+	addr->message = US"missing MX, or all MXs point to missing A records,"
+	  " and defer requested";
+	return DEFER;
+      }
   /* Check to see if the failure is the result of MX records pointing to
   non-existent domains, and if so, set an appropriate error message; the case
   of an MX or SRV record pointing to "." is another special case that we can
@@ -335,29 +393,13 @@ for (;;)
           addr->message);
         }
       }
-    if (ob->fail_defer_domains)
-      {
-      switch(match_isinlist(fully_qualified_name,
-	    CUSS &ob->fail_defer_domains, 0,
-	    &domainlist_anchor, addr->domain_cache, MCL_DOMAIN, TRUE, NULL))
-	{
-	case DEFER:
-	  addr->message = US"lookup defer for fail_defer_domains";
-	  return DEFER;
-
-	case OK:
-	  DEBUG(D_route) debug_printf("%s router: matched fail_defer_domains\n",
-	    rblock->name);
-	  return DEFER;
-	}
-      }
     return DECLINE;
     }
 
   /* If there's a syntax error, do not continue with any widening, and note
   the error. */
 
-  if (host_find_failed_syntax)
+  if (f.host_find_failed_syntax)
     {
     addr->message = string_sprintf("mail domain \"%s\" is syntactically "
       "invalid", h.name);
@@ -417,7 +459,7 @@ else if (ob->check_secondary_mx && !testflag(addr, af_local_host_removed))
 rc = rf_get_errors_address(addr, rblock, verify, &addr->prop.errors_address);
 if (rc != OK) return rc;
 
-/* Set up the additional and removeable headers for this address. */
+/* Set up the additional and removable headers for this address. */
 
 rc = rf_get_munge_headers(addr, rblock, &addr->prop.extra_headers,
   &addr->prop.remove_headers);
@@ -441,6 +483,7 @@ return rf_queue_add(addr, addr_local, addr_remote, rblock, pw)?
   OK : DEFER;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/dnslookup.c */
 /* vi: aw ai sw=2
 */

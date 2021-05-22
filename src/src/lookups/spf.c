@@ -13,19 +13,20 @@
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
  *
+ * Copyright (c) The Exim Maintainers 2016
  */
 
 #include "../exim.h"
 
-#ifndef EXPERIMENTAL_SPF
+#ifndef SUPPORT_SPF
 static void dummy(int x);
 static void dummy2(int x) { dummy(x-1); }
 static void dummy(int x) { dummy2(x-1); }
 #else
 
 #include "lf_functions.h"
-#ifndef HAVE_NS_TYPE
-#define HAVE_NS_TYPE
+#if !defined(HAVE_NS_TYPE) && defined(NS_INADDRSZ)
+# define HAVE_NS_TYPE
 #endif
 #include <spf2/spf.h>
 #include <spf2/spf_dns_resolv.h>
@@ -51,7 +52,7 @@ spf_close(void *handle)
 }
 
 static int
-spf_find(void *handle, uschar *filename, uschar *keystring, int key_len,
+spf_find(void *handle, uschar *filename, const uschar *keystring, int key_len,
              uschar **result, uschar **errmsg, uint *do_cache)
 {
   SPF_server_t *spf_server = handle;
@@ -117,4 +118,4 @@ static lookup_info _lookup_info = {
 static lookup_info *_lookup_list[] = { &_lookup_info };
 lookup_module_info spf_lookup_module_info = { LOOKUP_MODULE_INFO_MAGIC, _lookup_list, 1 };
 
-#endif /* EXPERIMENTAL_SPF */
+#endif /* SUPPORT_SPF */

@@ -419,36 +419,56 @@ DNSSEC l-sec   A 127.0.0.1
 AA a-aa        A V4NET.0.0.100
 
 ; ------- Testing DANE ------------
+; Since these refer to certs in the exim-ca tree, they must be regenerated any time that tree is.
+;
 
 ; full suite dns chain, sha512
 ;
-; openssl x509 -in aux-fixed/cert1 -noout -pubkey \
+; openssl x509 -in aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.pem -noout -pubkey \
 ; | openssl pkey -pubin -outform DER \
 ; | openssl dgst -sha512 \
 ; | awk '{print $2}'
 ;
 DNSSEC mxdane512ee          MX  1  dane512ee
 DNSSEC dane512ee            A      HOSTIPV4
-DNSSEC _1225._tcp.dane512ee TLSA  3 1 2 3d5eb81b1dfc3f93c1fa8819e3fb3fdb41bb590441d5f3811db17772f4bc6de29bdd7c4f4b723750dda871b99379192b3f979f03db1252c4f08b03ef7176528d
+DNSSEC _1225._tcp.dane512ee TLSA  3 1 2 c0c2fc12e9fe1abf0ae7b1f2ad2798a4689668db8cf7f7b771a43bf8a4f1d9741ef103bad470b1201157150fbd6182054b0170e90ce66b944a82a0a9c81281af
 
 ; A-only, sha256
 ;
-; openssl x509 -in aux-fixed/cert1 -noout -pubkey \
+; openssl x509 -in aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.pem -noout -pubkey \
 ; | openssl pkey -pubin -outform DER \
 ; | openssl dgst -sha256 \
 ; | awk '{print $2}'
 ;
 DNSSEC dane256ee            A      HOSTIPV4
-DNSSEC _1225._tcp.dane256ee TLSA  3 1 1 2bb55f418bb03411a5007cecbfcd3ec1c94404312c0d53a44bb2166b32654db3
+DNSSEC _1225._tcp.dane256ee TLSA  3 1 1 7230d90731ea2c94f7f5e892489cc43f842ad261974e89e4306b081401032b7a
 
 ; full MX, sha256, TA-mode
 ;
 ; openssl x509 -in aux-fixed/exim-ca/example.com/CA/CA.pem -fingerprint -sha256 -noout \
-;  | awk -F= '{print $2}' | tr -d : | tr '[A-F]' '[a-f]'
+; | awk -F= '{print $2}' | tr -d : | tr '[A-F]' '[a-f]'
 ;
 DNSSEC mxdane256ta          MX  1  dane256ta
 DNSSEC dane256ta            A      HOSTIPV4
-DNSSEC _1225._tcp.dane256ta TLSA 2 0 1 882be5ac06deafdc021a69daa457226153bfde6da7914813b0144b0fd31bf7ae
+DNSSEC _1225._tcp.dane256ta TLSA 2 0 1 52a90c3571549f83cff5b6166ae3210fe6e43dd3f95694cc85c989221bdfc4c7
+
+
+; full MX, sha256, TA-mode, cert-key-only
+; Indicates a trust-anchor for a chain involving an Authority Key ID extension
+; linkage, as this excites a bug in OpenSSL 1.0.2 which the DANE code has to
+; work around, while synthesizing a selfsigned parent for it.
+; As it happens it is also an intermediate cert in the CA-rooted chain, as this
+; was initially thought to be a factor.
+;
+; openssl x509 -in aux-fixed/exim-ca/example.com/CA/Signer.pem -noout -pubkey \
+; | openssl pkey -pubin -outform DER \
+; | openssl dgst -sha256 \
+; | awk '{print $2}'
+;
+DNSSEC mxdane256tak          MX  1  dane256tak
+DNSSEC dane256tak            A      HOSTIPV4
+DNSSEC _1225._tcp.dane256tak TLSA 2 1 1 535b534691f5755ae7deef6593ef73f7a34db16833d6653300c942a29877e18f
+
 
 
 ; A multiple-return MX where all TLSA lookups defer
@@ -461,9 +481,49 @@ DNSSEC danelazy2            A       127.0.0.1
 DNSSEC _1225._tcp.danelazy  CNAME   test.again.dns.
 DNSSEC _1225._tcp.danelazy2 CNAME   test.again.dns.
 
-; hosts with no TLSA
+; hosts with no TLSA (just missing here, hence the TLSA NXDMAIN is _insecure_; a broken dane config)
+; 1 for dane-required, 2 for merely requested
 DNSSEC dane.no.1            A       HOSTIPV4
 DNSSEC dane.no.2            A       127.0.0.1
+
+; a broken dane config (or under attack) where the TLSA lookup fails (as opposed to there not being one)
+DNSSEC danebroken1          A       127.0.0.1
+_1225._tcp.danebroken1      CNAME   test.fail.dns.
+
+; a broken dane config (or under attack) where the TLSA record is wrong
+; (127.0.0.1 for merely dane-requested, but having gotten the TLSA it is supposedly definitive)
+DNSSEC danebroken2          A       127.0.0.1
+DNSSEC _1225._tcp.danebroken2 TLSA 2 0 1 cb0fa60000000000000000000000000000000000000000000000000000000000
+
+; a broken dane config (or under attack) where the TLSA record is correct but not DNSSEC-assured
+; (record copied from dane256ee above)
+; 3 for dane-requested, 4 for dane-required
+DNSSEC danebroken3          A       127.0.0.1
+_1225._tcp.danebroken3 TLSA 2 0 1 7230d90731ea2c94f7f5e892489cc43f842ad261974e89e4306b081401032b7a
+DNSSEC danebroken4          A       HOSTIPV4
+_1225._tcp.danebroken4 TLSA 2 0 1 7230d90731ea2c94f7f5e892489cc43f842ad261974e89e4306b081401032b7a
+
+; a broken dane config (or under attack) where the address record is correct but not DNSSEC-assured
+; (TLSA record copied from dane256ee above)
+; 5 for dane-requested, 6 for dane-required
+danebroken5          A       127.0.0.1
+DNSSEC _1225._tcp.danebroken5 TLSA 2 0 1 7230d90731ea2c94f7f5e892489cc43f842ad261974e89e4306b081401032b7a
+danebroken6          A       HOSTIPV4
+DNSSEC _1225._tcp.danebroken6 TLSA 2 0 1 7230d90731ea2c94f7f5e892489cc43f842ad261974e89e4306b081401032b7a
+
+; a good dns config saying there is no dane support, by securely returning NOXDOMAIN for TLSA lookups
+; 3 for dane-required, 4 for merely requested
+; the TLSA data here is dummy; ignored
+DNSSEC dane.no.3            A       HOSTIPV4
+DNSSEC dane.no.4            A       127.0.0.1
+
+DNSSEC NXDOMAIN _1225._tcp.dane.no.3 TLSA 2 0 1 eec923139018c540a344c5191660ecba1ac3708525a98bfc338e17f31d3fa741
+DNSSEC NXDOMAIN _1225._tcp.dane.no.4 TLSA 2 0 1 eec923139018c540a344c5191660ecba1ac3708525a98bfc338e17f31d3fa741
+
+; a mixed-usage set of TLSA records, EE one failing.  TA one coped from dane256ta.
+DNSSEC danemixed            A      127.0.0.1
+DNSSEC _1225._tcp.danemixed TLSA  2 0 1 52a90c3571549f83cff5b6166ae3210fe6e43dd3f95694cc85c989221bdfc4c7
+DNSSEC                      TLSA  3 1 1 8276000000000000000000000000000000000000000000000000000000000000
 
 ; ------- Testing delays ------------
 
@@ -476,11 +536,36 @@ DELAY=1500 delay1500 A HOSTIPV4
 ;  openssl genrsa -out aux-fixed/dkim/dkim.private 1024
 ;  openssl rsa -in aux-fixed/dkim/dkim.private -out /dev/stdout -pubout -outform PEM
 ;
+; Deliberate bad version, having extra backslashes
+; sha256-hash-only version.... appears to be too long, gets truncated
+;
 ; Another, 512-bit (with a Notes field)
+; 512 requiring sha1 hash
+; 512 requiring sha256 hash
 ;
 sel._domainkey TXT "v=DKIM1; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDXRFf+VhT+lCgFhhSkinZKcFNeRzjYdW8vT29Rbb3NadvTFwAd+cVLPFwZL8H5tUD/7JbUPqNTCPxmpgIL+V5T4tEZMorHatvvUM2qfcpQ45IfsZ+YdhbIiAslHCpy4xNxIR3zylgqRUF4+Dtsaqy3a5LhwMiKCLrnzhXk1F1hxwIDAQAB"
+sel_bad._domainkey TXT "v=DKIM1\; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDXRFf+VhT+lCgFhhSkinZKcFNeRzjYdW8vT29Rbb3NadvTFwAd+cVLPFwZL8H5tUD/7JbUPqNTCPxmpgIL+V5T4tEZMorHatvvUM2qfcpQ45IfsZ+YdhbIiAslHCpy4xNxIR3zylgqRUF4+Dtsaqy3a5LhwMiKCLrnzhXk1F1hxwIDAQAB"
+sel_sha256._domainkey TXT "v=DKIM1; h=sha256; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDXRFf+VhT+lCgFhhSkinZKcFNeRzjYdW8vT29Rbb3NadvTFwAd+cVLPFwZL8H5tUD/7JbUPqNTCPxmpgIL+V5T4tEZMorHatvvUM2qfcpQ45IfsZ+YdhbIiAslHCpy4xNxIR3zylgqRUF4+Dtsaqy3a5LhwMiKCLrnzhXk1F1hxwIDAQAB"
 
 ses._domainkey TXT "v=DKIM1; n=halfkilo; p=MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL6eAQxd9didJ0/+05iDwJOqT6ly826Vi8aGPecsBiYK5/tAT97fxXk+dPWMZp9kQxtknEzYjYjAydzf+HQ2yJMCAwEAAQ=="
+ses_sha1._domainkey TXT "v=DKIM1; h=sha1; p=MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL6eAQxd9didJ0/+05iDwJOqT6ly826Vi8aGPecsBiYK5/tAT97fxXk+dPWMZp9kQxtknEzYjYjAydzf+HQ2yJMCAwEAAQ=="
+ses_sha256._domainkey TXT "v=DKIM1; h=sha256; p=MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL6eAQxd9didJ0/+05iDwJOqT6ly826Vi8aGPecsBiYK5/tAT97fxXk+dPWMZp9kQxtknEzYjYjAydzf+HQ2yJMCAwEAAQ=="
+
+sel2._domainkey TXT "v=spf1 mx a include:spf.nl2go.com -all"
+sel2._domainkey TXT "v=DKIM1; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDXRFf+VhT+lCgFhhSkinZKcFNeRzjYdW8vT29Rbb3NadvTFwAd+cVLPFwZL8H5tUD/7JbUPqNTCPxmpgIL+V5T4tEZMorHatvvUM2qfcpQ45IfsZ+YdhbIiAslHCpy4xNxIR3zylgqRUF4+Dtsaqy3a5LhwMiKCLrnzhXk1F1hxwIDAQAB"
+
+; EC signing, using Ed25519
+; - needs GnuTLS 3.6.0 (fedora rawhide has that)
+;           certtool --generate-privkey --key-type=ed25519 --outfile=dkim_ed25519.private
+;	    certtool --load_privkey=dkim_ed25519.private --pubkey_info --outder | tail -c +13 | base64
+
+sed._domainkey TXT "v=DKIM1; k=ed25519; p=sPs07Vu29FpHT/80UXUcYHFOHifD4o2ZlP2+XUh9g6E="
+
+; version of the above wrapped in SubjectPublicKeyInfo, in case the WG plumps in that direction
+;	certtool --load_privkey=aux-fixed/dkim/dkim_ed25519.private --pubkey_info
+;	 (and grab the b64 content from between the pem headers)
+
+sedw._domainkey TXT "v=DKIM1; k=ed25519; p=MCowBQYDK2VwAyEAsPs07Vu29FpHT/80UXUcYHFOHifD4o2ZlP2+XUh9g6E="
 
 
 ; End

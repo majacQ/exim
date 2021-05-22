@@ -1,4 +1,4 @@
-# DANE client: events
+# DANE client, OpenSSL: events
 #
 exim -DSERVER=server -DDETAILS=ee -bd -oX PORT_D
 ****

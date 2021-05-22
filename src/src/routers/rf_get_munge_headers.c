@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -44,7 +44,7 @@ if (rblock->extra_headers)
   while ((s = string_nextinlist(&list, &sep, NULL, 0)))
     if (!(s = expand_string(s)))
       {
-      if (!expand_string_forcedfail)
+      if (!f.expand_string_forcedfail)
 	{
 	addr->message = string_sprintf(
 	  "%s router failed to expand add_headers item \"%s\": %s",
@@ -91,11 +91,15 @@ if (rblock->remove_headers)
   const uschar * list = rblock->remove_headers;
   int sep = ':';
   uschar * s;
+  gstring * g = NULL;
+
+  if (*remove_headers)
+    g = string_cat(NULL, *remove_headers);
 
   while ((s = string_nextinlist(&list, &sep, NULL, 0)))
     if (!(s = expand_string(s)))
       {
-      if (!expand_string_forcedfail)
+      if (!f.expand_string_forcedfail)
 	{
 	addr->message = string_sprintf(
 	  "%s router failed to expand remove_headers item \"%s\": %s",
@@ -104,12 +108,15 @@ if (rblock->remove_headers)
 	}
       }
     else if (*s)
-      *remove_headers = string_append_listele(*remove_headers, ':', s);
+      g = string_append_listele(g, ':', s);
+
+  if (g)
+    *remove_headers = g->s;
   }
 
 return OK;
 }
 
-/* vi: aw ai sw=4
+/* vi: aw ai sw=2
 */
 /* End of rf_get_munge_headers.c */

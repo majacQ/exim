@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions concerned with routing, and the list of generic router options. */
@@ -140,9 +140,30 @@ optionlist optionlist_routers[] = {
                  (void *)offsetof(router_instance, verify_sender) }
 };
 
-int optionlist_routers_size = sizeof(optionlist_routers)/sizeof(optionlist);
+int optionlist_routers_size = nelem(optionlist_routers);
 
 
+#ifdef MACRO_PREDEF
+
+# include "macro_predef.h"
+
+void
+options_routers(void)
+{
+struct router_info * ri;
+uschar buf[64];
+
+options_from_list(optionlist_routers, nelem(optionlist_routers), US"ROUTERS", NULL);
+
+for (ri = routers_available; ri->driver_name[0]; ri++)
+  {
+  spf(buf, sizeof(buf), US"_DRIVER_ROUTER_%T", ri->driver_name);
+  builtin_macro_create(buf);
+  options_from_list(ri->options, (unsigned)*ri->options_count, US"ROUTER", ri->driver_name);
+  }
+}
+
+#else	/*!MACRO_PREDEF*/
 
 /*************************************************
 *          Set router pointer from name          *
@@ -223,14 +244,12 @@ for (r = routers; r; r = r->next)
 
   /* Check for transport or no transport on certain routers */
 
-  if ((r->info->ri_flags & ri_yestransport) != 0 &&
-      r->transport_name == NULL &&
-      !r->verify_only)
+  if (  (r->info->ri_flags & ri_yestransport)
+     && !r->transport_name && !r->verify_only)
     log_write(0, LOG_PANIC_DIE|LOG_CONFIG, "%s router:\n  "
       "a transport is required for this router", r->name);
 
-  if ((r->info->ri_flags & ri_notransport) != 0 &&
-       r->transport_name != NULL)
+  if ((r->info->ri_flags & ri_notransport) && r->transport_name)
     log_write(0, LOG_PANIC_DIE|LOG_CONFIG, "%s router:\n  "
       "a transport must not be defined for this router", r->name);
 
@@ -271,14 +290,16 @@ for (r = routers; r; r = r->next)
 
   /* Check redirect_router and pass_router are valid */
 
-  if (r->redirect_router_name != NULL)
+  if (r->redirect_router_name)
     set_router(r, r->redirect_router_name, &(r->redirect_router), FALSE);
 
-  if (r->pass_router_name != NULL)
+  if (r->pass_router_name)
     set_router(r, r->pass_router_name, &(r->pass_router), TRUE);
 
+#ifdef notdef
   DEBUG(D_route) debug_printf("DSN: %s %s\n", r->name,
 	r->dsn_lasthop ? "lasthop set" : "propagating DSN");
+#endif
   }
 }
 
@@ -585,7 +606,7 @@ while ((check = string_nextinlist(&listptr, &sep, buffer, sizeof(buffer))))
 
   if (!ss)
     {
-    if (expand_string_forcedfail) continue;
+    if (f.expand_string_forcedfail) continue;
     *perror = string_sprintf("failed to expand \"%s\" for require_files: %s",
       check, expand_string_message);
     goto RETURN_DEFER;
@@ -701,7 +722,7 @@ while ((check = string_nextinlist(&listptr, &sep, buffer, sizeof(buffer))))
     pid = fork();
 
     /* If fork() fails, reinstate the original error and behave as if
-    this block of code were not present. This is the same behavious as happens
+    this block of code were not present. This is the same behaviour as happens
     when Exim is not running as root at this point. */
 
     if (pid < 0)
@@ -752,7 +773,7 @@ while ((check = string_nextinlist(&listptr, &sep, buffer, sizeof(buffer))))
     rc = -1;
     }
 
-  /* Handle error returns from stat() or route_check_access(). The EACESS error
+  /* Handle error returns from stat() or route_check_access(). The EACCES error
   is handled specially. At present, we can force it to be treated as
   non-existence. Write the code so that it will be easy to add forcing for
   existence if required later. */
@@ -833,7 +854,7 @@ deliver_localpart_data = NULL;
 sender_data = NULL;
 local_user_gid = (gid_t)(-1);
 local_user_uid = (uid_t)(-1);
-search_find_defer = FALSE;
+f.search_find_defer = FALSE;
 
 /* Skip this router if not verifying and it has verify_only set */
 
@@ -845,7 +866,7 @@ if ((verify == v_none || verify == v_expn) && r->verify_only)
 
 /* Skip this router if testing an address (-bt) and address_test is not set */
 
-if (address_test_mode && !r->address_test)
+if (f.address_test_mode && !r->address_test)
   {
   DEBUG(D_route) debug_printf("%s router skipped: address_test is unset\n",
     r->name);
@@ -937,7 +958,7 @@ if (r->router_home_directory)
   uschar *router_home = expand_string(r->router_home_directory);
   if (!router_home)
     {
-    if (!expand_string_forcedfail)
+    if (!f.expand_string_forcedfail)
       {
       *perror = string_sprintf("failed to expand \"%s\" for "
         "router_home_directory: %s", r->router_home_directory,
@@ -953,7 +974,7 @@ if (r->router_home_directory)
   }
 
 /* Skip if the sender condition is not met. We leave this one till after the
-local user check so that $home is set - enabling the possiblity of letting
+local user check so that $home is set - enabling the possibility of letting
 individual recipients specify lists of acceptable/unacceptable senders. */
 
 if ((rc = route_check_dls(r->name, US"senders", r->senders, NULL,
@@ -979,10 +1000,10 @@ if ((rc = check_files(r->require_files, perror)) != OK)
 
 if (r->condition)
   {
-  DEBUG(D_route) debug_printf("checking \"condition\"\n");
+  DEBUG(D_route) debug_printf("checking \"condition\" \"%.80s\"...\n", r->condition);
   if (!expand_check_condition(r->condition, r->name, US"router"))
     {
-    if (search_find_defer)
+    if (f.search_find_defer)
       {
       *perror = US"condition check lookup defer";
       DEBUG(D_route) debug_printf("%s\n", *perror);
@@ -1164,7 +1185,7 @@ NIS or NFS whatever cause an incorrect refusal. It's a pity that getgrnam()
 doesn't have some kind of indication as to why it has failed.
 
 Arguments:
-  s           the group namd or textual form of the numerical gid
+  s           the group name or textual form of the numerical gid
   return_gid  return the gid via this address
 
 Returns:      TRUE if the group was found; FALSE otherwise
@@ -1344,7 +1365,7 @@ new->prop.errors_address = parent->prop.errors_address;
 
 /* Copy the propagated flags and address_data from the original. */
 
-copyflag(new, addr, af_propagate);
+new->prop.ignore_error = addr->prop.ignore_error;
 new->prop.address_data = addr->prop.address_data;
 new->dsn_flags = addr->dsn_flags;
 new->dsn_orcpt = addr->dsn_orcpt;
@@ -1453,7 +1474,7 @@ for (r = addr->start_router ? addr->start_router : routers; r; r = nextr)
 
   /* There are some weird cases where logging is disabled */
 
-  disable_logging = r->disable_logging;
+  f.disable_logging = r->disable_logging;
 
   /* Record the last router to handle the address, and set the default
   next router. */
@@ -1470,7 +1491,7 @@ for (r = addr->start_router ? addr->start_router : routers; r; r = nextr)
   by  this router, even if it was different to the current address.
 
   Just in case someone does put it into a loop (possible with redirection
-  continally adding to an address, for example), put a long stop counter on
+  continually adding to an address, for example), put a long stop counter on
   the number of parents. */
 
   for (parent = addr->parent; parent; parent = parent->parent)
@@ -1599,7 +1620,7 @@ for (r = addr->start_router ? addr->start_router : routers; r; r = nextr)
     deliver_address_data = expand_string(r->address_data);
     if (!deliver_address_data)
       {
-      if (expand_string_forcedfail)
+      if (f.expand_string_forcedfail)
         {
         DEBUG(D_route) debug_printf("forced failure in expansion of \"%s\" "
             "(address_data): decline action taken\n", r->address_data);
@@ -1651,16 +1672,15 @@ for (r = addr->start_router ? addr->start_router : routers; r; r = nextr)
     pw = &pwcopy;
     }
 
-  /* Run the router, and handle the consequences. */
-
-  /* ... but let us check on DSN before. If this should be the last hop for DSN
-  set flag. */
+  /* If this should be the last hop for DSN flag the addr. */
 
   if (r->dsn_lasthop && !(addr->dsn_flags & rf_dsnlasthop))
-  {
+    {
     addr->dsn_flags |= rf_dsnlasthop;
     HDEBUG(D_route) debug_printf("DSN: last hop for %s\n", addr->address);
-  }
+    }
+
+  /* Run the router, and handle the consequences. */
 
   HDEBUG(D_route) debug_printf("calling %s router\n", r->name);
 
@@ -1745,7 +1765,7 @@ if (!r)
       uschar *expmessage = expand_string(addr->router->cannot_route_message);
       if (!expmessage)
         {
-        if (!expand_string_forcedfail)
+        if (!f.expand_string_forcedfail)
           log_write(0, LOG_MAIN|LOG_PANIC, "failed to expand "
             "cannot_route_message in %s router: %s", addr->router->name,
             expand_string_message);
@@ -1814,7 +1834,7 @@ if (r->translate_ip_address)
 
     if (!newaddress)
       {
-      if (expand_string_forcedfail) continue;
+      if (f.expand_string_forcedfail) continue;
       addr->basic_errno = ERRNO_EXPANDFAIL;
       addr->message = string_sprintf("translate_ip_address expansion "
         "failed: %s", expand_string_message);
@@ -1897,26 +1917,14 @@ if (unseen && r->next)
 /* Unset the address expansions, and return the final result. */
 
 ROUTE_EXIT:
-if (  yield == DEFER
-   && addr->message
-   && (  Ustrstr(addr->message, "failed to expand") != NULL
-      || Ustrstr(addr->message, "expansion of ") != NULL
-      )
-   && (  Ustrstr(addr->message, "mysql") != NULL
-      || Ustrstr(addr->message, "pgsql") != NULL
-      || Ustrstr(addr->message, "redis") != NULL
-      || Ustrstr(addr->message, "sqlite") != NULL
-      || Ustrstr(addr->message, "ldap:") != NULL
-      || Ustrstr(addr->message, "ldapdn:") != NULL
-      || Ustrstr(addr->message, "ldapm:") != NULL
-      )
-   )
-  addr->message = string_sprintf("Temporary internal error");
+if (yield == DEFER && addr->message)
+  addr->message = expand_hide_passwords(addr->message);
 
 deliver_set_expansions(NULL);
 router_name = NULL;
-disable_logging = FALSE;
+f.disable_logging = FALSE;
 return yield;
 }
 
+#endif	/*!MACRO_PREDEF*/
 /* End of route.c */

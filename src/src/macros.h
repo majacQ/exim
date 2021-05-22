@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -15,27 +15,28 @@ a string as a text string. This is sometimes useful for debugging output. */
 /* Number of elements of an array */
 #define nelem(arr) (sizeof(arr) / sizeof(*arr))
 
+/* Maximum of two items */
+#ifndef MAX
+# define MAX(a,b) ((a) > (b) ? (a) : (b))
+#endif
+
 
 /* When running in the test harness, the load average is fudged. */
 
 #define OS_GETLOADAVG() \
-  (running_in_test_harness? (test_harness_load_avg += 10) : os_getloadavg())
+  (f.running_in_test_harness? (test_harness_load_avg += 10) : os_getloadavg())
 
 
-/* The address_item structure has a word full of 1-bit flags. These macros
+/* The address_item structure has a struct full of 1-bit flags. These macros
 manipulate them. */
 
-#define setflag(addr,flag)    addr->flags |= (flag)
-#define clearflag(addr,flag)  addr->flags &= ~(flag)
+#define setflag(addr, flagname)    addr->flags.flagname = TRUE
+#define clearflag(addr, flagname)  addr->flags.flagname = FALSE
 
-#define testflag(addr,flag)       ((addr->flags & (flag)) != 0)
-#define testflagsall(addr,flag)   ((addr->flags & (flag)) == (flag))
+#define testflag(addr, flagname)   (addr->flags.flagname)
 
-#define copyflag(addrnew,addrold,flag) \
-  addrnew->flags = (addrnew->flags & ~(flag)) | (addrold->flags & (flag))
-
-#define orflag(addrnew,addrold,flag) \
-  addrnew->flags |= addrold->flags & (flag)
+#define copyflag(addrnew, addrold, flagname) \
+  addrnew->flags.flagname = addrold->flags.flagname
 
 
 /* For almost all calls to convert things to printing characters, we want to
@@ -84,7 +85,7 @@ as unsigned. */
 a no-op once an SSL session is in progress. */
 
 #ifdef SUPPORT_TLS
-#define mac_smtp_fflush() if (tls_in.active < 0) fflush(smtp_out);
+#define mac_smtp_fflush() if (tls_in.active.sock < 0) fflush(smtp_out);
 #else
 #define mac_smtp_fflush() fflush(smtp_out);
 #endif
@@ -106,8 +107,8 @@ don't make the file descriptors two-way. */
 
 /* Debugging control */
 
-#define DEBUG(x)      if ((debug_selector & (x)) != 0)
-#define HDEBUG(x)     if (host_checking || (debug_selector & (x)) != 0)
+#define DEBUG(x)      if (debug_selector & (x))
+#define HDEBUG(x)     if (host_checking || (debug_selector & (x)))
 
 #define PTR_CHK(ptr) \
 do { \
@@ -223,9 +224,9 @@ enum { tod_log, tod_log_bare, tod_log_zone, tod_log_datestamp_daily,
 /* For identifying types of driver */
 
 enum {
-  DTYPE_NONE,
-  DTYPE_ROUTER,
-  DTYPE_TRANSPORT
+  EXIM_DTYPE_NONE,
+  EXIM_DTYPE_ROUTER,
+  EXIM_DTYPE_TRANSPORT
 };
 
 /* Error numbers for generating error messages when reading a message on the
@@ -320,6 +321,13 @@ for having to swallow the rest of an SMTP message is whether the value is
 #define END_NOTENDED   3    /* Message reading not yet ended */
 #define END_SIZE       4    /* Reading ended because message too big */
 #define END_WERROR     5    /* Write error while reading the message */
+#define END_PROTOCOL   6    /* Protocol error in CHUNKING sequence */
+
+/* result codes for bdat_getc() (which can also return EOF) */
+
+#define EOD (-2)
+#define ERR (-3)
+
 
 /* Bit masks for debug and log selectors */
 
@@ -340,7 +348,7 @@ and the first word of the log selector. */
 #define BIT_TEST(s,z,n) (((s)[BITWORD(n)] &   BITMASK(n)) != 0)
 
 /* Used in globals.c for initializing bit_table structures. T will be either
-D or L correspondong to the debug and log selector bits declared below. */
+D or L corresponding to the debug and log selector bits declared below. */
 
 #define BIT_TABLE(T,name) { US #name, T##i_##name }
 
@@ -354,6 +362,7 @@ masks, alternating between sequential bit index and corresponding mask. */
 
 /* Options bits for debugging. DEBUG_BIT() declares both a bit index and the
 corresponding mask. Di_all is a special value recognized by decode_bits().
+These must match the debug_options table in globals.c .
 
 Exim's code assumes in a number of places that the debug_selector is one
 word, and this is exposed in the local_scan ABI. The D_v and D_local_scan bit
@@ -383,6 +392,7 @@ enum {
   DEBUG_BIT(load),
   DEBUG_BIT(lookup),
   DEBUG_BIT(memory),
+  DEBUG_BIT(noutf8),
   DEBUG_BIT(pid),
   DEBUG_BIT(process_info),
   DEBUG_BIT(queue_run),
@@ -404,6 +414,7 @@ enum {
 
 #define D_any                        (D_all & \
                                        ~(D_v           | \
+					 D_noutf8      | \
                                          D_pid         | \
                                          D_timestamp)  )
 
@@ -414,6 +425,7 @@ enum {
                                          D_load        | \
                                          D_local_scan  | \
                                          D_memory      | \
+					 D_noutf8      | \
                                          D_pid         | \
                                          D_timestamp   | \
                                          D_resolver))
@@ -446,17 +458,26 @@ enum {
   LOG_BIT(smtp_protocol_error),
   LOG_BIT(smtp_syntax_error),
 
-  Li_acl_warn_skipped = BITWORDSIZE,
+  Li_8bitmime = BITWORDSIZE,
+  Li_acl_warn_skipped,
   Li_arguments,
   Li_deliver_time,
   Li_delivery_size,
+  Li_dkim,
+  Li_dkim_verbose,
+  Li_dnssec,
   Li_ident_timeout,
   Li_incoming_interface,
   Li_incoming_port,
+  Li_millisec,
+  Li_outgoing_interface,
   Li_outgoing_port,
   Li_pid,
+  Li_pipelining,
+  Li_proxy,
   Li_queue_time,
   Li_queue_time_overall,
+  Li_receive_time,
   Li_received_sender,
   Li_received_recipients,
   Li_rejected_header,
@@ -464,6 +485,7 @@ enum {
   Li_sender_on_delivery,
   Li_sender_verify_fail,
   Li_smtp_confirmation,
+  Li_smtp_mailauth,
   Li_smtp_no_mail,
   Li_subject,
   Li_tls_certificate_verified,
@@ -471,18 +493,15 @@ enum {
   Li_tls_peerdn,
   Li_tls_sni,
   Li_unknown_in_list,
-  Li_8bitmime,
-  Li_smtp_mailauth,
-  Li_proxy,
-  Li_outgoing_interface,
 
-  log_selector_size = BITWORD(Li_outgoing_interface) + 1
+  log_selector_size = BITWORD(Li_unknown_in_list) + 1
 };
 
 #define LOGGING(opt) BIT_TEST(log_selector, log_selector_size, Li_##opt)
 
 /* Private error numbers for delivery failures, set negative so as not
-to conflict with system errno values. */
+to conflict with system errno values.  Take care to maintain the string
+table exim_errstrings[] in log.c */
 
 #define ERRNO_UNKNOWNERROR    (-1)
 #define ERRNO_USERSLASH       (-2)
@@ -536,16 +555,23 @@ to conflict with system errno values. */
 #ifdef SUPPORT_I18N
 # define ERRNO_UTF8_FWD      (-49)   /* target not supporting SMTPUTF8 */
 #endif
+#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_REQUIRETLS)
+# define ERRNO_REQUIRETLS    (-50)   /* REQUIRETLS session not started */
+#endif
 
 /* These must be last, so all retry deferments can easily be identified */
 
 #define ERRNO_RETRY_BASE     (-51)   /* Base to test against */
 #define ERRNO_RRETRY         (-51)   /* Not time for routing */
+
+#define ERRNO_WARN_BASE      (-52)   /* Base to test against */
 #define ERRNO_LRETRY         (-52)   /* Not time for local delivery */
 #define ERRNO_HRETRY         (-53)   /* Not time for any remote host */
 #define ERRNO_LOCAL_ONLY     (-54)   /* Local-only delivery */
 #define ERRNO_QUEUE_DOMAIN   (-55)   /* Domain in queue_domains */
 #define ERRNO_TRETRY         (-56)   /* Transport concurrency limit */
+
+
 
 /* Special actions to take after failure or deferment. */
 
@@ -705,7 +731,8 @@ enum { v_none, v_sender, v_recipient, v_expn };
 #define vopt_callout_no_cache     0x0040   /* disable callout cache */
 #define vopt_callout_recipsender  0x0080   /* use real sender to verify recip */
 #define vopt_callout_recippmaster 0x0100   /* use postmaster to verify recip */
-#define vopt_success_on_redirect  0x0200
+#define vopt_callout_hold	  0x0200   /* lazy close connection */
+#define vopt_success_on_redirect  0x0400
 
 /* Values for fields in callout cache records */
 
@@ -728,11 +755,17 @@ enum { hstatus_unknown, hstatus_usable, hstatus_unusable,
 
 /* Reasons why a host is unusable (for clearer log messages) */
 
-enum { hwhy_unknown, hwhy_retry, hwhy_failed, hwhy_deferred, hwhy_ignored };
+enum { hwhy_unknown, hwhy_retry, hwhy_insecure, hwhy_failed, hwhy_deferred,
+       hwhy_ignored };
 
 /* Domain lookup types for routers */
 
-enum { lk_default, lk_byname, lk_bydns };
+#define LK_DEFAULT	BIT(0)
+#define LK_BYNAME	BIT(1)
+#define LK_BYDNS	BIT(2)	/* those 3 should be mutually exclusive */
+
+#define LK_IPV4_ONLY	BIT(3)
+#define LK_IPV4_PREFER	BIT(4)
 
 /* Values for the self_code fields */
 
@@ -783,7 +816,8 @@ most recent SMTP commands. Must be kept in step with the list of names in
 smtp_in.c that is used for creating the smtp_no_mail logging action. SCH_NONE
 is "empty". */
 
-enum { SCH_NONE, SCH_AUTH, SCH_DATA, SCH_EHLO, SCH_ETRN, SCH_EXPN, SCH_HELO,
+enum { SCH_NONE, SCH_AUTH, SCH_DATA, SCH_BDAT,
+       SCH_EHLO, SCH_ETRN, SCH_EXPN, SCH_HELO,
        SCH_HELP, SCH_MAIL, SCH_NOOP, SCH_QUIT, SCH_RCPT, SCH_RSET, SCH_STARTTLS,
        SCH_VRFY };
 
@@ -792,6 +826,7 @@ enum { SCH_NONE, SCH_AUTH, SCH_DATA, SCH_EHLO, SCH_ETRN, SCH_EXPN, SCH_HELO,
 enum {
   HOST_FIND_FAILED,     /* failed to find the host */
   HOST_FIND_AGAIN,      /* could not resolve at this time */
+  HOST_FIND_SECURITY,   /* dnssec required but not acheived */
   HOST_FOUND,           /* found host */
   HOST_FOUND_LOCAL,     /* found, but MX points to local host */
   HOST_IGNORED          /* found but ignored - used internally only */
@@ -799,11 +834,14 @@ enum {
 
 /* Flags for host_find_bydns() */
 
-#define HOST_FIND_BY_SRV          0x0001
-#define HOST_FIND_BY_MX           0x0002
-#define HOST_FIND_BY_A            0x0004
-#define HOST_FIND_QUALIFY_SINGLE  0x0008
-#define HOST_FIND_SEARCH_PARENTS  0x0010
+#define HOST_FIND_BY_SRV          BIT(0)
+#define HOST_FIND_BY_MX           BIT(1)
+#define HOST_FIND_BY_A            BIT(2)
+#define HOST_FIND_BY_AAAA         BIT(3)
+#define HOST_FIND_QUALIFY_SINGLE  BIT(4)
+#define HOST_FIND_SEARCH_PARENTS  BIT(5)
+#define HOST_FIND_IPV4_FIRST	  BIT(6)
+#define HOST_FIND_IPV4_ONLY	  BIT(7)
 
 /* Actions applied to specific messages. */
 
@@ -829,10 +867,22 @@ enum {
 #define topt_add_delivery_date  0x002
 #define topt_add_envelope_to    0x004
 #define topt_use_crlf           0x008  /* Terminate lines with CRLF */
-#define topt_end_dot            0x010  /* Send terminting dot line */
+#define topt_end_dot            0x010  /* Send terminating dot line */
 #define topt_no_headers         0x020  /* Omit headers */
 #define topt_no_body            0x040  /* Omit body */
 #define topt_escape_headers     0x080  /* Apply escape check to headers */
+#define topt_use_bdat		0x100  /* prepend chunks with RFC3030 BDAT header */
+#define topt_output_string	0x200  /* create string rather than write to fd */
+#define topt_continuation	0x400  /* do not reset buffer */
+#define topt_not_socket		0x800  /* cannot do socket-only syscalls */
+
+/* Options for smtp_write_command */
+
+enum {	
+  SCMD_FLUSH = 0,	/* write to kernel */
+  SCMD_MORE,		/* write to kernel, but likely more soon */
+  SCMD_BUFFER		/* stash in application cmd output buffer */
+};
 
 /* Flags for recipient_block, used in DSN support */
 
@@ -914,6 +964,31 @@ enum { ACL_WHERE_RCPT,       /* Some controls are for RCPT only */
        ACL_WHERE_UNKNOWN     /* Currently used by a ${acl:name} expansion */
      };
 
+#define ACL_BIT_RCPT		BIT(ACL_WHERE_RCPT)
+#define ACL_BIT_MAIL		BIT(ACL_WHERE_MAIL)
+#define ACL_BIT_PREDATA		BIT(ACL_WHERE_PREDATA)
+#define ACL_BIT_MIME		BIT(ACL_WHERE_MIME)
+#define ACL_BIT_DKIM		BIT(ACL_WHERE_DKIM)
+#define ACL_BIT_DATA		BIT(ACL_WHERE_DATA)
+#ifndef DISABLE_PRDR
+# define ACL_BIT_PRDR		BIT(ACL_WHERE_PRDR)
+#endif
+#define ACL_BIT_NOTSMTP		BIT(ACL_WHERE_NOTSMTP)
+#define ACL_BIT_AUTH		BIT(ACL_WHERE_AUTH)
+#define ACL_BIT_CONNECT		BIT(ACL_WHERE_CONNECT)
+#define ACL_BIT_ETRN		BIT(ACL_WHERE_ETRN)
+#define ACL_BIT_EXPN		BIT(ACL_WHERE_EXPN)
+#define ACL_BIT_HELO		BIT(ACL_WHERE_HELO)
+#define ACL_BIT_MAILAUTH	BIT(ACL_WHERE_MAILAUTH)
+#define ACL_BIT_NOTSMTP_START	BIT(ACL_WHERE_NOTSMTP_START)
+#define ACL_BIT_NOTQUIT		BIT(ACL_WHERE_NOTQUIT)
+#define ACL_BIT_QUIT		BIT(ACL_WHERE_QUIT)
+#define ACL_BIT_STARTTLS	BIT(ACL_WHERE_STARTTLS)
+#define ACL_BIT_VRFY		BIT(ACL_WHERE_VRFY)
+#define ACL_BIT_DELIVERY	BIT(ACL_WHERE_DELIVERY)
+#define ACL_BIT_UNKNOWN		BIT(ACL_WHERE_UNKNOWN)
+
+
 /* Situations for spool_write_header() */
 
 enum { SW_RECEIVING, SW_DELIVERING, SW_MODIFYING };
@@ -938,5 +1013,63 @@ explicit port number. */
 /* Filter types */
 
 enum { FILTER_UNSET, FILTER_FORWARD, FILTER_EXIM, FILTER_SIEVE };
+
+/* Codes for ESMTP facilities offered by peer */
+
+#define OPTION_TLS		BIT(0)
+#define OPTION_IGNQ		BIT(1)
+#define OPTION_PRDR		BIT(2)
+#define OPTION_UTF8		BIT(3)
+#define OPTION_DSN		BIT(4)
+#define OPTION_PIPE		BIT(5)
+#define OPTION_SIZE		BIT(6)
+#define OPTION_CHUNKING		BIT(7)
+#define OPTION_REQUIRETLS	BIT(8)
+#define OPTION_EARLY_PIPE	BIT(9)
+
+/* Codes for tls_requiretls requests (usually by sender) */
+
+#define REQUIRETLS_MSG		BIT(0)	/* REQUIRETLS onward use */
+
+/* Argument for *_getc */
+
+#define GETC_BUFFER_UNLIMITED	UINT_MAX
+
+/* UTF-8 chars for line-drawing */
+
+#define UTF8_DOWN_RIGHT		"\xE2\x94\x8c"
+#define UTF8_HORIZ		"\xE2\x94\x80"
+#define UTF8_VERT_RIGHT		"\xE2\x94\x9C"
+#define UTF8_UP_RIGHT		"\xE2\x94\x94"
+#define UTF8_VERT_2DASH		"\xE2\x95\x8E"
+
+
+/* Options on tls_close */
+#define TLS_NO_SHUTDOWN		0
+#define TLS_SHUTDOWN_NOWAIT	1
+#define TLS_SHUTDOWN_WAIT	2
+
+
+#ifdef COMPILE_UTILITY
+# define ALARM(seconds) alarm(seconds);
+# define ALARM_CLR(seconds) alarm(seconds);
+#else
+/* For debugging of odd alarm-signal problems, stash caller info while the
+alarm is active.  Clear it down on cancelling the alarm so we can tell there
+should not be one active. */
+
+# define ALARM(seconds) \
+    debug_selector & D_any \
+    ? (sigalarm_setter = CUS __FUNCTION__, alarm(seconds)) : alarm(seconds);
+# define ALARM_CLR(seconds) \
+    debug_selector & D_any \
+    ? (sigalarm_setter = NULL, alarm(seconds)) : alarm(seconds);
+#endif
+
+#define AUTHS_REGEX US"\\n250[\\s\\-]AUTH\\s+([\\-\\w \\t]+)(?:\\n|$)"
+
+#define EARLY_PIPE_FEATURE_NAME "X_PIPE_CONNECT"
+#define EARLY_PIPE_FEATURE_LEN  14
+
 
 /* End of macros.h */

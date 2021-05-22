@@ -1,9 +1,6 @@
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: lookuphost propagating DSN
-DSN: self propagating DSN
-DSN: self2 propagating DSN
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing xx@mxt6.test.ex
 --------> lookuphost router <--------
@@ -21,13 +18,10 @@ routed by lookuphost router
   envelope to: xx@mxt6.test.ex
   transport: remote_smtp
   host ten-1.test.ex [V4NET.0.0.1] MX=5
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: lookuphost propagating DSN
-DSN: self propagating DSN
-DSN: self2 propagating DSN
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing myhost.test.ex@mxt1.test.ex
 --------> lookuphost router <--------
@@ -46,8 +40,8 @@ calling self router
 self router called for myhost.test.ex@mxt1.test.ex
   domain = mxt1.test.ex
 route_item = * $local_part byname
-original list of hosts = "$local_part" options = byname
-expanded list of hosts = "myhost.test.ex" options = byname
+original list of hosts = '$local_part' options = 'byname'
+expanded list of hosts = 'myhost.test.ex' options = 'byname'
 set transport remote_smtp
 finding IP address for myhost.test.ex
 calling host_find_byname
@@ -59,13 +53,10 @@ routed by self router
   envelope to: myhost.test.ex@mxt1.test.ex
   transport: remote_smtp
   host myhost.test.ex [V4NET.10.10.10]
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: lookuphost propagating DSN
-DSN: self propagating DSN
-DSN: self2 propagating DSN
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing xx@mxt1.test.ex
 --------> lookuphost router <--------
@@ -84,8 +75,8 @@ calling self router
 self router called for xx@mxt1.test.ex
   domain = mxt1.test.ex
 route_item = * $local_part byname
-original list of hosts = "$local_part" options = byname
-expanded list of hosts = "xx" options = byname
+original list of hosts = '$local_part' options = 'byname'
+expanded list of hosts = 'xx' options = 'byname'
 set transport remote_smtp
 finding IP address for xx
 calling host_find_byname
@@ -98,8 +89,8 @@ calling self2 router
 self2 router called for xx@mxt1.test.ex
   domain = mxt1.test.ex
 route_item = * myhost.test.ex byname
-original list of hosts = "myhost.test.ex" options = byname
-expanded list of hosts = "myhost.test.ex" options = byname
+original list of hosts = 'myhost.test.ex' options = 'byname'
+expanded list of hosts = 'myhost.test.ex' options = 'byname'
 set transport remote_smtp
 finding IP address for myhost.test.ex
 calling host_find_byname
@@ -111,13 +102,10 @@ routed by self2 router
   envelope to: xx@mxt1.test.ex
   transport: remote_smtp
   host myhost.test.ex [V4NET.10.10.10]
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: lookuphost propagating DSN
-DSN: self propagating DSN
-DSN: self2 propagating DSN
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing xx@not.exist
 --------> lookuphost router <--------
@@ -129,4 +117,4 @@ lookuphost router called for xx@not.exist
 lookuphost router declined for xx@not.exist
 "more" is false: skipping remaining routers
 no more routers
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=2 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=2 >>>>>>>>>>>>>>>>

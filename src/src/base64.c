@@ -5,7 +5,7 @@
 /* Copyright (c) Tom Kistner <tom@duncanthrax.net> 2004, 2015 */
 /* License: GPL */
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -150,12 +150,16 @@ static uschar dec64table[] = {
 };
 
 int
-b64decode(uschar *code, uschar **ptr)
+b64decode(const uschar *code, uschar **ptr)
 {
-int x, y;
-uschar *result = store_get(3*(Ustrlen(code)/4) + 1);
 
-*ptr = result;
+int x, y;
+uschar *result;
+
+{
+  int l = Ustrlen(code);
+  *ptr = result = store_get(1 + l/4 * 3 + l%4);
+}
 
 /* Each cycle of the loop handles a quantum of 4 input bytes. For the last
 quantum this may decode to 1, 2, or 3 output bytes. */
@@ -169,7 +173,7 @@ while ((x = *code++) != 0)
 
   while (isspace(y = *code++)) ;
   /* debug_printf("b64d: '%c'\n", y); */
-  if (y == 0 || (y = dec64table[y]) == 255)
+  if (y > 127 || (y = dec64table[y]) == 255)
     return -1;
 
   *result++ = (x << 2) | (y >> 4);
@@ -245,7 +249,7 @@ uschar *p = code;
 
 while (len-- >0)
   {
-  register int x, y;
+  int x, y;
 
   x = *clear++;
   *p++ = enc64table[(x >> 2) & 63];

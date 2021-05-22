@@ -1,3 +1,4 @@
+### No certificate, certificate required
 Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
@@ -18,22 +19,20 @@ Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read server session ticket A
-pppp:error:14094410:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure:s3_pkt.c:dddd:SSL alert number 40
+pppp:error:dddddddd:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure:[...]:SSL alert number 40
 Failed to start TLS
+>>> noop
+????554 Security failure
+>>> noop
+??? 554 Security failure
+<<< 554 Security failure
+>>> quit
+????554 Security failure
+????221
+???*
+Expected EOF read
 End of script
+### No certificate, certificate optional at TLS time, required by ACL
 Connecting to 127.0.0.1 port 1225 ... connected
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
@@ -54,22 +53,7 @@ Connecting to 127.0.0.1 port 1225 ... connected
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read finished A
-SSL info: SSL negotiation finished successfully
-SSL info: SSL negotiation finished successfully
-SSL connection using AES256-SHA
+SSL connection using ke-RSA-AES256-SHAnnn
 Succeeded in starting TLS
 >>> helo rhu.barb
 ??? 250
@@ -84,9 +68,10 @@ Succeeded in starting TLS
 ??? 221
 <<< 221 myhost.test.ex closing connection
 End of script
+### Good certificate, certificate required
 Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
-Certificate file = aux-fixed/cert2
-Key file = aux-fixed/cert2
+Certificate file = aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.chain.pem
+Key file = aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.unlocked.key
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 >>> ehlo rhu.barb
@@ -106,23 +91,7 @@ Key file = aux-fixed/cert2
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write certificate verify A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read finished A
-SSL info: SSL negotiation finished successfully
-SSL info: SSL negotiation finished successfully
-SSL connection using AES256-SHA
+SSL connection using ke-RSA-AES256-SHAnnn
 Succeeded in starting TLS
 >>> mail from:<userx@test.ex>
 ??? 250
@@ -134,9 +103,10 @@ Succeeded in starting TLS
 ??? 221
 <<< 221 myhost.test.ex closing connection
 End of script
+### Good certificate, certificate optional at TLS time, checked by ACL
 Connecting to 127.0.0.1 port 1225 ... connected
-Certificate file = aux-fixed/cert2
-Key file = aux-fixed/cert2
+Certificate file = aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.chain.pem
+Key file = aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.unlocked.key
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 >>> ehlo rhu.barb
@@ -156,23 +126,7 @@ Key file = aux-fixed/cert2
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write certificate verify A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read finished A
-SSL info: SSL negotiation finished successfully
-SSL info: SSL negotiation finished successfully
-SSL connection using AES256-SHA
+SSL connection using ke-RSA-AES256-SHAnnn
 Succeeded in starting TLS
 >>> mail from:<userx@test.ex>
 ??? 250
@@ -184,9 +138,10 @@ Succeeded in starting TLS
 ??? 221
 <<< 221 myhost.test.ex closing connection
 End of script
+### Bad certificate, certificate required
 Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
-Certificate file = aux-fixed/cert1
-Key file = aux-fixed/cert1
+Certificate file = aux-fixed/exim-ca/example.net/server1.example.net/server1.example.net.chain.pem
+Key file = aux-fixed/exim-ca/example.net/server1.example.net/server1.example.net.unlocked.key
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 >>> ehlo rhu.barb
@@ -206,26 +161,18 @@ Key file = aux-fixed/cert1
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write certificate verify A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read server session ticket A
-pppp:error:14094418:SSL routines:ssl3_read_bytes:tlsv1 alert unknown ca:s3_pkt.c:dddd:SSL alert number 48
+pppp:error:dddddddd:SSL routines:ssl3_read_bytes:tlsv1 alert unknown ca:[...]:SSL alert number 48
 Failed to start TLS
+>>> noop
+????554 Security failure
+>>> noop
+??? 554 Security failure
+<<< 554 Security failure
 End of script
+### Bad certificate, certificate optional at TLS time, reject at ACL time
 Connecting to 127.0.0.1 port 1225 ... connected
-Certificate file = aux-fixed/cert1
-Key file = aux-fixed/cert1
+Certificate file = aux-fixed/exim-ca/example.net/server1.example.net/server1.example.net.chain.pem
+Key file = aux-fixed/exim-ca/example.net/server1.example.net/server1.example.net.unlocked.key
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 >>> ehlo rhu.barb
@@ -245,39 +192,22 @@ Key file = aux-fixed/cert1
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write certificate verify A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read finished A
-SSL info: SSL negotiation finished successfully
-SSL info: SSL negotiation finished successfully
-SSL connection using AES256-SHA
+SSL connection using ke-RSA-AES256-SHAnnn
 Succeeded in starting TLS
 >>> mail from:<userx@test.ex>
 ??? 250
 <<< 250 OK
 >>> rcpt to:<userx@test.ex>
-??? 550-
-<<< 550-certificate not verified: peerdn=/C=UK/O=The Exim Maintainers/OU=Test
 ??? 550
-<<< 550 Suite/CN=Phil Pennock
+<<< 550 certificate not verified: peerdn=/CN=server1.example.net
 >>> quit
 ??? 221
 <<< 221 myhost.test.ex closing connection
 End of script
+### Otherwise good but revoked certificate, certificate required
 Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
-Certificate file = aux-fixed/cert2
-Key file = aux-fixed/cert2
+Certificate file = aux-fixed/exim-ca/example.com/revoked1.example.com/revoked1.example.com.chain.pem
+Key file = aux-fixed/exim-ca/example.com/revoked1.example.com/revoked1.example.com.unlocked.key
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 >>> ehlo rhu.barb
@@ -297,26 +227,18 @@ Key file = aux-fixed/cert2
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write certificate verify A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read server session ticket A
-pppp:error:14094414:SSL routines:ssl3_read_bytes:sslv3 alert certificate revoked:s3_pkt.c:dddd:SSL alert number 44
+pppp:error:dddddddd:SSL routines:ssl3_read_bytes:sslv3 alert certificate revoked:[...]:SSL alert number 44
 Failed to start TLS
+>>> noop
+????554 Security failure
+>>> noop
+??? 554 Security failure
+<<< 554 Security failure
 End of script
+### Revoked certificate, certificate optional at TLS time, reject at ACL time
 Connecting to 127.0.0.1 port 1225 ... connected
-Certificate file = aux-fixed/cert1
-Key file = aux-fixed/cert1
+Certificate file = aux-fixed/exim-ca/example.com/revoked1.example.com/revoked1.example.com.chain.pem
+Key file = aux-fixed/exim-ca/example.com/revoked1.example.com/revoked1.example.com.unlocked.key
 ??? 220
 <<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 >>> ehlo rhu.barb
@@ -336,33 +258,61 @@ Key file = aux-fixed/cert1
 ??? 220
 <<< 220 TLS go ahead
 Attempting to start TLS
-SSL info: before/connect initialization
-SSL info: before/connect initialization
-SSL info: SSLv3 read server hello A
-SSL info: SSLv3 read server certificate A
-SSL info: SSLv3 read server certificate request A
-SSL info: SSLv3 read server done A
-SSL info: SSLv3 write client certificate A
-SSL info: SSLv3 write client key exchange A
-SSL info: SSLv3 write certificate verify A
-SSL info: SSLv3 write change cipher spec A
-SSL info: SSLv3 write finished A
-SSL info: SSLv3 flush data
-SSL info: SSLv3 read server session ticket A
-SSL info: SSLv3 read finished A
-SSL info: SSL negotiation finished successfully
-SSL info: SSL negotiation finished successfully
-SSL connection using AES256-SHA
+SSL connection using ke-RSA-AES256-SHAnnn
 Succeeded in starting TLS
 >>> mail from:<userx@test.ex>
 ??? 250
 <<< 250 OK
 >>> rcpt to:<userx@test.ex>
-??? 550-
-<<< 550-certificate not verified: peerdn=/C=UK/O=The Exim Maintainers/OU=Test
 ??? 550
-<<< 550 Suite/CN=Phil Pennock
+<<< 550 certificate not verified: peerdn=/CN=revoked1.example.com
 >>> quit
 ??? 221
 <<< 221 myhost.test.ex closing connection
 End of script
+### Good certificate, certificate required - but nonmatching CRL also present
+Connecting to ip4.ip4.ip4.ip4 port 1225 ... connected
+Certificate file = aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.chain.pem
+Key file = aux-fixed/exim-ca/example.com/server1.example.com/server1.example.com.unlocked.key
+??? 220
+<<< 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
+>>> ehlo rhu.barb
+??? 250-
+<<< 250-myhost.test.ex Hello rhu.barb [ip4.ip4.ip4.ip4]
+??? 250-
+<<< 250-SIZE 52428800
+??? 250-
+<<< 250-8BITMIME
+??? 250-
+<<< 250-PIPELINING
+??? 250-
+<<< 250-STARTTLS
+??? 250
+<<< 250 HELP
+>>> starttls
+??? 220
+<<< 220 TLS go ahead
+Attempting to start TLS
+SSL connection using ke-RSA-AES256-SHAnnn
+Succeeded in starting TLS
+>>> mail from:<userx@test.ex>
+??? 250
+<<< 250 OK
+>>> rcpt to:<userx@test.ex>
+??? 250
+<<< 250 Accepted
+>>> quit
+??? 221
+<<< 221 myhost.test.ex closing connection
+End of script
+
+******** SERVER ********
+### No certificate, certificate required
+### No certificate, certificate optional at TLS time, required by ACL
+### Good certificate, certificate required
+### Good certificate, certificate optional at TLS time, checked by ACL
+### Bad certificate, certificate required
+### Bad certificate, certificate optional at TLS time, reject at ACL time
+### Otherwise good but revoked certificate, certificate required
+### Revoked certificate, certificate optional at TLS time, reject at ACL time
+### Good certificate, certificate required - but nonmatching CRL also present

@@ -2,13 +2,13 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This module provides TLS (aka SSL) support for Exim. The code for OpenSSL is
 based on a patch that was originally contributed by Steve Haslam. It was
 adapted from stunnel, a GPL program by Michal Trojnara. The code for GNU TLS is
-based on a patch contributed by Nikos Mavroyanopoulos. Because these packages
+based on a patch contributed by Nikos Mavrogiannopoulos. Because these packages
 are so very different, the functions for each are kept in separate files. The
 relevant file is #included as required, after any any common functions.
 
@@ -18,6 +18,15 @@ functions from the OpenSSL or GNU TLS libraries. */
 
 #include "exim.h"
 #include "transports/smtp.h"
+
+#if defined(MACRO_PREDEF) && defined(SUPPORT_TLS)
+# ifndef USE_GNUTLS
+#  include "macro_predef.h"
+#  include "tls-openssl.c"
+# endif
+#endif
+
+#ifndef MACRO_PREDEF
 
 /* This module is compiled only when it is specifically requested in the
 build-time configuration. However, some compilers don't like compiling empty
@@ -41,8 +50,8 @@ static const int ssl_xfer_buffer_size = 4096;
 static uschar *ssl_xfer_buffer = NULL;
 static int ssl_xfer_buffer_lwm = 0;
 static int ssl_xfer_buffer_hwm = 0;
-static int ssl_xfer_eof = 0;
-static int ssl_xfer_error = 0;
+static int ssl_xfer_eof = FALSE;
+static BOOL ssl_xfer_error = FALSE;
 #endif
 
 uschar *tls_channelbinding_b64 = NULL;
@@ -64,17 +73,18 @@ Returns:    TRUE if OK; result may still be NULL after forced failure
 */
 
 static BOOL
-expand_check(const uschar *s, const uschar *name, uschar **result)
+expand_check(const uschar *s, const uschar *name, uschar **result, uschar ** errstr)
 {
-if (s == NULL) *result = NULL; else
+if (!s)
+  *result = NULL;
+else if (  !(*result = expand_string(US s)) /* need to clean up const more */
+	&& !f.expand_string_forcedfail
+	)
   {
-  *result = expand_string(US s); /* need to clean up const some more */
-  if (*result == NULL && !expand_string_forcedfail)
-    {
-    log_write(0, LOG_MAIN|LOG_PANIC, "expansion of %s failed: %s", name,
-      expand_string_message);
-    return FALSE;
-    }
+  *errstr = US"Internal error";
+  log_write(0, LOG_MAIN|LOG_PANIC, "expansion of %s failed: %s", name,
+    expand_string_message);
+  return FALSE;
   }
 return TRUE;
 }
@@ -84,26 +94,23 @@ return TRUE;
 *        Timezone environment flipping           *
 *************************************************/
 
-#ifdef MISSING_UNSETENV_3
-# include "setenv.c"
-#endif
-
 static uschar *
 to_tz(uschar * tz)
 {
-  uschar * old = US getenv("TZ");
-  (void) setenv("TZ", CCS tz, 1);
-  tzset(); 
-  return old;
+uschar * old = US getenv("TZ");
+(void) setenv("TZ", CCS tz, 1);
+tzset();
+return old;
 }
+
 static void
 restore_tz(uschar * tz)
 {
-  if (tz)
-    (void) setenv("TZ", CCS tz, 1);
-  else
-    (void) unsetenv("TZ");
-  tzset(); 
+if (tz)
+  (void) setenv("TZ", CCS tz, 1);
+else
+  (void) os_unsetenv(US"TZ");
+tzset();
 }
 
 /*************************************************
@@ -164,7 +171,7 @@ Returns:       non-zero if the eof flag is set
 int
 tls_feof(void)
 {
-return ssl_xfer_eof;
+return (int)ssl_xfer_eof;
 }
 
 
@@ -186,7 +193,7 @@ Returns:       non-zero if the error flag is set
 int
 tls_ferror(void)
 {
-return ssl_xfer_error;
+return (int)ssl_xfer_error;
 }
 
 
@@ -265,7 +272,7 @@ uschar outsep = '\n';
 uschar * ele;
 uschar * match = NULL;
 int len;
-uschar * list = NULL;
+gstring * list = NULL;
 
 while ((ele = string_nextinlist(&mod, &insep, NULL, 0)))
   if (ele[0] != '>')
@@ -281,7 +288,7 @@ while ((ele = string_nextinlist(CUSS &dn, &insep, NULL, 0)))
      || Ustrncmp(ele, match, len) == 0 && ele[len] == '='
      )
     list = string_append_listele(list, outsep, ele+len+1);
-return list;
+return string_from_gstring(list);
 }
 
 
@@ -357,6 +364,7 @@ else if ((subjdn = tls_cert_subject(cert, NULL)))
 return FALSE;
 }
 #endif	/*SUPPORT_TLS*/
+#endif	/*!MACRO_PREDEF*/
 
 /* vi: aw ai sw=2
 */

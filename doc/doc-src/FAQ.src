@@ -408,7 +408,7 @@ A0018: Recall that Exim does not keep separate queues for each domain, but
        a temporary error. Here are some possibilities:
 
        (1) The messages to \(aol.com)\ got put in your queue, but no previous
-       delivery attempt occured before you did the \-R-\. This might have been
+       delivery attempt occurred before you did the \-R-\. This might have been
        because of your settings of \queue_only_load\, \smtp_accept_queue\, or any
        other option that caused no immediate delivery attempt on arrival. If
        this is the case, you can try using \-qqR-\ instead of \-R-\.
@@ -912,7 +912,7 @@ A0047: \-bz-\ is a Sendmail option requesting it to create a `configuration free
 
 ==>      /usr/lib/sendmail -bz
 
-       in some start-up script (e.g. \(/etc/init.d/mail)\) immedately before
+       in some start-up script (e.g. \(/etc/init.d/mail)\) immediately before
 
 ==>      /usr/lib/sendmail -bd -q15m
 
@@ -1538,7 +1538,7 @@ A0089: This was a bad interaction between a change to the Linux kernel and some
        taken from Exim's change log:
 
        When Exim is receiving multiple messages on a single connection, and
-       spinning off delivery processess, it sets the SIGCHLD signal handling to
+       spinning off delivery processes, it sets the SIGCHLD signal handling to
        SIG_IGN, because it doesn't want to wait for these processes. However,
        because on some OS this didn't work, it also has a paranoid call to
        \^waitpid()^\ in the loop to reap any children that have finished. Some
@@ -1861,8 +1861,8 @@ A0117: Here! This is a contribution from a RedHat user, somewhat edited. On
 
 ==>      adduser exim
 
-       (3) Now you can prepare to build Exim. Go to \?http://www.exim.org?\ or
-       one of its mirrors, or the master ftp site
+       (3) Now you can prepare to build Exim. Go to \?https://www.exim.org?\ or
+       one of its mirrors, or the master FTP site
        \?ftp://ftp.csx.cam.ac.uk/pub/software/email/exim/exim4?\, and download
        \(exim-4.20.tar.gz)\ or whatever the current release is. Then:
 
@@ -2117,7 +2117,7 @@ A0301: They mean exactly what they say. Exim expected to route an address to a
        with MX records pointing to \"localhost"\ (or other names with A records
        that specify 127.0.0.1), which causes this behaviour. You can use the
        \ignore_target_hosts\ option to get Exim to ignore these records. The
-       default contiguration does this. For more discussion, see Q0319. For
+       default configuration does this. For more discussion, see Q0319. For
        other cases:
 
        (1) If the domain is meant to be handled as a local domain, there
@@ -2316,7 +2316,7 @@ A0310: If a DNS lookup returns no MXs, Exim looks for an address record, in
 
 
 Q0311: When a DNS lookup for MX records fails to complete, why doesn't Exim
-       send the messsage to the host defined by the A record?
+       send the message to the host defined by the A record?
 
 A0311: The RFCs are quite clear on this. Only if it is known that there are no
        MX records is an MTA allowed to make use of the A record. When an MX
@@ -2917,7 +2917,7 @@ Q0419: I have some obsolete domains which people have been warned not to use
        any more. How can I arrange to delete any mail that is sent to them?
 
 A0419: To reject them at SMTP time, with a customized error message, place
-       statments like this in the ACL:
+       statements like this in the ACL:
 
 ==>      deny message = The domain $domain is obsolete
               domains = lsearch;/etc/exim/obsolete.domains
@@ -3452,7 +3452,7 @@ A0510: \^elspy^\ is a layer of glue code that enables you to write Python code
        to scan email messages at SMTP time. \^elspy^\ also includes a small
        Python library with common mail-scanning tools, including an interface
        to SpamAssassin and a simple but effective virus detector. You can
-       optain \^elspy^\ from \?http://elspy.sourceforge.net/?\.
+       obtain \^elspy^\ from \?http://elspy.sourceforge.net/?\.
 
 
 Q0511: Whenever my system filter uses a \mail\ command to send a message, I get
@@ -3543,7 +3543,7 @@ A0601: Whenever Exim does a local delivery, it runs a process under a specific
 ==>      majordomo: |/local/mail/majordomo ...
 
        then Exim has to be told what uid/gid to use for the delivery. This can
-       be done either on the routerr that handles the address, or on the
+       be done either on the router that handles the address, or on the
        transport that actually does the delivery. If a pipe is going to run a
        setuid program, then it doesn't matter what uid Exim starts it out with,
        and so the most straightforward thing is to put
@@ -3617,7 +3617,7 @@ A0603: Q0601 contains background information on this. If you are using, say, an
 
 
 Q0604: I want to use MMDF-style mailboxes. How can I get Exim to append the
-       ctrl-A characters that separate indvidual emails?
+       ctrl-A characters that separate individual emails?
 
 A0604: Set the \message_suffix\ option in the \%appendfile%\ transport. In fact,
        for MMDF mailboxes you need a prefix as well as a suffix to get it
@@ -3660,7 +3660,7 @@ Q0606: I'm using tmail to do local deliveries, but when I turned on the
        \use_crlf\ option on the \%pipe%\ transport (tmail prefers \"@\r@\n"\
        terminations) message bodies started to vanish.
 
-A0606: You need to unset the \mesage_prefix\ option, or change it so that its
+A0606: You need to unset the \message_prefix\ option, or change it so that its
        default \"@\n"\ terminator becomes \"@\r@\n"\. For example, the
        transport could be:
 
@@ -5038,7 +5038,7 @@ A0806: The value of \$domain$\ is the actual domain that appears in the address.
        but it is important to some people - especially if by some unfortunate
        accident the lowercased word is something indecent.
 
-       You can trivally force lower casing by means of the \"${lc:"\ operator.
+       You can trivially force lower casing by means of the \"${lc:"\ operator.
        Instead of \"$domain"\ write \"${lc:$domain}"\.
 
 
@@ -5099,7 +5099,7 @@ A0905: You can only do this in a round about way, using filter commands like
 
 ==>      headers add "New-Subject: SPAM: $h_subject:"
          headers remove subject
-         neaders add "Subject: $h_new-subject:"
+         headers add "Subject: $h_new-subject:"
          headers remove new-subject
 
        This trick works only in system filters, where the commands are obeyed
@@ -5122,7 +5122,7 @@ A1001: Splitting the spool directory has most benefit if there are times when
        up earlier on some types of file system, compared with others.
 
        Exim was not designed for handling large queues. If you are in an
-       enviroment where lots of messages remain on the queue for long periods
+       environment where lots of messages remain on the queue for long periods
        of time, consider implementing a back up host to which you pass these
        messages, so that the main host's queue remains short. You can use
        \fallback_hosts\ to do this, or a router that is conditional on
@@ -5740,82 +5740,14 @@ Q1701: I am trying to set up an Exim server that uses a self-signed certificate
        to enable my clients to use TLS. However, clients other than Exim
        refuse to accept this certificate. What's wrong?
 
-A1701: It seems that some clients require that the certificate presented by
-       the server be a user (also called ``leaf'' or ``site'') certificate, and not
-       a self-signed certificate. In this situation, the self-signed
-       certificate must be installed on the client as a trusted root
-       \*certification authority*\ (CA), and the certificate used by the server
-       must be a user certificate signed with that self-signed certificate.
+A1701: Don't use a self-signed certificate today.  Use a certificate from a
+       certificate authority, whether your own private certificate authority or
+       a free CA such as Let's Encrypt.
 
-       For information on creating self-signed CA certificates and using them
-       to sign user certificates, see the \*General implementation overview*\
-       chapter of the Open-source PKI book, available online at
-       \?http://ospkibook.sourceforge.net/?\. Here is a quick overview. First,
-       read this message:
+       The exim.org setup uses Let's Encrypt, using the lego tooling and a small
+       shell wrapper to let the certificates be automatically renewed via cron.
 
-       \?http://www.FreeBSD.org/cgi/mid.cgi?id=3C3F3A93.C1ECF9B0%40mindspring.com?\
-
-       Then, follow the instructions found on these two (consecutive) pages:
-
-       \?http://ospkibook.sourceforge.net/docs/OSPKI-2.4.6/OSPKI/initialisation.htm?\
-       \?http://ospkibook.sourceforge.net/docs/OSPKI-2.4.6/OSPKI/keygensign.htm?\
-
-       Two points on the PKI Book literature:
-
-       (1) It's assumed that it's okay to use a passphrase-protected key to
-           encrypt the user/site/leaf certificate. If this isn't acceptable,
-           you seem to be able to strip out the passphrase as follows:
-
-==>          openssl rsa -in user.key -our user.key.new
-             mv user.key.new
-
-           This should be done immediately after \(user.key)\ is created.
-
-       (2) The \*sign.sh*\ script is available in the \*mod_ssl*\ distribution,
-           available at \?http://www.modssl.org/source/?\.
-
-       Having followed the instructions, you end up with the following files:
-
-       (a) \(ca.crt)\
-
-       This file should be installed into the client software as a trusted
-       root certification authority. In Windows XP, this can be done as follows:
-
-       \#\#Call the file \(ca_cert.cer)\
-       [[br]]
-       \#\#Double-click on the file
-       [[br]]
-       \#\#"Install Certificate";
-       [[br]]
-       \#\#"Next"
-       [[br]]
-       \#\#"Place all certificates in the following store"
-       [[br]]
-       \#\#"Browse..."
-       [[br]]
-       \#\#"Trusted Root Certification Authorities"
-       [[br]]
-       \#\#"OK"
-       [[br]]
-       \#\#"Next"
-       [[br]]
-       \#\#"Finish"
-       [[br]]
-       \#\#"Yes"
-       [[br]]
-       \#\#"OK"
-
-       (b) \(user.crt)\ and \(user.key)\
-
-       These files should be installed into the server software. In Exim, this
-       can be done by adding these lines to the configuration file:
-
-==>      tls_certificate = /usr/local/etc/exim/tls_cert
-         tls_privatekey = /usr/local/etc/exim/tls_key
-
-       Then install \(user.crt)\ and \(user.key)\ under the names \(tls_cert)\
-       and \(tls_key)\ in the appropriate directory.
-
+       \?https://github.com/xenolf/lego?\
 
 Q1702: How can I arrange for Exim to advertise support for SMTP authentication
        only when the session is encrypted?
@@ -6612,7 +6544,7 @@ Q9604: I get the \*too many open files*\ error especially when a lot of messages
        land for Majordomo at the same time.
 
 A9604: The problem appears to be the number of open files the system can
-       handle. This is changable by using the proc filesystem. To your
+       handle. This is changeable by using the proc filesystem. To your
        \(/etc/rc.d/rc.local)\ file append something like the following:
 
 ==>      # Now System is up, Modify kernel parameters for max open etc.
@@ -7094,7 +7026,7 @@ Samples whose names are of the form Cnnn are Exim configurations; those with
 names of the form Fnnn are filter file fragments; those with names of the form
 Lnnn are sample \^^local_scan()^^\ functions, and those with names of thf form
 Snnn are scripts of various kinds. There are other examples of
-\^^local_scan()^^\ functions at a number of web sites (for example,
+\^^local_scan()^^\ functions at a number of websites (for example,
 \?http://marc.merlins.org/linux/exim/sa.html?\).
 
 There are gaps in the C and F numbers because I have omitted the Exim 3 samples
@@ -7122,7 +7054,7 @@ C037:  An elegant way of using ETRN, which does immediate delivery if the host
 C042:  ``Since the Exim 4 configuration needed to get Mailman to work differs a
        little bit from Exim 3 and since I still haven't seen a recipe for
        Mailman with Exim 4, I'm providing my configuration (based heavily on
-       \?http://www.exim.org/howto/mailman.html?\).''
+       \?https://www.exim.org/howto/mailman21.html?\).''
 
 C043:  ``Attached is an Exim 4 config file which is designed for an Exim server
        that is put in front of an Exchange 5.5 system but which verifies the

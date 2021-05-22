@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -37,8 +37,8 @@ rf_change_domain(address_item *addr, const uschar *domain, BOOL rewrite,
 {
 address_item *parent = store_get(sizeof(address_item));
 uschar *at = Ustrrchr(addr->address, '@');
-uschar *address = string_sprintf("%.*s@%s", at - addr->address, addr->address,
-  domain);
+uschar *address = string_sprintf("%.*s@%s",
+  (int)(at - addr->address), addr->address, domain);
 
 DEBUG(D_route) debug_printf("domain changed to %s\n", domain);
 
@@ -57,6 +57,7 @@ addr->prop = parent->prop;
 addr->address = address;
 addr->unique = string_copy(address);
 addr->parent = parent;
+parent->child_count = 1;
 
 addr->next = *addr_new;
 *addr_new = addr;
@@ -75,7 +76,7 @@ if (rewrite)
     if (newh != NULL)
       {
       h = newh;
-      header_rewritten = TRUE;
+      f.header_rewritten = TRUE;
       }
     }
   }

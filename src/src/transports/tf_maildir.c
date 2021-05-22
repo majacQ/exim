@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2014 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions in support of the use of maildirsize files for handling quotas in
@@ -211,10 +211,12 @@ int len;
 uschar buffer[256];
 sprintf(CS buffer, "%d 1\n", size);
 len = Ustrlen(buffer);
-(void)lseek(fd, 0, SEEK_END);
-len = write(fd, buffer, len);
-DEBUG(D_transport)
-  debug_printf("added '%.*s' to maildirsize file\n", len-1, buffer);
+if (lseek(fd, 0, SEEK_END) >= 0)
+  {
+  len = write(fd, buffer, len);
+  DEBUG(D_transport)
+    debug_printf("added '%.*s' to maildirsize file\n", len-1, buffer);
+  }
 }
 
 
@@ -356,7 +358,7 @@ Or, at least, it is supposed to!
 
 Arguments:
   path             the path to the maildir directory; this is already backed-up
-                     to the parent if the delivery diretory is a maildirfolder
+                     to the parent if the delivery directory is a maildirfolder
   ob               the appendfile options block
   regex            a compiled regex for getting a file's size from its name
   dir_regex        a compiled regex for selecting maildir directories

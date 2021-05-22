@@ -5,7 +5,6 @@ configuration file is TESTSUITE/test-config
 admin user
 changed uid/gid: privilege not needed
   uid=EXIM_UID gid=EXIM_GID pid=pppp
-DSN: accept propagating DSN
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
@@ -26,6 +25,8 @@ host in helo_accept_junk_hosts? no (option unset)
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<x@y>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<warn_empty@test.ex>
 using ACL "warn_empty"
@@ -39,12 +40,12 @@ DSN: orcpt: NULL  flags: 0
 SMTP<< data
 SMTP>> 354 Enter message, ending with "." on a line by itself
 search_tidyup called
-host in ignore_fromline_hosts? no (option unset)
 >>Headers received:
 
 search_tidyup called
 >>Headers after rewriting and local additions:
 
+Data file name: TESTSUITE/spool//input//10HmbF-0005vi-00-D
 Data file written for message 10HmbF-0005vi-00
 >>Generated Received: header line
 P Received: from [V4NET.9.8.7]
@@ -52,8 +53,6 @@ P Received: from [V4NET.9.8.7]
 	(envelope-from <x@y>)
 	id 10HmbF-0005vi-00
 	for warn_empty@test.ex; Tue, 2 Mar 1999 09:44:33 +0000
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
 LOG: MAIN
   <= x@y H=[V4NET.9.8.7] P=smtp S=sss
 SMTP>> 250 OK id=10HmbF-0005vi-00
@@ -63,7 +62,7 @@ SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from [V4NET.9.8.7] closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -71,7 +70,6 @@ configuration file is TESTSUITE/test-config
 admin user
 changed uid/gid: privilege not needed
   uid=EXIM_UID gid=EXIM_GID pid=pppp
-DSN: accept propagating DSN
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
@@ -92,6 +90,8 @@ host in helo_accept_junk_hosts? no (option unset)
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<x@y>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<warn_log@test.ex>
 using ACL "warn_log"
@@ -108,12 +108,12 @@ DSN: orcpt: NULL  flags: 0
 SMTP<< data
 SMTP>> 354 Enter message, ending with "." on a line by itself
 search_tidyup called
-host in ignore_fromline_hosts? no (option unset)
 >>Headers received:
 
 search_tidyup called
 >>Headers after rewriting and local additions:
 
+Data file name: TESTSUITE/spool//input//10HmbG-0005vi-00-D
 Data file written for message 10HmbG-0005vi-00
 >>Generated Received: header line
 P Received: from [V4NET.9.8.7]
@@ -121,8 +121,6 @@ P Received: from [V4NET.9.8.7]
 	(envelope-from <x@y>)
 	id 10HmbG-0005vi-00
 	for warn_log@test.ex; Tue, 2 Mar 1999 09:44:33 +0000
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
 LOG: MAIN
   <= x@y H=[V4NET.9.8.7] P=smtp S=sss
 SMTP>> 250 OK id=10HmbG-0005vi-00
@@ -132,7 +130,7 @@ SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from [V4NET.9.8.7] closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -140,7 +138,6 @@ configuration file is TESTSUITE/test-config
 admin user
 changed uid/gid: privilege not needed
   uid=EXIM_UID gid=EXIM_GID pid=pppp
-DSN: accept propagating DSN
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
@@ -161,6 +158,8 @@ host in helo_accept_junk_hosts? no (option unset)
 SMTP>> 220 myhost.test.ex ESMTP Exim x.yz Tue, 2 Mar 1999 09:44:33 +0000
 smtp_setup_msg entered
 SMTP<< mail from:<x@y>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 SMTP>> 250 OK
 SMTP<< rcpt to:<warn_user@test.ex>
 using ACL "warn_user"
@@ -175,12 +174,12 @@ DSN: orcpt: NULL  flags: 0
 SMTP<< data
 SMTP>> 354 Enter message, ending with "." on a line by itself
 search_tidyup called
-host in ignore_fromline_hosts? no (option unset)
 >>Headers received:
 
 search_tidyup called
 >>Headers after rewriting and local additions:
 
+Data file name: TESTSUITE/spool//input//10HmbH-0005vi-00-D
 Data file written for message 10HmbH-0005vi-00
 >>Generated Received: header line
 P Received: from [V4NET.9.8.7]
@@ -191,8 +190,6 @@ P Received: from [V4NET.9.8.7]
 >>Headers added by MAIL or RCPT ACL:
   X-ACL-Warn: warn user message
 >>
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
 LOG: MAIN
   <= x@y H=[V4NET.9.8.7] P=smtp S=sss
 SMTP>> 250 OK id=10HmbH-0005vi-00
@@ -202,7 +199,7 @@ SMTP>> 221 myhost.test.ex closing connection
 LOG: smtp_connection MAIN
   SMTP connection from [V4NET.9.8.7] closed by QUIT
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 >>> host in hosts_connection_nolog? no (end of list)
 LOG: SMTP connection from [V4NET.9.8.7]
 >>> host in host_lookup? no (option unset)
@@ -355,11 +352,11 @@ LOG: SMTP connection from [V4NET.9.8.7]
 >>> using ACL "nested_drop"
 >>> processing "accept"
 >>> check acl = drop
->>> using ACL "drop"
->>> processing "drop"
->>>   message: forcibly dropped
->>> drop: condition test succeeded in ACL "drop"
->>> end of ACL "drop": DROP
+>>>  using ACL "drop"
+>>>  processing "drop"
+>>>    message: forcibly dropped
+>>>  drop: condition test succeeded in ACL "drop"
+>>>  end of ACL "drop": DROP
 >>> accept: condition test yielded "drop" in ACL "nested_drop"
 >>> accept: endpass encountered - denying access
 LOG: H=[V4NET.9.8.7] F=<x@y> rejected RCPT <nested_drop@y>: forcibly dropped
@@ -376,11 +373,11 @@ LOG: SMTP connection from [V4NET.9.8.7]
 >>> using ACL "nested_drop_require"
 >>> processing "require"
 >>> check acl = drop
->>> using ACL "drop"
->>> processing "drop"
->>>   message: forcibly dropped
->>> drop: condition test succeeded in ACL "drop"
->>> end of ACL "drop": DROP
+>>>  using ACL "drop"
+>>>  processing "drop"
+>>>    message: forcibly dropped
+>>>  drop: condition test succeeded in ACL "drop"
+>>>  end of ACL "drop": DROP
 >>> require: condition test yielded "drop" in ACL "nested_drop_require"
 >>> end of ACL "nested_drop_require": not OK
 LOG: H=[V4NET.9.8.7] F=<x@y> rejected RCPT <nested_drop_require@y>: forcibly dropped

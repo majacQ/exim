@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This module contains code for extracting addresses from a forwarding list
@@ -110,7 +110,7 @@ if (saved_errno == ENOENT)
   slash = Ustrrchr(big_buffer, '/');
   Ustrcpy(slash+1, ".");
 
-  alarm(30);
+  ALARM(30);
   rc = Ustat(big_buffer, &statbuf);
   if (rc != 0 && errno == EACCES && !sigalrm_seen)
     {
@@ -118,7 +118,7 @@ if (saved_errno == ENOENT)
     rc = Ustat(big_buffer, &statbuf);
     }
   saved_errno = errno;
-  alarm(0);
+  ALARM_CLR(0);
 
   DEBUG(D_route) debug_printf("stat(%s)=%d\n", big_buffer, rc);
   }
@@ -358,7 +358,7 @@ if (rdata->isfile)
   }
 else data = rdata->string;
 
-*filtertype = system_filtering? FILTER_EXIM : rda_is_filter(data);
+*filtertype = f.system_filtering ? FILTER_EXIM : rda_is_filter(data);
 
 /* Filter interpretation is done by a general function that is also called from
 the filter testing option (-bf). There are two versions: one for Exim filtering
@@ -474,11 +474,12 @@ rda_read_string(int fd, uschar **sp)
 int len;
 
 if (read(fd, &len, sizeof(int)) != sizeof(int)) return FALSE;
-if (len == 0) *sp = NULL; else
-  {
-  *sp = store_get(len);
-  if (read(fd, *sp, len) != len) return FALSE;
-  }
+if (len == 0)
+  *sp = NULL;
+else
+  /* We know we have enough memory so disable the error on "len" */
+  /* coverity[tainted_data] */
+  if (read(fd, *sp = store_get(len), len) != len) return FALSE;
 return TRUE;
 }
 
@@ -491,7 +492,7 @@ return TRUE;
 /* This function is passed a forward list string (unexpanded) or the name of a
 file (unexpanded) whose contents are the forwarding list. The list may in fact
 be a filter program if it starts with "#Exim filter" or "#Sieve filter". Other
-types of filter, with different inital tag strings, may be introduced in due
+types of filter, with different initial tag strings, may be introduced in due
 course.
 
 The job of the function is to process the forwarding list or filter. It is
@@ -565,7 +566,7 @@ DEBUG(D_route) debug_printf("rda_interpret (%s): %s\n",
 data = expand_string(rdata->string);
 if (data == NULL)
   {
-  if (expand_string_forcedfail) return FF_NOTDELIVERED;
+  if (f.expand_string_forcedfail) return FF_NOTDELIVERED;
   *error = string_sprintf("failed to expand \"%s\": %s", rdata->string,
     expand_string_message);
   return FF_ERROR;
@@ -671,7 +672,7 @@ if ((pid = fork()) == 0)
   original header lines that were removed, and then any header lines that were
   added but not subsequently removed. */
 
-  if (system_filtering)
+  if (f.system_filtering)
     {
     int i = 0;
     header_line *h;
@@ -714,30 +715,30 @@ if ((pid = fork()) == 0)
       yield == FF_FAIL || yield == FF_FREEZE)
     {
     address_item *addr;
-    for (addr = *generated; addr != NULL; addr = addr->next)
+    for (addr = *generated; addr; addr = addr->next)
       {
       int reply_options = 0;
+      int ig_err = addr->prop.ignore_error ? 1 : 0;
 
       if (  rda_write_string(fd, addr->address) != 0
-         || write(fd, &(addr->mode), sizeof(addr->mode))
-	    != sizeof(addr->mode)
-         || write(fd, &(addr->flags), sizeof(addr->flags))
-	    != sizeof(addr->flags)
+         || write(fd, &addr->mode, sizeof(addr->mode)) != sizeof(addr->mode)
+         || write(fd, &addr->flags, sizeof(addr->flags)) != sizeof(addr->flags)
          || rda_write_string(fd, addr->prop.errors_address) != 0
+         || write(fd, &ig_err, sizeof(ig_err)) != sizeof(ig_err)
 	 )
 	goto bad;
 
-      if (addr->pipe_expandn != NULL)
+      if (addr->pipe_expandn)
         {
         uschar **pp;
-        for (pp = addr->pipe_expandn; *pp != NULL; pp++)
+        for (pp = addr->pipe_expandn; *pp; pp++)
           if (rda_write_string(fd, *pp) != 0)
 	    goto bad;
         }
       if (rda_write_string(fd, NULL) != 0)
         goto bad;
 
-      if (addr->reply == NULL)
+      if (!addr->reply)
 	{
         if (write(fd, &reply_options, sizeof(int)) != sizeof(int))    /* 0 means no reply */
 	  goto bad;
@@ -805,29 +806,28 @@ if (read(fd, filtertype, sizeof(int)) != sizeof(int) ||
 
 /* Read the contents of any syntax error blocks if we have a pointer */
 
-if (eblockp != NULL)
+if (eblockp)
   {
-  uschar *s;
   error_block *e;
-  error_block **p = eblockp;
-  for (;;)
+  error_block **p;
+  for (p = eblockp; ; p = &e->next)
     {
+    uschar *s;
     if (!rda_read_string(fd, &s)) goto DISASTER;
-    if (s == NULL) break;
+    if (!s) break;
     e = store_get(sizeof(error_block));
     e->next = NULL;
     e->text1 = s;
     if (!rda_read_string(fd, &s)) goto DISASTER;
     e->text2 = s;
     *p = e;
-    p = &(e->next);
     }
   }
 
 /* If this is a system filter, read the identify of any original header lines
 that were removed, and then read data for any new ones that were added. */
 
-if (system_filtering)
+if (f.system_filtering)
   {
   int hn = 0;
   header_line *h = header_list;
@@ -840,8 +840,7 @@ if (system_filtering)
     while (hn < n)
       {
       hn++;
-      h = h->next;
-      if (h == NULL) goto DISASTER_NO_HEADER;
+      if (!(h = h->next)) goto DISASTER_NO_HEADER;
       }
     h->type = htype_old;
     }
@@ -851,7 +850,7 @@ if (system_filtering)
     uschar *s;
     int type;
     if (!rda_read_string(fd, &s)) goto DISASTER;
-    if (s == NULL) break;
+    if (!s) break;
     if (read(fd, &type, sizeof(type)) != sizeof(type)) goto DISASTER;
     header_add(type, "%s", s);
     }
@@ -890,9 +889,13 @@ if (yield == FF_DELIVERED || yield == FF_NOTDELIVERED ||
 
     /* Next comes the mode and the flags fields */
 
-    if (read(fd, &(addr->mode), sizeof(addr->mode)) != sizeof(addr->mode) ||
-        read(fd, &(addr->flags), sizeof(addr->flags)) != sizeof(addr->flags) ||
-        !rda_read_string(fd, &(addr->prop.errors_address))) goto DISASTER;
+    if (  read(fd, &addr->mode, sizeof(addr->mode)) != sizeof(addr->mode)
+       || read(fd, &addr->flags, sizeof(addr->flags)) != sizeof(addr->flags)
+       || !rda_read_string(fd, &addr->prop.errors_address)
+       || read(fd, &i, sizeof(i)) != sizeof(i)
+       )
+      goto DISASTER;
+    addr->prop.ignore_error = (i != 0);
 
     /* Next comes a possible setting for $thisaddress and any numerical
     variables for pipe expansion, terminated by a NULL string. The maximum
@@ -911,7 +914,7 @@ if (yield == FF_DELIVERED || yield == FF_NOTDELIVERED ||
 
     if (i > 0)
       {
-      addr->pipe_expandn = store_get((i+1) * sizeof(uschar **));
+      addr->pipe_expandn = store_get((i+1) * sizeof(uschar *));
       addr->pipe_expandn[i] = NULL;
       while (--i >= 0) addr->pipe_expandn[i] = expandn[i];
       }

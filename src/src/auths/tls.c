@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Jeremy Harris 2015 */
+/* Copyright (c) Jeremy Harris 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This file provides an Exim authenticator driver for
@@ -40,6 +40,19 @@ auth_tls_options_block auth_tls_option_defaults = {
 };
 
 
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_tls_init(auth_instance *ablock) {}
+int auth_tls_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_tls_client(auth_instance *ablock, void * sx,
+  int timeout, uschar *buffer, int buffsize) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
+
+
+
+
 /*************************************************
 *          Initialization entry point            *
 *************************************************/
@@ -71,10 +84,11 @@ if (ob->server_param1)
   auth_vars[expand_nmax++] = expand_string(ob->server_param1);
 if (ob->server_param2)
   auth_vars[expand_nmax++] = expand_string(ob->server_param2);
-if (ob->server_param2)
+if (ob->server_param3)
   auth_vars[expand_nmax++] = expand_string(ob->server_param3);
 return auth_check_serv_cond(ablock);
 }
 
 
+#endif   /*!MACRO_PREDEF*/
 /* End of tls.c */

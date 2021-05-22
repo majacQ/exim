@@ -2,12 +2,12 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions for doing things with sockets. With the advent of IPv6 this has
 got messier, so that it's worth pulling out the code into separate functions
-that other parts of Exim can call, expecially as there are now several
+that other parts of Exim can call, especially as there are now several
 different places in the code where sockets are used. */
 
 
@@ -161,6 +161,26 @@ return bind(sock, (struct sockaddr *)&sin, s_len);
 
 
 /*************************************************
+*************************************************/
+
+#ifdef EXIM_TFO_PROBE
+void
+tfo_probe(void)
+{
+# ifdef TCP_FASTOPEN
+int sock, backlog = 5;
+
+if (  (sock = socket(SOCK_STREAM, AF_INET, 0)) < 0
+   && setsockopt(sock, IPPROTO_TCP, TCP_FASTOPEN, &backlog, sizeof(backlog))
+   )
+  f.tcp_fastopen_ok = TRUE;
+close(sock);
+# endif
+}
+#endif
+
+
+/*************************************************
 *        Connect socket to remote host           *
 *************************************************/
 
@@ -175,12 +195,15 @@ Arguments:
   address     the remote address, in text form
   port        the remote port
   timeout     a timeout (zero for indefinite timeout)
+  fastopen_blob    non-null iff TCP_FASTOPEN can be used; may indicate early-data to
+		be sent in SYN segment.  Any such data must be idempotent.
 
 Returns:      0 on success; -1 on failure, with errno set
 */
 
 int
-ip_connect(int sock, int af, const uschar *address, int port, int timeout)
+ip_connect(int sock, int af, const uschar *address, int port, int timeout,
+  const blob * fastopen_blob)
 {
 struct sockaddr_in s_in4;
 struct sockaddr *s_ptr;
@@ -220,16 +243,112 @@ timer, thereby allowing the inbuilt OS timeout to operate. */
 
 callout_address = string_sprintf("[%s]:%d", address, port);
 sigalrm_seen = FALSE;
-if (timeout > 0) alarm(timeout);
-rc = connect(sock, s_ptr, s_len);
+if (timeout > 0) ALARM(timeout);
+
+#ifdef TCP_FASTOPEN
+/* TCP Fast Open, if the system has a cookie from a previous call to
+this peer, can send data in the SYN packet.  The peer can send data
+before it gets our ACK of its SYN,ACK - the latter is useful for
+the SMTP banner.  Other (than SMTP) cases of TCP connections can
+possibly use the data-on-syn, so support that too. */
+
+if (fastopen_blob && f.tcp_fastopen_ok)
+  {
+# ifdef MSG_FASTOPEN
+  /* This is a Linux implementation.  It might be useable on FreeBSD; I have
+  not checked. */
+
+  if ((rc = sendto(sock, fastopen_blob->data, fastopen_blob->len,
+		    MSG_FASTOPEN | MSG_DONTWAIT, s_ptr, s_len)) >= 0)
+	/* seen for with-data, experimental TFO option, with-cookie case */
+	/* seen for with-data, proper TFO opt, with-cookie case */
+    {
+    DEBUG(D_transport|D_v)
+      debug_printf("TFO mode connection attempt to %s, %lu data\n",
+	address, (unsigned long)fastopen_blob->len);
+    /*XXX also seen on successful TFO, sigh */
+    tcp_out_fastopen = fastopen_blob->len > 0 ?  TFO_ATTEMPTED_DATA : TFO_ATTEMPTED_NODATA;
+    }
+  else if (errno == EINPROGRESS)	/* expected if we had no cookie for peer */
+	/* seen for no-data, proper TFO option, both cookie-request and with-cookie cases */
+	/*  apparently no visibility of the diffference at this point */
+	/* seen for with-data, proper TFO opt, cookie-req */
+	/*   with netwk delay, post-conn tcp_info sees unacked 1 for R, 2 for C; code in smtp_out.c */
+	/* ? older Experimental TFO option behaviour ? */
+    {					/* queue unsent data */
+    DEBUG(D_transport|D_v) debug_printf("TFO mode sendto, %s data: EINPROGRESS\n",
+      fastopen_blob->len > 0 ? "with"  : "no");
+    if (!fastopen_blob->data)
+      {
+      tcp_out_fastopen = TFO_ATTEMPTED_NODATA;		/* we tried; unknown if useful yet */
+      rc = 0;
+      }
+    else
+      rc = send(sock, fastopen_blob->data, fastopen_blob->len, 0);
+    }
+  else if(errno == EOPNOTSUPP)
+    {
+    DEBUG(D_transport)
+      debug_printf("Tried TCP Fast Open but apparently not enabled by sysctl\n");
+    goto legacy_connect;
+    }
+# endif
+# ifdef EXIM_TFO_CONNECTX
+  /* MacOS */
+  sa_endpoints_t ends = {
+    .sae_srcif = 0, .sae_srcaddr = NULL, .sae_srcaddrlen = 0,
+    .sae_dstaddr = s_ptr, .sae_dstaddrlen = s_len };
+  struct iovec iov = {
+    .iov_base = fastopen_blob->data, .iov_len = fastopen_blob->len };
+  size_t len;
+
+  if ((rc = connectx(sock, &ends, SAE_ASSOCID_ANY,
+	     CONNECT_DATA_IDEMPOTENT, &iov, 1, &len, NULL)) == 0)
+    {
+    DEBUG(D_transport|D_v)
+      debug_printf("TFO mode connection attempt to %s, %lu data\n",
+	address, (unsigned long)fastopen_blob->len);
+    tcp_out_fastopen = fastopen_blob->len > 0 ?  TFO_ATTEMPTED_DATA : TFO_ATTEMPTED_NODATA;
+
+    if (len != fastopen_blob->len)
+      DEBUG(D_transport|D_v)
+	debug_printf(" only queued %lu data!\n", (unsigned long)len);
+    }
+  else if (errno == EINPROGRESS)
+    {
+    DEBUG(D_transport|D_v) debug_printf("TFO mode sendto, %s data: EINPROGRESS\n",
+      fastopen_blob->len > 0 ? "with"  : "no");
+    if (!fastopen_blob->data)
+      {
+      tcp_out_fastopen = TFO_ATTEMPTED_NODATA;		/* we tried; unknown if useful yet */
+      rc = 0;
+      }
+    else	/* assume that no data was queued; block in send */
+      rc = send(sock, fastopen_blob->data, fastopen_blob->len, 0);
+    }
+# endif
+  }
+else
+#endif	/*TCP_FASTOPEN*/
+  {
+legacy_connect:
+  DEBUG(D_transport|D_v) if (fastopen_blob)
+    debug_printf("non-TFO mode connection attempt to %s, %lu data\n",
+      address, (unsigned long)fastopen_blob->len);
+  if ((rc = connect(sock, s_ptr, s_len)) >= 0)
+    if (  fastopen_blob && fastopen_blob->data && fastopen_blob->len
+       && send(sock, fastopen_blob->data, fastopen_blob->len, 0) < 0)
+	rc = -1;
+  }
+
 save_errno = errno;
-alarm(0);
+ALARM_CLR(0);
 
 /* There is a testing facility for simulating a connection timeout, as I
 can't think of any other way of doing this. It converts a connection refused
 into a timeout if the timeout is set to 999999. */
 
-if (running_in_test_harness  && save_errno == ECONNREFUSED && timeout == 999999)
+if (f.running_in_test_harness  && save_errno == ECONNREFUSED && timeout == 999999)
   {
   rc = -1;
   save_errno = EINTR;
@@ -260,18 +379,20 @@ return -1;
 Arguments:
   type          SOCK_DGRAM or SOCK_STREAM
   af            AF_INET6 or AF_INET for the socket type
-  address       the remote address, in text form
+  hostname	host name, or ip address (as text)
   portlo,porthi the remote port range
   timeout       a timeout
-  connhost	if not NULL, host_item filled in with connection details
+  connhost	if not NULL, host_item to be filled in with connection details
   errstr        pointer for allocated string on error
+  fastopen_blob	with SOCK_STREAM, if non-null, request TCP Fast Open.
+		Additionally, optional idempotent early-data to send
 
 Return:
   socket fd, or -1 on failure (having allocated an error string)
 */
 int
 ip_connectedsocket(int type, const uschar * hostname, int portlo, int porthi,
-	int timeout, host_item * connhost, uschar ** errstr)
+      int timeout, host_item * connhost, uschar ** errstr, const blob * fastopen_blob)
 {
 int namelen, port;
 host_item shost;
@@ -319,7 +440,7 @@ else
 
 /* Try to connect to the server - test each IP till one works */
 
-for (h = &shost; h != NULL; h = h->next)
+for (h = &shost; h; h = h->next)
   {
   fd = Ustrchr(h->address, ':') != 0
     ? fd6 < 0 ? (fd6 = ip_socket(type, af = AF_INET6)) : fd6
@@ -332,7 +453,7 @@ for (h = &shost; h != NULL; h = h->next)
     }
 
   for(port = portlo; port <= porthi; port++)
-    if (ip_connect(fd, af, h->address, port, timeout) == 0)
+    if (ip_connect(fd, af, h->address, port, timeout, fastopen_blob) == 0)
       {
       if (fd != fd6) close(fd6);
       if (fd != fd4) close(fd4);
@@ -354,6 +475,7 @@ bad:
 }
 
 
+/*XXX TFO? */
 int
 ip_tcpsocket(const uschar * hostport, uschar ** errstr, int tmo)
 {
@@ -374,7 +496,7 @@ if (scan != 3)
   }
 
 return ip_connectedsocket(SOCK_STREAM, hostname, portlow, porthigh,
-			  tmo, NULL, errstr);
+			  tmo, NULL, errstr, NULL);
 }
 
 int
@@ -430,7 +552,7 @@ ip_keepalive(int sock, const uschar *address, BOOL torf)
 {
 int fodder = 1;
 if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
-    (uschar *)(&fodder), sizeof(fodder)) != 0)
+    US (&fodder), sizeof(fodder)) != 0)
   log_write(0, LOG_MAIN, "setsockopt(SO_KEEPALIVE) on connection %s %s "
     "failed: %s", torf? "to":"from", address, strerror(errno));
 }
@@ -465,7 +587,7 @@ if (time_left <= 0)
 
 do
   {
-  struct timeval tv = { time_left, 0 };
+  struct timeval tv = { .tv_sec = time_left, .tv_usec = 0 };
   FD_ZERO (&select_inset);
   FD_SET (fd, &select_inset);
 
@@ -509,7 +631,7 @@ getting interrupted, and the possibility of select() returning with a positive
 result but no ready descriptor. Is this in fact possible?
 
 Arguments:
-  sock        the socket
+  cctx        the connection context (socket fd, possibly TLS context)
   buffer      to read into
   bufsize     the buffer size
   timeout     the timeout
@@ -519,24 +641,24 @@ Returns:      > 0 => that much data read
 */
 
 int
-ip_recv(int sock, uschar *buffer, int buffsize, int timeout)
+ip_recv(client_conn_ctx * cctx, uschar * buffer, int buffsize, int timeout)
 {
 int rc;
 
-if (!fd_ready(sock, timeout))
+if (!fd_ready(cctx->sock, timeout))
   return -1;
 
 /* The socket is ready, read from it (via TLS if it's active). On EOF (i.e.
 close down of the connection), set errno to zero; otherwise leave it alone. */
 
 #ifdef SUPPORT_TLS
-if (tls_out.active == sock)
-  rc = tls_read(FALSE, buffer, buffsize);
-else if (tls_in.active == sock)
-  rc = tls_read(TRUE, buffer, buffsize);
+if (cctx->tls_ctx)					/* client TLS */
+  rc = tls_read(cctx->tls_ctx, buffer, buffsize);
+else if (tls_in.active.sock == cctx->sock)		/* server TLS */
+  rc = tls_read(NULL, buffer, buffsize);
 else
 #endif
-  rc = recv(sock, buffer, buffsize, 0);
+  rc = recv(cctx->sock, buffer, buffsize, 0);
 
 if (rc > 0) return rc;
 if (rc == 0) errno = 0;

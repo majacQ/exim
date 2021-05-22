@@ -28,11 +28,13 @@ Cutthrough cancelled by presence of postmaster verify
   SMTP>> RCPT TO:<postmaster@localhost>
   SMTP<< 550 NO
   SMTP>> QUIT
-wrote callout cache domain record:
+  SMTP<< 250 OK
+  SMTP(close)>>
+wrote callout cache domain record for localhost:
   result=1 postmaster=2 random=0
-wrote positive callout cache address record
+wrote positive callout cache address record for Ok@localhost
 LOG: MAIN REJECT
-  H=[V4NET.0.0.1] U=root sender verify fail for <Ok@localhost>: response to "RCPT TO:<postmaster@localhost>" from 127.0.0.1 [127.0.0.1] was: 550 NO
+  H=[V4NET.0.0.1] U=root sender verify fail for <Ok@localhost>: 127.0.0.1 [127.0.0.1] : SMTP error from remote mail server after RCPT TO:<postmaster@localhost>: 550 NO
 created log directory TESTSUITE/spool/log
 LOG: MAIN REJECT
   H=[V4NET.0.0.1] U=root F=<Ok@localhost> rejected RCPT <checkpm@test.ex>: Sender verify failed
@@ -46,7 +48,7 @@ callout cache: found address record for Ok@localhost
 callout cache: address record is positive
 LOG: smtp_connection MAIN
   SMTP connection from root closed by QUIT
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
@@ -70,16 +72,18 @@ Connecting to 127.0.0.1 [127.0.0.1]:1224 ... connected
   SMTP>> RCPT TO:<NOTok@elsewhere>
   SMTP<< 550 NO
   SMTP>> QUIT
-wrote callout cache domain record:
+  SMTP<< 250 OK
+  SMTP(close)>>
+wrote callout cache domain record for elsewhere:
   result=1 postmaster=0 random=0
-wrote negative callout cache address record
+wrote negative callout cache address record for NOTok@elsewhere
 LOG: MAIN REJECT
-  H=[V4NET.0.0.2] U=root sender verify fail for <NOTok@elsewhere>: response to "RCPT TO:<NOTok@elsewhere>" from 127.0.0.1 [127.0.0.1] was: 550 NO
+  H=[V4NET.0.0.2] U=root sender verify fail for <NOTok@elsewhere>: 127.0.0.1 [127.0.0.1] : SMTP error from remote mail server after RCPT TO:<NOTok@elsewhere>: 550 NO
 LOG: MAIN REJECT
   H=[V4NET.0.0.2] U=root F=<NOTok@elsewhere> rejected RCPT <nocheckpm@test.ex>: Sender verify failed
 LOG: smtp_connection MAIN
   SMTP connection from root closed by QUIT
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
@@ -103,11 +107,13 @@ Connecting to 127.0.0.1 [127.0.0.1]:1224 ... connected
   SMTP>> RCPT TO:<NOTok2@elsewhere>
   SMTP<< 550 NO
   SMTP>> QUIT
-wrote callout cache domain record:
+  SMTP<< 250 OK
+  SMTP(close)>>
+wrote callout cache domain record for elsewhere:
   result=1 postmaster=0 random=0
-wrote negative callout cache address record
+wrote negative callout cache address record for NOTok2@elsewhere
 LOG: MAIN REJECT
   H=[V4NET.0.0.2] U=root F=<NOTok2@elsewhere> rejected RCPT <nocheckpm@test.ex>: Sender verify failed
 LOG: smtp_connection MAIN
   SMTP connection from root closed by QUIT
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (msg setup toplevel) terminating with rc=0 >>>>>>>>>>>>>>>>

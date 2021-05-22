@@ -7,7 +7,11 @@ spool_directory = DIR/spool
 log_file_path = DIR/spool/log/%slog
 gecos_pattern = ""
 gecos_name = CALLER_NAME
+chunking_advertise_hosts =
 tls_advertise_hosts =
+.ifdef _HAVE_PIPE_CONNECT
+pipelining_connect_advertise_hosts =
+.endif
 
 # ----- Main settings -----
 

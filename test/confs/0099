@@ -2,14 +2,8 @@
 
 RETRY =
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
-tls_advertise_hosts =
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -25,7 +19,7 @@ begin routers
 
 bydns:
   driver = dnslookup
-  domains = mxt2.test.ex
+  domains = mxt2.test.ex : mxnonexist.test.ex
   transport = smtp
   fail_defer_domains = *
 
@@ -46,7 +40,7 @@ begin transports
 
 smtp:
   driver = smtp
-  port = 999
+  port = PORT_N
   RETRY
 
 
@@ -70,7 +64,7 @@ rcpt4xx.test.ex              rcpt_4xx      F,10d,1m
 *@@                          *             F,5d,6m
 lsearch*@;DIR/aux-fixed/TESTNUM.rlist  *             F,1d,3m
 *.star.ex                    *             F,3d,10m
-!*.not.ex                    *             F,2d,15m
+!*.not.ex                    *             F,2d,20m
 *                            *             F,12d,150m
 
 # End

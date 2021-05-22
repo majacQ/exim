@@ -3,14 +3,9 @@
 
 SERVER=
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 FX = DIR/aux-fixed
 S1 = FX/exim-ca/example.com/server1.example.com
@@ -86,7 +81,7 @@ client_r:
 
 client_s:
   driver = accept
-  local_parts = users
+  local_parts = user_s
   retry_use_local_part
   transport = send_to_server_req_passname
 

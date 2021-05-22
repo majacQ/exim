@@ -2,15 +2,9 @@
 
 LOG_SELECTOR=
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
-tls_advertise_hosts =
 
 # ----- Main settings -----
 
@@ -33,8 +27,8 @@ acl_not_smtp =  ${if def:sender_address \
 begin acl
 
 acl_29_29_29:
-  deny    dnslists = test.ex/$sender_address_domain
-  accept
+  deny    dnslists =	test.ex/$sender_address_domain
+  accept  logwrite =	authresults: ${authresults {$primary_hostname}}
 
 acl_29_29_0:
   deny    dnslists = test.ex

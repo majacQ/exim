@@ -2,7 +2,7 @@
 *                 Exim Monitor                   *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2014 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This module contains code for scanning the main log,
@@ -217,7 +217,11 @@ uschar buffer[log_buffer_len];
 
 if (LOG != NULL)
   {
-  fseek(LOG, log_position, SEEK_SET);
+  if (fseek(LOG, log_position, SEEK_SET))
+    {
+    perror("logfile fseek");
+    exit(1);
+    }
 
   while (Ufgets(buffer, log_buffer_len, LOG) != NULL)
     {
@@ -277,12 +281,8 @@ if (LOG != NULL)
     if (strstric(buffer, US"frozen", FALSE) != NULL)
       {
       queue_item *qq = find_queue(id, queue_noop, 0);
-      if (qq != NULL)
-        {
-        if (strstric(buffer, US"unfrozen", FALSE) != NULL)
-          qq->frozen = FALSE;
-        else qq->frozen = TRUE;
-        }
+      if (qq)
+        qq->frozen = strstric(buffer, US"unfrozen", FALSE) == NULL;
       }
 
     /* Notice defer messages, and add the destination if it
@@ -393,7 +393,11 @@ if (LOG == NULL ||
     {
     if (LOG != NULL) fclose(LOG);
     LOG = TEST;
-    fstat(fileno(LOG), &statdata);
+    if (fstat(fileno(LOG), &statdata))
+      {
+      fprintf(stderr, "fstat %s: %s\n", log_file_open, strerror(errno));
+      exit(1);
+      }
     log_inode = statdata.st_ino;
     }
   }

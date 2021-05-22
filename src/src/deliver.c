@@ -2,13 +2,15 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* The main code for delivering a message. */
 
 
 #include "exim.h"
+#include "transports/smtp.h"
+#include <sys/uio.h>
 #include <assert.h>
 
 
@@ -76,8 +78,52 @@ static int  return_count;
 static uschar *frozen_info = US"";
 static uschar *used_return_path = NULL;
 
-static uschar spoolname[PATH_MAX];
 
+
+/*************************************************
+*          read as much as requested             *
+*************************************************/
+
+/* The syscall read(2) doesn't always returns as much as we want. For
+several reasons it might get less. (Not talking about signals, as syscalls
+are restartable). When reading from a network or pipe connection the sender
+might send in smaller chunks, with delays between these chunks. The read(2)
+may return such a chunk.
+
+The more the writer writes and the smaller the pipe between write and read is,
+the more we get the chance of reading leass than requested. (See bug 2130)
+
+This function read(2)s until we got all the data we *requested*.
+
+Note: This function may block. Use it only if you're sure about the
+amount of data you will get.
+
+Argument:
+  fd          the file descriptor to read from
+  buffer      pointer to a buffer of size len
+  len         the requested(!) amount of bytes
+
+Returns:      the amount of bytes read
+*/
+static ssize_t
+readn(int fd, void * buffer, size_t len)
+{
+  void * next = buffer;
+  void * end = buffer + len;
+
+  while (next < end)
+    {
+    ssize_t got = read(fd, next, end - next);
+
+    /* I'm not sure if there are signals that can interrupt us,
+    for now I assume the worst */
+    if (got == -1 && errno == EINTR) continue;
+    if (got <= 0) return next - buffer;
+    next += got;
+    }
+
+  return len;
+}
 
 
 /*************************************************
@@ -270,6 +316,8 @@ msglog directory that are used to catch output from pipes. Try to create the
 directory if it does not exist. From release 4.21, normal message logs should
 be created when the message is received.
 
+Called from deliver_message(), can be operating as root.
+
 Argument:
   filename  the file name
   mode      the mode required
@@ -281,38 +329,49 @@ Returns:    a file descriptor, or -1 (with errno set)
 static int
 open_msglog_file(uschar *filename, int mode, uschar **error)
 {
-int fd = Uopen(filename, O_WRONLY|O_APPEND|O_CREAT, mode);
+int fd, i;
 
-if (fd < 0 && errno == ENOENT)
+for (i = 2; i > 0; i--)
   {
-  uschar temp[16];
-  sprintf(CS temp, "msglog/%s", message_subdir);
-  if (message_subdir[0] == 0) temp[6] = 0;
-  (void)directory_make(spool_directory, temp, MSGLOG_DIRECTORY_MODE, TRUE);
-  fd = Uopen(filename, O_WRONLY|O_APPEND|O_CREAT, mode);
+  fd = Uopen(filename,
+#ifdef O_CLOEXEC
+    O_CLOEXEC |
+#endif
+#ifdef O_NOFOLLOW
+    O_NOFOLLOW |
+#endif
+		O_WRONLY|O_APPEND|O_CREAT, mode);
+  if (fd >= 0)
+    {
+    /* Set the close-on-exec flag and change the owner to the exim uid/gid (this
+    function is called as root). Double check the mode, because the group setting
+    doesn't always get set automatically. */
+
+#ifndef O_CLOEXEC
+    (void)fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+#endif
+    if (fchown(fd, exim_uid, exim_gid) < 0)
+      {
+      *error = US"chown";
+      return -1;
+      }
+    if (fchmod(fd, mode) < 0)
+      {
+      *error = US"chmod";
+      return -1;
+      }
+    return fd;
+    }
+  if (errno != ENOENT)
+    break;
+
+  (void)directory_make(spool_directory,
+			spool_sname(US"msglog", message_subdir),
+			MSGLOG_DIRECTORY_MODE, TRUE);
   }
 
-/* Set the close-on-exec flag and change the owner to the exim uid/gid (this
-function is called as root). Double check the mode, because the group setting
-doesn't always get set automatically. */
-
-if (fd >= 0)
-  {
-  (void)fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
-  if (fchown(fd, exim_uid, exim_gid) < 0)
-    {
-    *error = US"chown";
-    return -1;
-    }
-  if (fchmod(fd, mode) < 0)
-    {
-    *error = US"chmod";
-    return -1;
-    }
-  }
-else *error = US"create";
-
-return fd;
+*error = US"create";
+return -1;
 }
 
 
@@ -370,6 +429,7 @@ for (addr2 = addr->next; addr2; addr2 = addr2->next)
   addr2->transport_return = addr->transport_return;
   addr2->basic_errno =	    addr->basic_errno;
   addr2->more_errno =	    addr->more_errno;
+  addr2->delivery_usec =    addr->delivery_usec;
   addr2->special_action =   addr->special_action;
   addr2->message =	    addr->message;
   addr2->user_message =	    addr->user_message;
@@ -448,6 +508,10 @@ while (one && two)
 
     two = end_two;
     }
+
+  /* if the names matched but ports do not, mismatch */
+  else if (one->port != two->port)
+    return FALSE;
 
   /* Hosts matched */
 
@@ -656,7 +720,7 @@ address_item *aa;
 while (addr->parent)
   {
   addr = addr->parent;
-  if ((addr->child_count -= 1) > 0) return;   /* Incomplete parent */
+  if (--addr->child_count > 0) return;   /* Incomplete parent */
   address_done(addr, now);
 
   /* Log the completion of all descendents only when there is no ancestor with
@@ -685,51 +749,57 @@ you can enable incoming_interface and disable outgoing_interface to get I=
 fields on incoming lines only.
 
 Arguments:
-  s         The log line buffer
-  sizep     Pointer to the buffer size
-  ptrp      Pointer to current index into buffer
+  g         The log line
   addr      The address to be logged
 
 Returns:    New value for s
 */
 
-static uschar *
-d_log_interface(uschar *s, int *sizep, int *ptrp)
+static gstring *
+d_log_interface(gstring * g)
 {
 if (LOGGING(incoming_interface) && LOGGING(outgoing_interface)
     && sending_ip_address)
   {
-  s = string_append(s, sizep, ptrp, 2, US" I=[", sending_ip_address);
-  s = LOGGING(outgoing_port)
-    ? string_append(s, sizep, ptrp, 2, US"]:",
-	string_sprintf("%d", sending_port))
-    : string_cat(s, sizep, ptrp, US"]", 1);
+  g = string_fmt_append(g, " I=[%s]", sending_ip_address);
+  if (LOGGING(outgoing_port))
+    g = string_fmt_append(g, "%d", sending_port);
   }
-return s;
+return g;
 }
 
 
 
-static uschar *
-d_hostlog(uschar *s, int *sizep, int *ptrp, address_item *addr)
+static gstring *
+d_hostlog(gstring * g, address_item * addr)
 {
-s = string_append(s, sizep, ptrp, 5, US" H=", addr->host_used->name,
-  US" [", addr->host_used->address, US"]");
+host_item * h = addr->host_used;
+
+g = string_append(g, 2, US" H=", h->name);
+
+if (LOGGING(dnssec) && h->dnssec == DS_YES)
+  g = string_catn(g, US" DS", 3);
+
+g = string_append(g, 3, US" [", h->address, US"]");
+
 if (LOGGING(outgoing_port))
-  s = string_append(s, sizep, ptrp, 2, US":", string_sprintf("%d",
-    addr->host_used->port));
+  g = string_fmt_append(g, ":%d", h->port);
 
 #ifdef SUPPORT_SOCKS
 if (LOGGING(proxy) && proxy_local_address)
   {
-  s = string_append(s, sizep, ptrp, 3, US" PRX=[", proxy_local_address, US"]");
+  g = string_append(g, 3, US" PRX=[", proxy_local_address, US"]");
   if (LOGGING(outgoing_port))
-    s = string_append(s, sizep, ptrp, 2, US":", string_sprintf("%d",
-      proxy_local_port));
+    g = string_fmt_append(g, ":%d", proxy_local_port);
   }
 #endif
 
-return d_log_interface(s, sizep, ptrp);
+g = d_log_interface(g);
+
+if (testflag(addr, af_tcp_fastopen))
+  g = string_catn(g, US" TFO*", testflag(addr, af_tcp_fastopen_data) ? 5 : 4);
+
+return g;
 }
 
 
@@ -737,16 +807,16 @@ return d_log_interface(s, sizep, ptrp);
 
 
 #ifdef SUPPORT_TLS
-static uschar *
-d_tlslog(uschar * s, int * sizep, int * ptrp, address_item * addr)
+static gstring *
+d_tlslog(gstring * s, address_item * addr)
 {
 if (LOGGING(tls_cipher) && addr->cipher)
-  s = string_append(s, sizep, ptrp, 2, US" X=", addr->cipher);
+  s = string_append(s, 2, US" X=", addr->cipher);
 if (LOGGING(tls_certificate_verified) && addr->cipher)
-  s = string_append(s, sizep, ptrp, 2, US" CV=",
+  s = string_append(s, 2, US" CV=",
     testflag(addr, af_cert_verified)
     ?
-#ifdef EXPERIMENTAL_DANE
+#ifdef SUPPORT_DANE
       testflag(addr, af_dane_verified)
     ? "dane"
     :
@@ -754,8 +824,7 @@ if (LOGGING(tls_certificate_verified) && addr->cipher)
       "yes"
     : "no");
 if (LOGGING(tls_peerdn) && addr->peerdn)
-  s = string_append(s, sizep, ptrp, 3, US" DN=\"",
-    string_printing(addr->peerdn), US"\"");
+  s = string_append(s, 3, US" DN=\"", string_printing(addr->peerdn), US"\"");
 return s;
 }
 #endif
@@ -781,7 +850,7 @@ if (action)
   if (!(s = expand_string(action)) && *expand_string_message)
     log_write(0, LOG_MAIN|LOG_PANIC,
       "failed to expand event_action %s in %s: %s\n",
-      event, transport_name, expand_string_message);
+      event, transport_name ? transport_name : US"main", expand_string_message);
 
   event_name = event_data = NULL;
 
@@ -807,20 +876,33 @@ const uschar * save_host = deliver_host;
 const uschar * save_address = deliver_host_address;
 const int      save_port =   deliver_host_port;
 
-if (!addr->transport)
-  return;
-
 router_name =    addr->router ? addr->router->name : NULL;
-transport_name = addr->transport->name;
 deliver_domain = addr->domain;
 deliver_localpart = addr->local_part;
 deliver_host =   addr->host_used ? addr->host_used->name : NULL;
 
-(void) event_raise(addr->transport->event_action, event,
-	  addr->host_used
-          || Ustrcmp(addr->transport->driver_name, "smtp") == 0
-	  || Ustrcmp(addr->transport->driver_name, "lmtp") == 0
-	 ? addr->message : NULL); 
+if (!addr->transport)
+  {
+  if (Ustrcmp(event, "msg:fail:delivery") == 0)
+    {
+     /* An address failed with no transport involved. This happens when
+     a filter was used which triggered a fail command (in such a case
+     a transport isn't needed).  Convert it to an internal fail event. */
+
+    (void) event_raise(event_action, US"msg:fail:internal", addr->message);
+    }
+  }
+else
+  {
+  transport_name = addr->transport->name;
+
+  (void) event_raise(addr->transport->event_action, event,
+	    addr->host_used
+	    || Ustrcmp(addr->transport->driver_name, "smtp") == 0
+	    || Ustrcmp(addr->transport->driver_name, "lmtp") == 0
+	    || Ustrcmp(addr->transport->driver_name, "autoreply") == 0
+	   ? addr->message : NULL);
+  }
 
 deliver_host_port =    save_port;
 deliver_host_address = save_address;
@@ -830,6 +912,216 @@ deliver_domain =    save_domain;
 router_name = transport_name = NULL;
 }
 #endif	/*DISABLE_EVENT*/
+
+
+
+/******************************************************************************/
+
+
+/*************************************************
+*        Generate local prt for logging          *
+*************************************************/
+
+/* This function is a subroutine for use in string_log_address() below.
+
+Arguments:
+  addr        the address being logged
+  yield       the current dynamic buffer pointer
+
+Returns:      the new value of the buffer pointer
+*/
+
+static gstring *
+string_get_localpart(address_item * addr, gstring * yield)
+{
+uschar * s;
+
+s = addr->prefix;
+if (testflag(addr, af_include_affixes) && s)
+  {
+#ifdef SUPPORT_I18N
+  if (testflag(addr, af_utf8_downcvt))
+    s = string_localpart_utf8_to_alabel(s, NULL);
+#endif
+  yield = string_cat(yield, s);
+  }
+
+s = addr->local_part;
+#ifdef SUPPORT_I18N
+if (testflag(addr, af_utf8_downcvt))
+  s = string_localpart_utf8_to_alabel(s, NULL);
+#endif
+yield = string_cat(yield, s);
+
+s = addr->suffix;
+if (testflag(addr, af_include_affixes) && s)
+  {
+#ifdef SUPPORT_I18N
+  if (testflag(addr, af_utf8_downcvt))
+    s = string_localpart_utf8_to_alabel(s, NULL);
+#endif
+  yield = string_cat(yield, s);
+  }
+
+return yield;
+}
+
+
+/*************************************************
+*          Generate log address list             *
+*************************************************/
+
+/* This function generates a list consisting of an address and its parents, for
+use in logging lines. For saved onetime aliased addresses, the onetime parent
+field is used. If the address was delivered by a transport with rcpt_include_
+affixes set, the af_include_affixes bit will be set in the address. In that
+case, we include the affixes here too.
+
+Arguments:
+  g             points to growing-string struct
+  addr          bottom (ultimate) address
+  all_parents   if TRUE, include all parents
+  success       TRUE for successful delivery
+
+Returns:        a growable string in dynamic store
+*/
+
+static gstring *
+string_log_address(gstring * g,
+  address_item *addr, BOOL all_parents, BOOL success)
+{
+BOOL add_topaddr = TRUE;
+address_item *topaddr;
+
+/* Find the ultimate parent */
+
+for (topaddr = addr; topaddr->parent; topaddr = topaddr->parent) ;
+
+/* We start with just the local part for pipe, file, and reply deliveries, and
+for successful local deliveries from routers that have the log_as_local flag
+set. File deliveries from filters can be specified as non-absolute paths in
+cases where the transport is going to complete the path. If there is an error
+before this happens (expansion failure) the local part will not be updated, and
+so won't necessarily look like a path. Add extra text for this case. */
+
+if (  testflag(addr, af_pfr)
+   || (  success
+      && addr->router && addr->router->log_as_local
+      && addr->transport && addr->transport->info->local
+   )  )
+  {
+  if (testflag(addr, af_file) && addr->local_part[0] != '/')
+    g = string_catn(g, CUS"save ", 5);
+  g = string_get_localpart(addr, g);
+  }
+
+/* Other deliveries start with the full address. It we have split it into local
+part and domain, use those fields. Some early failures can happen before the
+splitting is done; in those cases use the original field. */
+
+else
+  {
+  uschar * cmp = g->s + g->ptr;
+
+  if (addr->local_part)
+    {
+    const uschar * s;
+    g = string_get_localpart(addr, g);
+    g = string_catn(g, US"@", 1);
+    s = addr->domain;
+#ifdef SUPPORT_I18N
+    if (testflag(addr, af_utf8_downcvt))
+      s = string_localpart_utf8_to_alabel(s, NULL);
+#endif
+    g = string_cat(g, s);
+    }
+  else
+    g = string_cat(g, addr->address);
+
+  /* If the address we are going to print is the same as the top address,
+  and all parents are not being included, don't add on the top address. First
+  of all, do a caseless comparison; if this succeeds, do a caseful comparison
+  on the local parts. */
+
+  string_from_gstring(g);	/* ensure nul-terminated */
+  if (  strcmpic(cmp, topaddr->address) == 0
+     && Ustrncmp(cmp, topaddr->address, Ustrchr(cmp, '@') - cmp) == 0
+     && !addr->onetime_parent
+     && (!all_parents || !addr->parent || addr->parent == topaddr)
+     )
+    add_topaddr = FALSE;
+  }
+
+/* If all parents are requested, or this is a local pipe/file/reply, and
+there is at least one intermediate parent, show it in brackets, and continue
+with all of them if all are wanted. */
+
+if (  (all_parents || testflag(addr, af_pfr))
+   && addr->parent
+   && addr->parent != topaddr)
+  {
+  uschar *s = US" (";
+  address_item *addr2;
+  for (addr2 = addr->parent; addr2 != topaddr; addr2 = addr2->parent)
+    {
+    g = string_catn(g, s, 2);
+    g = string_cat (g, addr2->address);
+    if (!all_parents) break;
+    s = US", ";
+    }
+  g = string_catn(g, US")", 1);
+  }
+
+/* Add the top address if it is required */
+
+if (add_topaddr)
+  g = string_append(g, 3,
+    US" <",
+    addr->onetime_parent ? addr->onetime_parent : topaddr->address,
+    US">");
+
+return g;
+}
+
+
+
+void
+timesince(struct timeval * diff, struct timeval * then)
+{
+gettimeofday(diff, NULL);
+diff->tv_sec -= then->tv_sec;
+if ((diff->tv_usec -= then->tv_usec) < 0)
+  {
+  diff->tv_sec--;
+  diff->tv_usec += 1000*1000;
+  }
+}
+
+
+
+uschar *
+string_timediff(struct timeval * diff)
+{
+static uschar buf[sizeof("0.000s")];
+
+if (diff->tv_sec >= 5 || !LOGGING(millisec))
+  return readconf_printtime((int)diff->tv_sec);
+
+sprintf(CS buf, "%u.%03us", (uint)diff->tv_sec, (uint)diff->tv_usec/1000);
+return buf;
+}
+
+
+uschar *
+string_timesince(struct timeval * then)
+{
+struct timeval diff;
+
+timesince(&diff, then);
+return string_timediff(&diff);
+}
+
+/******************************************************************************/
 
 
 
@@ -843,11 +1135,8 @@ Arguments:
 void
 delivery_log(int flags, address_item * addr, int logchar, uschar * msg)
 {
-uschar *log_address;
-int size = 256;         /* Used for a temporary, */
-int ptr = 0;            /* expanding buffer, for */
-uschar *s;              /* building log lines;   */
-void *reset_point;      /* released afterwards.  */
+gstring * g; /* Used for a temporary, expanding buffer, for building log lines  */
+void * reset_point;     /* released afterwards.  */
 
 /* Log the delivery on the main log. We use an extensible string to build up
 the log line, and reset the store afterwards. Remote deliveries should always
@@ -859,19 +1148,19 @@ pointer to a single host item in their host list, for use by the transport. */
   lookup_dnssec_authenticated = NULL;
 #endif
 
-s = reset_point = store_get(size);
+g = reset_point = string_get(256);
 
-log_address = string_log_address(addr, LOGGING(all_parents), TRUE);
 if (msg)
-  s = string_append(s, &size, &ptr, 3, host_and_ident(TRUE), US" ", log_address);
+  g = string_append(g, 2, host_and_ident(TRUE), US" ");
 else
   {
-  s[ptr++] = logchar;
-  s = string_append(s, &size, &ptr, 2, US"> ", log_address);
+  g->s[0] = logchar; g->ptr = 1;
+  g = string_catn(g, US"> ", 2);
   }
+g = string_log_address(g, addr, LOGGING(all_parents), TRUE);
 
 if (LOGGING(sender_on_delivery) || msg)
-  s = string_append(s, &size, &ptr, 3, US" F=<",
+  g = string_append(g, 3, US" F=<",
 #ifdef SUPPORT_I18N
     testflag(addr, af_utf8_downcvt)
     ? string_address_utf8_to_alabel(sender_address, NULL)
@@ -880,9 +1169,12 @@ if (LOGGING(sender_on_delivery) || msg)
       sender_address,
   US">");
 
+if (*queue_name)
+  g = string_append(g, 2, US" Q=", queue_name);
+
 #ifdef EXPERIMENTAL_SRS
 if(addr->prop.srs_sender)
-  s = string_append(s, &size, &ptr, 3, US" SRS=<", addr->prop.srs_sender, US">");
+  g = string_append(g, 3, US" SRS=<", addr->prop.srs_sender, US">");
 #endif
 
 /* You might think that the return path must always be set for a successful
@@ -891,31 +1183,29 @@ when it is not set is for a delivery to /dev/null which is optimised by not
 being run at all. */
 
 if (used_return_path && LOGGING(return_path_on_delivery))
-  s = string_append(s, &size, &ptr, 3, US" P=<", used_return_path, US">");
+  g = string_append(g, 3, US" P=<", used_return_path, US">");
 
 if (msg)
-  s = string_append(s, &size, &ptr, 2, US" ", msg);
+  g = string_append(g, 2, US" ", msg);
 
 /* For a delivery from a system filter, there may not be a router */
 if (addr->router)
-  s = string_append(s, &size, &ptr, 2, US" R=", addr->router->name);
+  g = string_append(g, 2, US" R=", addr->router->name);
 
-s = string_append(s, &size, &ptr, 2, US" T=", addr->transport->name);
+g = string_append(g, 2, US" T=", addr->transport->name);
 
 if (LOGGING(delivery_size))
-  s = string_append(s, &size, &ptr, 2, US" S=",
-    string_sprintf("%d", transport_count));
+  g = string_fmt_append(g, " S=%d", transport_count);
 
 /* Local delivery */
 
 if (addr->transport->info->local)
   {
   if (addr->host_list)
-    s = string_append(s, &size, &ptr, 2, US" H=", addr->host_list->name);
-  s = d_log_interface(s, &size, &ptr);
+    g = string_append(g, 2, US" H=", addr->host_list->name);
+  g = d_log_interface(g);
   if (addr->shadow_message)
-    s = string_cat(s, &size, &ptr, addr->shadow_message,
-      Ustrlen(addr->shadow_message));
+    g = string_cat(g, addr->shadow_message);
   }
 
 /* Remote delivery */
@@ -924,9 +1214,9 @@ else
   {
   if (addr->host_used)
     {
-    s = d_hostlog(s, &size, &ptr, addr);
+    g = d_hostlog(g, addr);
     if (continue_sequence > 1)
-      s = string_cat(s, &size, &ptr, US"*", 1);
+      g = string_catn(g, US"*", 1);
 
 #ifndef DISABLE_EVENT
     deliver_host_address = addr->host_used->address;
@@ -941,24 +1231,37 @@ else
     }
 
 #ifdef SUPPORT_TLS
-  s = d_tlslog(s, &size, &ptr, addr);
+  g = d_tlslog(g, addr);
 #endif
 
   if (addr->authenticator)
     {
-    s = string_append(s, &size, &ptr, 2, US" A=", addr->authenticator);
+    g = string_append(g, 2, US" A=", addr->authenticator);
     if (addr->auth_id)
       {
-      s = string_append(s, &size, &ptr, 2, US":", addr->auth_id);
+      g = string_append(g, 2, US":", addr->auth_id);
       if (LOGGING(smtp_mailauth) && addr->auth_sndr)
-        s = string_append(s, &size, &ptr, 2, US":", addr->auth_sndr);
+        g = string_append(g, 2, US":", addr->auth_sndr);
       }
     }
 
-#ifndef DISABLE_PRDR
-  if (addr->flags & af_prdr_used)
-    s = string_append(s, &size, &ptr, 1, US" PRDR");
+  if (LOGGING(pipelining))
+    {
+    if (testflag(addr, af_pipelining))
+      g = string_catn(g, US" L", 2);
+#ifdef EXPERIMENTAL_PIPE_CONNECT
+    if (testflag(addr, af_early_pipe))
+      g = string_catn(g, US"*", 1);
 #endif
+    }
+
+#ifndef DISABLE_PRDR
+  if (testflag(addr, af_prdr_used))
+    g = string_catn(g, US" PRDR", 5);
+#endif
+
+  if (testflag(addr, af_chunking_used))
+    g = string_catn(g, US" K", 2);
   }
 
 /* confirmation message (SMTP (host_used) and LMTP (driver_name)) */
@@ -980,28 +1283,179 @@ if (  LOGGING(smtp_confirmation)
     }
   *p++ = '\"';
   *p = 0;
-  s = string_append(s, &size, &ptr, 2, US" C=", big_buffer);
+  g = string_append(g, 2, US" C=", big_buffer);
   }
 
 /* Time on queue and actual time taken to deliver */
 
 if (LOGGING(queue_time))
-  s = string_append(s, &size, &ptr, 2, US" QT=",
-    readconf_printtime( (int) ((long)time(NULL) - (long)received_time)) );
+  g = string_append(g, 2, US" QT=",
+    string_timesince(&received_time));
 
 if (LOGGING(deliver_time))
-  s = string_append(s, &size, &ptr, 2, US" DT=",
-    readconf_printtime(addr->more_errno));
+  {
+  struct timeval diff = {.tv_sec = addr->more_errno, .tv_usec = addr->delivery_usec};
+  g = string_append(g, 2, US" DT=", string_timediff(&diff));
+  }
 
 /* string_cat() always leaves room for the terminator. Release the
 store we used to build the line after writing it. */
 
-s[ptr] = 0;
-log_write(0, flags, "%s", s);
+log_write(0, flags, "%s", string_from_gstring(g));
 
 #ifndef DISABLE_EVENT
 if (!msg) msg_event_raise(US"msg:delivery", addr);
 #endif
+
+store_reset(reset_point);
+return;
+}
+
+
+
+static void
+deferral_log(address_item * addr, uschar * now,
+  int logflags, uschar * driver_name, uschar * driver_kind)
+{
+gstring * g;
+void * reset_point;
+
+/* Build up the line that is used for both the message log and the main
+log. */
+
+g = reset_point = string_get(256);
+
+/* Create the address string for logging. Must not do this earlier, because
+an OK result may be changed to FAIL when a pipe returns text. */
+
+g = string_log_address(g, addr, LOGGING(all_parents), FALSE);
+
+if (*queue_name)
+  g = string_append(g, 2, US" Q=", queue_name);
+
+/* Either driver_name contains something and driver_kind contains
+" router" or " transport" (note the leading space), or driver_name is
+a null string and driver_kind contains "routing" without the leading
+space, if all routing has been deferred. When a domain has been held,
+so nothing has been done at all, both variables contain null strings. */
+
+if (driver_name)
+  {
+  if (driver_kind[1] == 't' && addr->router)
+    g = string_append(g, 2, US" R=", addr->router->name);
+  g = string_fmt_append(g, " %c=%s", toupper(driver_kind[1]), driver_name);
+  }
+else if (driver_kind)
+  g = string_append(g, 2, US" ", driver_kind);
+
+g = string_fmt_append(g, " defer (%d)", addr->basic_errno);
+
+if (addr->basic_errno > 0)
+  g = string_append(g, 2, US": ",
+    US strerror(addr->basic_errno));
+
+if (addr->host_used)
+  {
+  g = string_append(g, 5,
+		    US" H=", addr->host_used->name,
+		    US" [",  addr->host_used->address, US"]");
+  if (LOGGING(outgoing_port))
+    {
+    int port = addr->host_used->port;
+    g = string_fmt_append(g, ":%d", port == PORT_NONE ? 25 : port);
+    }
+  }
+
+if (addr->message)
+  g = string_append(g, 2, US": ", addr->message);
+
+(void) string_from_gstring(g);
+
+/* Log the deferment in the message log, but don't clutter it
+up with retry-time defers after the first delivery attempt. */
+
+if (f.deliver_firsttime || addr->basic_errno > ERRNO_RETRY_BASE)
+  deliver_msglog("%s %s\n", now, g->s);
+
+/* Write the main log and reset the store.
+For errors of the type "retry time not reached" (also remotes skipped
+on queue run), logging is controlled by L_retry_defer. Note that this kind
+of error number is negative, and all the retry ones are less than any
+others. */
+
+
+log_write(addr->basic_errno <= ERRNO_RETRY_BASE ? L_retry_defer : 0, logflags,
+  "== %s", g->s);
+
+store_reset(reset_point);
+return;
+}
+
+
+
+static void
+failure_log(address_item * addr, uschar * driver_kind, uschar * now)
+{
+void * reset_point;
+gstring * g = reset_point = string_get(256);
+
+#ifndef DISABLE_EVENT
+/* Message failures for which we will send a DSN get their event raised
+later so avoid doing it here. */
+
+if (  !addr->prop.ignore_error
+   && !(addr->dsn_flags & (rf_dsnflags & ~rf_notify_failure))
+   )
+  msg_event_raise(US"msg:fail:delivery", addr);
+#endif
+
+/* Build up the log line for the message and main logs */
+
+/* Create the address string for logging. Must not do this earlier, because
+an OK result may be changed to FAIL when a pipe returns text. */
+
+g = string_log_address(g, addr, LOGGING(all_parents), FALSE);
+
+if (LOGGING(sender_on_delivery))
+  g = string_append(g, 3, US" F=<", sender_address, US">");
+
+if (*queue_name)
+  g = string_append(g, 2, US" Q=", queue_name);
+
+/* Return path may not be set if no delivery actually happened */
+
+if (used_return_path && LOGGING(return_path_on_delivery))
+  g = string_append(g, 3, US" P=<", used_return_path, US">");
+
+if (addr->router)
+  g = string_append(g, 2, US" R=", addr->router->name);
+if (addr->transport)
+  g = string_append(g, 2, US" T=", addr->transport->name);
+
+if (addr->host_used)
+  g = d_hostlog(g, addr);
+
+#ifdef SUPPORT_TLS
+g = d_tlslog(g, addr);
+#endif
+
+if (addr->basic_errno > 0)
+  g = string_append(g, 2, US": ", US strerror(addr->basic_errno));
+
+if (addr->message)
+  g = string_append(g, 2, US": ", addr->message);
+
+(void) string_from_gstring(g);
+
+/* Do the logging. For the message log, "routing failed" for those cases,
+just to make it clearer. */
+
+if (driver_kind)
+  deliver_msglog("%s %s failed for %s\n", now, driver_kind, g->s);
+else
+  deliver_msglog("%s %s\n", now, g->s);
+
+log_write(0, LOG_MAIN, "** %s", g->s);
 
 store_reset(reset_point);
 return;
@@ -1034,35 +1488,29 @@ post_process_one(address_item *addr, int result, int logflags, int driver_type,
 uschar *now = tod_stamp(tod_log);
 uschar *driver_kind = NULL;
 uschar *driver_name = NULL;
-uschar *log_address;
-
-int size = 256;         /* Used for a temporary, */
-int ptr = 0;            /* expanding buffer, for */
-uschar *s;              /* building log lines;   */
-void *reset_point;      /* released afterwards.  */
 
 DEBUG(D_deliver) debug_printf("post-process %s (%d)\n", addr->address, result);
 
 /* Set up driver kind and name for logging. Disable logging if the router or
 transport has disabled it. */
 
-if (driver_type == DTYPE_TRANSPORT)
+if (driver_type == EXIM_DTYPE_TRANSPORT)
   {
   if (addr->transport)
     {
     driver_name = addr->transport->name;
     driver_kind = US" transport";
-    disable_logging = addr->transport->disable_logging;
+    f.disable_logging = addr->transport->disable_logging;
     }
   else driver_kind = US"transporting";
   }
-else if (driver_type == DTYPE_ROUTER)
+else if (driver_type == EXIM_DTYPE_ROUTER)
   {
   if (addr->router)
     {
     driver_name = addr->router->name;
     driver_kind = US" router";
-    disable_logging = addr->router->disable_logging;
+    f.disable_logging = addr->router->disable_logging;
     }
   else driver_kind = US"routing";
   }
@@ -1077,21 +1525,9 @@ malformed, it won't ever have gone near LDAP.) */
 if (addr->message)
   {
   const uschar * s = string_printing(addr->message);
-  if (s != addr->message)
-    addr->message = US s;
-    /* deconst cast ok as string_printing known to have alloc'n'copied */
-  if (  (  Ustrstr(s, "failed to expand") != NULL
-	|| Ustrstr(s, "expansion of ")    != NULL
-	)
-     && (  Ustrstr(s, "mysql")   != NULL
-        || Ustrstr(s, "pgsql")   != NULL
-	|| Ustrstr(s, "redis")   != NULL
-	|| Ustrstr(s, "sqlite")  != NULL
-	|| Ustrstr(s, "ldap:")   != NULL
-	|| Ustrstr(s, "ldapdn:") != NULL
-	|| Ustrstr(s, "ldapm:")  != NULL
-     )  )
-    addr->message = string_sprintf("Temporary internal error");
+
+  /* deconst cast ok as string_printing known to have alloc'n'copied */
+  addr->message = expand_hide_passwords(US s);
   }
 
 /* If we used a transport that has one of the "return_output" options set, and
@@ -1142,7 +1578,7 @@ if (addr->return_file >= 0 && addr->return_filename)
           log_write(0, LOG_MAIN, "<%s>: %s transport output: %s",
             addr->address, tb->name, sp);
           }
-        (void)fclose(f);
+      (void)fclose(f);
       }
 
     /* Handle returning options, but only if there is an address to return
@@ -1208,7 +1644,7 @@ if (result == OK)
   tls_out.cipher = addr->cipher;
   tls_out.peerdn = addr->peerdn;
   tls_out.ocsp = addr->ocsp;
-# ifdef EXPERIMENTAL_DANE
+# ifdef SUPPORT_DANE
   tls_out.dane_verified = testflag(addr, af_dane_verified);
 # endif
 #endif
@@ -1221,7 +1657,7 @@ if (result == OK)
   tls_out.cipher = NULL;
   tls_out.peerdn = NULL;
   tls_out.ocsp = OCSP_NOT_REQ;
-# ifdef EXPERIMENTAL_DANE
+# ifdef SUPPORT_DANE
   tls_out.dane_verified = FALSE;
 # endif
 #endif
@@ -1248,7 +1684,7 @@ else if (result == DEFER || result == PANIC)
 
   if (addr->special_action == SPECIAL_FREEZE)
     {
-    deliver_freeze = TRUE;
+    f.deliver_freeze = TRUE;
     deliver_frozen_at = time(NULL);
     update_spool = TRUE;
     }
@@ -1256,83 +1692,8 @@ else if (result == DEFER || result == PANIC)
   /* If doing a 2-stage queue run, we skip writing to either the message
   log or the main log for SMTP defers. */
 
-  if (!queue_2stage || addr->basic_errno != 0)
-    {
-    uschar ss[32];
-
-    /* For errors of the type "retry time not reached" (also remotes skipped
-    on queue run), logging is controlled by L_retry_defer. Note that this kind
-    of error number is negative, and all the retry ones are less than any
-    others. */
-
-    unsigned int use_log_selector = addr->basic_errno <= ERRNO_RETRY_BASE
-      ? L_retry_defer : 0;
-
-    /* Build up the line that is used for both the message log and the main
-    log. */
-
-    s = reset_point = store_get(size);
-
-    /* Create the address string for logging. Must not do this earlier, because
-    an OK result may be changed to FAIL when a pipe returns text. */
-
-    log_address = string_log_address(addr, LOGGING(all_parents), result == OK);
-
-    s = string_cat(s, &size, &ptr, log_address, Ustrlen(log_address));
-
-    /* Either driver_name contains something and driver_kind contains
-    " router" or " transport" (note the leading space), or driver_name is
-    a null string and driver_kind contains "routing" without the leading
-    space, if all routing has been deferred. When a domain has been held,
-    so nothing has been done at all, both variables contain null strings. */
-
-    if (driver_name)
-      {
-      if (driver_kind[1] == 't' && addr->router)
-        s = string_append(s, &size, &ptr, 2, US" R=", addr->router->name);
-      Ustrcpy(ss, " ?=");
-      ss[1] = toupper(driver_kind[1]);
-      s = string_append(s, &size, &ptr, 2, ss, driver_name);
-      }
-    else if (driver_kind)
-      s = string_append(s, &size, &ptr, 2, US" ", driver_kind);
-
-    sprintf(CS ss, " defer (%d)", addr->basic_errno);
-    s = string_cat(s, &size, &ptr, ss, Ustrlen(ss));
-
-    if (addr->basic_errno > 0)
-      s = string_append(s, &size, &ptr, 2, US": ",
-        US strerror(addr->basic_errno));
-
-    if (addr->host_used)
-      {
-      s = string_append(s, &size, &ptr, 5,
-			US" H=", addr->host_used->name,
-			US" [",  addr->host_used->address, US"]");
-      if (LOGGING(outgoing_port))
-	{
-	int port = addr->host_used->port;
-	s = string_append(s, &size, &ptr, 2,
-	      US":", port == PORT_NONE ? US"25" : string_sprintf("%d", port));
-	}
-      }
-
-    if (addr->message)
-      s = string_append(s, &size, &ptr, 2, US": ", addr->message);
-
-    s[ptr] = 0;
-
-    /* Log the deferment in the message log, but don't clutter it
-    up with retry-time defers after the first delivery attempt. */
-
-    if (deliver_firsttime || addr->basic_errno > ERRNO_RETRY_BASE)
-      deliver_msglog("%s %s\n", now, s);
-
-    /* Write the main log and reset the store */
-
-    log_write(use_log_selector, logflags, "== %s", s);
-    store_reset(reset_point);
-    }
+  if (!f.queue_2stage || addr->basic_errno != 0)
+    deferral_log(addr, now, logflags, driver_name, driver_kind);
   }
 
 
@@ -1348,8 +1709,8 @@ else
   force the af_ignore_error flag. This will cause the address to be discarded
   later (with a log entry). */
 
-  if (sender_address[0] == 0 && message_age >= ignore_bounce_errors_after)
-    setflag(addr, af_ignore_error);
+  if (!*sender_address && message_age >= ignore_bounce_errors_after)
+    addr->prop.ignore_error = TRUE;
 
   /* Freeze the message if requested, or if this is a bounce message (or other
   message with null sender) and this address does not have its own errors
@@ -1357,17 +1718,17 @@ else
   to ignore occurs later, instead of sending a message. Logging of freezing
   occurs later, just before writing the -H file. */
 
-  if (  !testflag(addr, af_ignore_error)
+  if (  !addr->prop.ignore_error
      && (  addr->special_action == SPECIAL_FREEZE
         || (sender_address[0] == 0 && !addr->prop.errors_address)
      )  )
     {
     frozen_info = addr->special_action == SPECIAL_FREEZE
       ? US""
-      : sender_local && !local_error_message
+      : f.sender_local && !f.local_error_message
       ? US" (message created with -f <>)"
       : US" (delivery error message)";
-    deliver_freeze = TRUE;
+    f.deliver_freeze = TRUE;
     deliver_frozen_at = time(NULL);
     update_spool = TRUE;
 
@@ -1387,66 +1748,12 @@ else
     addr_failed = addr;
     }
 
-  /* Build up the log line for the message and main logs */
-
-  s = reset_point = store_get(size);
-
-  /* Create the address string for logging. Must not do this earlier, because
-  an OK result may be changed to FAIL when a pipe returns text. */
-
-  log_address = string_log_address(addr, LOGGING(all_parents), result == OK);
-
-  s = string_cat(s, &size, &ptr, log_address, Ustrlen(log_address));
-
-  if (LOGGING(sender_on_delivery))
-    s = string_append(s, &size, &ptr, 3, US" F=<", sender_address, US">");
-
-  /* Return path may not be set if no delivery actually happened */
-
-  if (used_return_path && LOGGING(return_path_on_delivery))
-    s = string_append(s, &size, &ptr, 3, US" P=<", used_return_path, US">");
-
-  if (addr->router)
-    s = string_append(s, &size, &ptr, 2, US" R=", addr->router->name);
-  if (addr->transport)
-    s = string_append(s, &size, &ptr, 2, US" T=", addr->transport->name);
-
-  if (addr->host_used)
-    s = d_hostlog(s, &size, &ptr, addr);
-
-#ifdef SUPPORT_TLS
-  s = d_tlslog(s, &size, &ptr, addr);
-#endif
-
-  if (addr->basic_errno > 0)
-    s = string_append(s, &size, &ptr, 2, US": ",
-      US strerror(addr->basic_errno));
-
-  if (addr->message)
-    s = string_append(s, &size, &ptr, 2, US": ", addr->message);
-
-  s[ptr] = 0;
-
-  /* Do the logging. For the message log, "routing failed" for those cases,
-  just to make it clearer. */
-
-  if (driver_name)
-    deliver_msglog("%s %s\n", now, s);
-  else
-    deliver_msglog("%s %s failed for %s\n", now, driver_kind, s);
-
-  log_write(0, LOG_MAIN, "** %s", s);
-
-#ifndef DISABLE_EVENT
-  msg_event_raise(US"msg:fail:delivery", addr);
-#endif
-
-  store_reset(reset_point);
+  failure_log(addr, driver_name ? NULL : driver_kind, now);
   }
 
 /* Ensure logging is turned on again in all cases */
 
-disable_logging = FALSE;
+f.disable_logging = FALSE;
 }
 
 
@@ -1481,13 +1788,12 @@ addr->basic_errno = code;
 if (format)
   {
   va_list ap;
-  uschar buffer[512];
+  gstring * g;
+
   va_start(ap, format);
-  if (!string_vformat(buffer, sizeof(buffer), CS format, ap))
-    log_write(0, LOG_MAIN|LOG_PANIC_DIE,
-      "common_error expansion was longer than " SIZE_T_FMT, sizeof(buffer));
+  g = string_vformat(NULL, TRUE, CS format, ap);
   va_end(ap);
-  addr->message = string_copy(buffer);
+  addr->message = string_from_gstring(g);
   }
 
 for (addr2 = addr->next; addr2; addr2 = addr2->next)
@@ -1872,7 +2178,7 @@ if (tp->return_path)
   uschar *new_return_path = expand_string(tp->return_path);
   if (!new_return_path)
     {
-    if (!expand_string_forcedfail)
+    if (!f.expand_string_forcedfail)
       {
       common_error(TRUE, addr, ERRNO_EXPANDFAIL,
         US"Failed to expand return path \"%s\" in %s transport: %s",
@@ -1957,12 +2263,13 @@ if (  !shadowing
       || tp->log_output || tp->log_fail_output || tp->log_defer_output
    )  )
   {
-  uschar *error;
+  uschar * error;
+
   addr->return_filename =
-    string_sprintf("%s/msglog/%s/%s-%d-%d", spool_directory, message_subdir,
-      message_id, getpid(), return_count++);
-  addr->return_file = open_msglog_file(addr->return_filename, 0400, &error);
-  if (addr->return_file < 0)
+    spool_fname(US"msglog", message_subdir, message_id,
+      string_sprintf("-%d-%d", getpid(), return_count++));
+
+  if ((addr->return_file = open_msglog_file(addr->return_filename, 0400, &error)) < 0)
     {
     common_error(TRUE, addr, errno, US"Unable to %s file for %s transport "
       "to return message: %s", error, tp->name, strerror(errno));
@@ -2132,6 +2439,7 @@ if ((pid = fork()) == 0)
       || (ret = write(pfd[pipe_write], &addr2->flags, sizeof(addr2->flags))) != sizeof(addr2->flags)
       || (ret = write(pfd[pipe_write], &addr2->basic_errno,    sizeof(int))) != sizeof(int)
       || (ret = write(pfd[pipe_write], &addr2->more_errno,     sizeof(int))) != sizeof(int)
+      || (ret = write(pfd[pipe_write], &addr2->delivery_usec,  sizeof(int))) != sizeof(int)
       || (ret = write(pfd[pipe_write], &addr2->special_action, sizeof(int))) != sizeof(int)
       || (ret = write(pfd[pipe_write], &addr2->transport,
         sizeof(transport_instance *))) != sizeof(transport_instance *)
@@ -2146,7 +2454,7 @@ if ((pid = fork()) == 0)
 	     )
 	 )
       )
-      log_write(0, LOG_MAIN|LOG_PANIC, "Failed writing transport results to pipe: %s\n",
+      log_write(0, LOG_MAIN|LOG_PANIC, "Failed writing transport results to pipe: %s",
 	ret == -1 ? strerror(errno) : "short write");
 
     /* Now any messages */
@@ -2157,7 +2465,7 @@ if ((pid = fork()) == 0)
       if(  (ret = write(pfd[pipe_write], &message_length, sizeof(int))) != sizeof(int)
         || message_length > 0  && (ret = write(pfd[pipe_write], s, message_length)) != message_length
 	)
-        log_write(0, LOG_MAIN|LOG_PANIC, "Failed writing transport results to pipe: %s\n",
+        log_write(0, LOG_MAIN|LOG_PANIC, "Failed writing transport results to pipe: %s",
 	  ret == -1 ? strerror(errno) : "short write");
       }
     }
@@ -2188,8 +2496,7 @@ will remain. Afterwards, close the reading end. */
 
 for (addr2 = addr; addr2; addr2 = addr2->next)
   {
-  len = read(pfd[pipe_read], &status, sizeof(int));
-  if (len > 0)
+  if ((len = read(pfd[pipe_read], &status, sizeof(int))) > 0)
     {
     int i;
     uschar **sptr;
@@ -2200,16 +2507,31 @@ for (addr2 = addr; addr2; addr2 = addr2->next)
     len = read(pfd[pipe_read], &addr2->flags, sizeof(addr2->flags));
     len = read(pfd[pipe_read], &addr2->basic_errno,    sizeof(int));
     len = read(pfd[pipe_read], &addr2->more_errno,     sizeof(int));
+    len = read(pfd[pipe_read], &addr2->delivery_usec,  sizeof(int));
     len = read(pfd[pipe_read], &addr2->special_action, sizeof(int));
     len = read(pfd[pipe_read], &addr2->transport,
       sizeof(transport_instance *));
 
     if (testflag(addr2, af_file))
       {
-      int local_part_length;
-      len = read(pfd[pipe_read], &local_part_length, sizeof(int));
-      len = read(pfd[pipe_read], big_buffer, local_part_length);
-      big_buffer[local_part_length] = 0;
+      int llen;
+      if (  read(pfd[pipe_read], &llen, sizeof(int)) != sizeof(int)
+	 || llen > 64*4	/* limit from rfc 5821, times I18N factor */
+         )
+	{
+	log_write(0, LOG_MAIN|LOG_PANIC, "bad local_part length read"
+	  " from delivery subprocess");
+	break;
+	}
+      /* sanity-checked llen so disable the Coverity error */
+      /* coverity[tainted_data] */
+      if (read(pfd[pipe_read], big_buffer, llen) != llen)
+	{
+	log_write(0, LOG_MAIN|LOG_PANIC, "bad local_part read"
+	  " from delivery subprocess");
+	break;
+	}
+      big_buffer[llen] = 0;
       addr2->local_part = string_copy(big_buffer);
       }
 
@@ -2220,6 +2542,7 @@ for (addr2 = addr; addr2; addr2 = addr2->next)
       if (message_length > 0)
         {
         len = read(pfd[pipe_read], big_buffer, message_length);
+	big_buffer[big_buffer_size-1] = '\0';		/* guard byte */
         if (len > 0) *sptr = string_copy(big_buffer);
         }
       }
@@ -2254,7 +2577,7 @@ if (!shadowing)
       /* In the test harness, wait just a bit to let the subprocess finish off
       any debug output etc first. */
 
-      if (running_in_test_harness) millisleep(300);
+      if (f.running_in_test_harness) millisleep(300);
 
       DEBUG(D_deliver) debug_printf("journalling %s", big_buffer);
       len = Ustrlen(big_buffer);
@@ -2374,7 +2697,7 @@ if (max_parallel > 0)
       next = addr->next;
       addr->message = US"concurrency limit reached for transport";
       addr->basic_errno = ERRNO_TRETRY;
-      post_process_one(addr, DEFER, LOG_MAIN, DTYPE_TRANSPORT, 0);
+      post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_TRANSPORT, 0);
       } while ((addr = next));
     return TRUE;
     }
@@ -2410,11 +2733,11 @@ time_t now = time(NULL);
 
 while (addr_local)
   {
-  time_t delivery_start;
-  int deliver_time;
+  struct timeval delivery_start;
+  struct timeval deliver_time;
   address_item *addr2, *addr3, *nextaddr;
   int logflags = LOG_MAIN;
-  int logchar = dont_deliver? '*' : '=';
+  int logchar = f.dont_deliver? '*' : '=';
   transport_instance *tp;
   uschar * serialize_key = NULL;
 
@@ -2432,11 +2755,11 @@ while (addr_local)
   if (!(tp = addr->transport))
     {
     logflags |= LOG_PANIC;
-    disable_logging = FALSE;  /* Jic */
+    f.disable_logging = FALSE;  /* Jic */
     addr->message = addr->router
       ? string_sprintf("No transport set by %s router", addr->router->name)
       : string_sprintf("No transport set by system filter");
-    post_process_one(addr, DEFER, logflags, DTYPE_TRANSPORT, 0);
+    post_process_one(addr, DEFER, logflags, EXIM_DTYPE_TRANSPORT, 0);
     continue;
     }
 
@@ -2450,7 +2773,7 @@ while (addr_local)
 
   /* There are weird cases where logging is disabled */
 
-  disable_logging = tp->disable_logging;
+  f.disable_logging = tp->disable_logging;
 
   /* Check for batched addresses and possible amalgamation. Skip all the work
   if either batch_max <= 1 or there aren't any other addresses for local
@@ -2506,7 +2829,8 @@ while (addr_local)
       BOOL ok =
            tp == next->transport
 	&& !previously_transported(next, TRUE)
-	&& (addr->flags & (af_pfr|af_file)) == (next->flags & (af_pfr|af_file))
+	&& testflag(addr, af_pfr) == testflag(next, af_pfr)
+	&& testflag(addr, af_file) == testflag(next, af_file)
 	&& (!uses_lp  || Ustrcmp(next->local_part, addr->local_part) == 0)
 	&& (!uses_dom || Ustrcmp(next->domain, addr->domain) == 0)
 	&& same_strings(next->prop.errors_address, addr->prop.errors_address)
@@ -2570,7 +2894,7 @@ while (addr_local)
       while (addr)
         {
         addr2 = addr->next;
-        post_process_one(addr, rc, logflags, DTYPE_TRANSPORT, 0);
+        post_process_one(addr, rc, logflags, EXIM_DTYPE_TRANSPORT, 0);
         addr = addr2;
         }
       continue;    /* With next batch of addresses */
@@ -2636,7 +2960,7 @@ while (addr_local)
             retry_record->expired);
           }
 
-        if (queue_running && !deliver_force)
+        if (f.queue_running && !f.deliver_force)
           {
           ok = (now - retry_record->time_stamp > retry_data_expire)
 	    || (now >= retry_record->next_try)
@@ -2672,7 +2996,7 @@ while (addr_local)
       this->basic_errno = ERRNO_LRETRY;
       addr2 = addr3 ? (addr3->next = addr2->next)
 		    : (addr = addr2->next);
-      post_process_one(this, DEFER, logflags, DTYPE_TRANSPORT, 0);
+      post_process_one(this, DEFER, logflags, EXIM_DTYPE_TRANSPORT, 0);
       }
     }
 
@@ -2695,7 +3019,7 @@ while (addr_local)
       do
 	{
 	addr = addr->next;
-	post_process_one(addr, DEFER, logflags, DTYPE_TRANSPORT, 0);
+	post_process_one(addr, DEFER, logflags, EXIM_DTYPE_TRANSPORT, 0);
 	} while ((addr = addr2));
       }
     continue;			/* Loop for the next set of addresses. */
@@ -2707,9 +3031,10 @@ while (addr_local)
   single delivery. */
 
   deliver_set_expansions(addr);
-  delivery_start = time(NULL);
+
+  gettimeofday(&delivery_start, NULL);
   deliver_local(addr, FALSE);
-  deliver_time = (int)(time(NULL) - delivery_start);
+  timesince(&deliver_time, &delivery_start);
 
   /* If a shadow transport (which must perforce be another local transport), is
   defined, and its condition is met, we must pass the message to the shadow
@@ -2747,13 +3072,13 @@ while (addr_local)
 	addr3 = store_get(sizeof(address_item));
 	*addr3 = *addr2;
 	addr3->next = NULL;
-	addr3->shadow_message = (uschar *) &(addr2->shadow_message);
+	addr3->shadow_message = US &addr2->shadow_message;
 	addr3->transport = stp;
 	addr3->transport_return = DEFER;
 	addr3->return_filename = NULL;
 	addr3->return_file = -1;
 	*last = addr3;
-	last = &(addr3->next);
+	last = &addr3->next;
 	}
 
     /* If we found any addresses to shadow, run the delivery, and stick any
@@ -2846,8 +3171,12 @@ while (addr_local)
 
     /* Done with this address */
 
-    if (result == OK) addr2->more_errno = deliver_time;
-    post_process_one(addr2, result, logflags, DTYPE_TRANSPORT, logchar);
+    if (result == OK)
+      {
+      addr2->more_errno = deliver_time.tv_sec;
+      addr2->delivery_usec = deliver_time.tv_usec;
+      }
+    post_process_one(addr2, result, logflags, EXIM_DTYPE_TRANSPORT, logchar);
 
     /* If a pipe delivery generated text to be sent back, the result may be
     changed to FAIL, and we must copy this for subsequent addresses in the
@@ -2988,6 +3317,9 @@ small items (less than PIPE_BUF, which seems to be at least 512 in any Unix and
 often bigger) so even if we are reading while the subprocess is still going, we
 should never have only a partial item in the buffer.
 
+hs12: This assumption is not true anymore, since we get quite large items (certificate
+information and such).
+
 Argument:
   poffset     the offset of the parlist item
   eop         TRUE if the process has completed
@@ -3006,147 +3338,111 @@ address_item *addrlist = p->addrlist;
 address_item *addr = p->addr;
 pid_t pid = p->pid;
 int fd = p->fd;
-uschar *endptr = big_buffer;
-uschar *ptr = endptr;
+
 uschar *msg = p->msg;
 BOOL done = p->done;
-BOOL unfinished = TRUE;
-/* minimum size to read is header size including id, subid and length */
-int required = PIPE_HEADER_SIZE;
 
 /* Loop through all items, reading from the pipe when necessary. The pipe
-is set up to be non-blocking, but there are two different Unix mechanisms in
-use. Exim uses O_NONBLOCK if it is defined. This returns 0 for end of file,
-and EAGAIN for no more data. If O_NONBLOCK is not defined, Exim uses O_NDELAY,
-which returns 0 for both end of file and no more data. We distinguish the
-two cases by taking 0 as end of file only when we know the process has
-completed.
+used to be non-blocking. But I do not see a reason for using non-blocking I/O
+here, as the preceding select() tells us, if data is available for reading.
 
-Each separate item is written to the pipe in a single write(), and as they are
-all short items, the writes will all be atomic and we should never find
-ourselves in the position of having read an incomplete item. "Short" in this
-case can mean up to about 1K in the case when there is a long error message
-associated with an address. */
+A read() on a "selected" handle should never block, but(!) it may return
+less data then we expected. (The buffer size we pass to read() shouldn't be
+understood as a "request", but as a "limit".)
+
+Each separate item is written to the pipe in a timely manner. But, especially for
+larger items, the read(2) may already return partial data from the write(2).
+
+The write is atomic mostly (depending on the amount written), but atomic does
+not imply "all or noting", it just is "not intermixed" with other writes on the
+same channel (pipe).
+
+*/
 
 DEBUG(D_deliver) debug_printf("reading pipe for subprocess %d (%s)\n",
-  (int)p->pid, eop? "ended" : "not ended");
+  (int)p->pid, eop? "ended" : "not ended yet");
 
 while (!done)
   {
   retry_item *r, **rp;
-  int remaining = endptr - ptr;
-  uschar header[PIPE_HEADER_SIZE + 1];
-  uschar id, subid;
-  uschar *endc;
+  uschar pipeheader[PIPE_HEADER_SIZE+1];
+  uschar *id = &pipeheader[0];
+  uschar *subid = &pipeheader[1];
+  uschar *ptr = big_buffer;
+  size_t required = PIPE_HEADER_SIZE; /* first the pipehaeder, later the data */
+  ssize_t got;
 
-  /* Read (first time) or top up the chars in the buffer if necessary.
-  There will be only one read if we get all the available data (i.e. don't
-  fill the buffer completely). */
+  DEBUG(D_deliver) debug_printf(
+    "expect %lu bytes (pipeheader) from tpt process %d\n", (u_long)required, pid);
 
-  if (remaining < required && unfinished)
+  /* We require(!) all the PIPE_HEADER_SIZE bytes here, as we know,
+  they're written in a timely manner, so waiting for the write shouldn't hurt a lot.
+  If we get less, we can assume the subprocess do be done and do not expect any further
+  information from it. */
+
+  if ((got = readn(fd, pipeheader, required)) != required)
     {
-    int len;
-    int available = big_buffer_size - remaining;
-
-    if (remaining > 0) memmove(big_buffer, ptr, remaining);
-
-    ptr = big_buffer;
-    endptr = big_buffer + remaining;
-    len = read(fd, endptr, available);
-
-    DEBUG(D_deliver) debug_printf("read() yielded %d\n", len);
-
-    /* If the result is EAGAIN and the process is not complete, just
-    stop reading any more and process what we have already. */
-
-    if (len < 0)
-      {
-      if (!eop && errno == EAGAIN) len = 0; else
-        {
-        msg = string_sprintf("failed to read pipe from transport process "
-          "%d for transport %s: %s", pid, addr->transport->driver_name,
-          strerror(errno));
-        break;
-        }
-      }
-
-    /* If the length is zero (eof or no-more-data), just process what we
-    already have. Note that if the process is still running and we have
-    read all the data in the pipe (but less that "available") then we
-    won't read any more, as "unfinished" will get set FALSE. */
-
-    endptr += len;
-    remaining += len;
-    unfinished = len == available;
+    msg = string_sprintf("got " SSIZE_T_FMT " of %d bytes (pipeheader) "
+      "from transport process %d for transport %s",
+      got, PIPE_HEADER_SIZE, pid, addr->transport->driver_name);
+    done = TRUE;
+    break;
     }
 
-  /* If we are at the end of the available data, exit the loop. */
-  if (ptr >= endptr) break;
+  pipeheader[PIPE_HEADER_SIZE] = '\0';
+  DEBUG(D_deliver)
+    debug_printf("got %ld bytes (pipeheader) from transport process %d\n",
+      (long) got, pid);
 
-  /* copy and read header */
-  memcpy(header, ptr, PIPE_HEADER_SIZE);
-  header[PIPE_HEADER_SIZE] = '\0';
-  id = header[0];
-  subid = header[1];
-  required = Ustrtol(header + 2, &endc, 10) + PIPE_HEADER_SIZE;     /* header + data */
+  {
+  /* If we can't decode the pipeheader, the subprocess seems to have a
+  problem, we do not expect any furher information from it. */
+  char *endc;
+  required = Ustrtol(pipeheader+2, &endc, 10);
   if (*endc)
     {
-    msg = string_sprintf("failed to read pipe from transport process "
-      "%d for transport %s: error reading size from header", pid, addr->transport->driver_name);
+    msg = string_sprintf("failed to read pipe "
+      "from transport process %d for transport %s: error decoding size from header",
+      pid, addr->transport->driver_name);
     done = TRUE;
     break;
     }
+  }
 
   DEBUG(D_deliver)
-    debug_printf("header read  id:%c,subid:%c,size:%s,required:%d,remaining:%d,unfinished:%d\n",
-                    id, subid, header+2, required, remaining, unfinished);
+    debug_printf("expect %lu bytes (pipedata) from transport process %d\n",
+      (u_long)required, pid);
 
-  /* is there room for the dataset we want to read ? */
-  if (required > big_buffer_size - PIPE_HEADER_SIZE)
+  /* Same as above, the transport process will write the bytes announced
+  in a timely manner, so we can just wait for the bytes, getting less than expected
+  is considered a problem of the subprocess, we do not expect anything else from it. */
+  if ((got = readn(fd, big_buffer, required)) != required)
     {
-    msg = string_sprintf("failed to read pipe from transport process "
-      "%d for transport %s: big_buffer too small! required size=%d buffer size=%d", pid, addr->transport->driver_name,
-      required, big_buffer_size - PIPE_HEADER_SIZE);
+    msg = string_sprintf("got only " SSIZE_T_FMT " of " SIZE_T_FMT
+      " bytes (pipedata) from transport process %d for transport %s",
+      got, required, pid, addr->transport->driver_name);
     done = TRUE;
     break;
     }
-
-  /* we wrote all datasets with atomic write() calls
-     remaining < required only happens if big_buffer was too small
-     to get all available data from pipe. unfinished has to be true
-     as well. */
-  if (remaining < required)
-    {
-    if (unfinished)
-      continue;
-    msg = string_sprintf("failed to read pipe from transport process "
-      "%d for transport %s: required size=%d > remaining size=%d and unfinished=false",
-      pid, addr->transport->driver_name, required, remaining);
-    done = TRUE;
-    break;
-    }
-
-  /* step behind the header */
-  ptr += PIPE_HEADER_SIZE;
 
   /* Handle each possible type of item, assuming the complete item is
   available in store. */
 
-  switch (id)
+  switch (*id)
     {
     /* Host items exist only if any hosts were marked unusable. Match
     up by checking the IP address. */
 
     case 'H':
-    for (h = addrlist->host_list; h; h = h->next)
-      {
-      if (!h->address || Ustrcmp(h->address, ptr+2) != 0) continue;
-      h->status = ptr[0];
-      h->why = ptr[1];
-      }
-    ptr += 2;
-    while (*ptr++);
-    break;
+      for (h = addrlist->host_list; h; h = h->next)
+	{
+	if (!h->address || Ustrcmp(h->address, ptr+2) != 0) continue;
+	h->status = ptr[0];
+	h->why = ptr[1];
+	}
+      ptr += 2;
+      while (*ptr++);
+      break;
 
     /* Retry items are sent in a preceding R item for each address. This is
     kept separate to keep each message short enough to guarantee it won't
@@ -3160,62 +3456,61 @@ while (!done)
     that a "delete" item is dropped in favour of an "add" item. */
 
     case 'R':
-    if (!addr) goto ADDR_MISMATCH;
+      if (!addr) goto ADDR_MISMATCH;
 
-    DEBUG(D_deliver|D_retry)
-      debug_printf("reading retry information for %s from subprocess\n",
-        ptr+1);
-
-    /* Cut out any "delete" items on the list. */
-
-    for (rp = &(addr->retries); (r = *rp); rp = &r->next)
-      if (Ustrcmp(r->key, ptr+1) == 0)           /* Found item with same key */
-        {
-        if ((r->flags & rf_delete) == 0) break;  /* It was not "delete" */
-        *rp = r->next;                           /* Excise a delete item */
-        DEBUG(D_deliver|D_retry)
-          debug_printf("  existing delete item dropped\n");
-        }
-
-    /* We want to add a delete item only if there is no non-delete item;
-    however we still have to step ptr through the data. */
-
-    if (!r || (*ptr & rf_delete) == 0)
-      {
-      r = store_get(sizeof(retry_item));
-      r->next = addr->retries;
-      addr->retries = r;
-      r->flags = *ptr++;
-      r->key = string_copy(ptr);
-      while (*ptr++);
-      memcpy(&(r->basic_errno), ptr, sizeof(r->basic_errno));
-      ptr += sizeof(r->basic_errno);
-      memcpy(&(r->more_errno), ptr, sizeof(r->more_errno));
-      ptr += sizeof(r->more_errno);
-      r->message = (*ptr)? string_copy(ptr) : NULL;
       DEBUG(D_deliver|D_retry)
-        debug_printf("  added %s item\n",
-          ((r->flags & rf_delete) == 0)? "retry" : "delete");
-      }
+	debug_printf("reading retry information for %s from subprocess\n",
+	  ptr+1);
 
-    else
-      {
-      DEBUG(D_deliver|D_retry)
-        debug_printf("  delete item not added: non-delete item exists\n");
-      ptr++;
+      /* Cut out any "delete" items on the list. */
+
+      for (rp = &addr->retries; (r = *rp); rp = &r->next)
+	if (Ustrcmp(r->key, ptr+1) == 0)           /* Found item with same key */
+	  {
+	  if (!(r->flags & rf_delete)) break;	   /* It was not "delete" */
+	  *rp = r->next;                           /* Excise a delete item */
+	  DEBUG(D_deliver|D_retry)
+	    debug_printf("  existing delete item dropped\n");
+	  }
+
+      /* We want to add a delete item only if there is no non-delete item;
+      however we still have to step ptr through the data. */
+
+      if (!r || !(*ptr & rf_delete))
+	{
+	r = store_get(sizeof(retry_item));
+	r->next = addr->retries;
+	addr->retries = r;
+	r->flags = *ptr++;
+	r->key = string_copy(ptr);
+	while (*ptr++);
+	memcpy(&r->basic_errno, ptr, sizeof(r->basic_errno));
+	ptr += sizeof(r->basic_errno);
+	memcpy(&r->more_errno, ptr, sizeof(r->more_errno));
+	ptr += sizeof(r->more_errno);
+	r->message = *ptr ? string_copy(ptr) : NULL;
+	DEBUG(D_deliver|D_retry) debug_printf("  added %s item\n",
+	    r->flags & rf_delete ? "delete" : "retry");
+	}
+
+      else
+	{
+	DEBUG(D_deliver|D_retry)
+	  debug_printf("  delete item not added: non-delete item exists\n");
+	ptr++;
+	while(*ptr++);
+	ptr += sizeof(r->basic_errno) + sizeof(r->more_errno);
+	}
+
       while(*ptr++);
-      ptr += sizeof(r->basic_errno) + sizeof(r->more_errno);
-      }
-
-    while(*ptr++);
-    break;
+      break;
 
     /* Put the amount of data written into the parlist block */
 
     case 'S':
-    memcpy(&(p->transport_count), ptr, sizeof(transport_count));
-    ptr += sizeof(transport_count);
-    break;
+      memcpy(&(p->transport_count), ptr, sizeof(transport_count));
+      ptr += sizeof(transport_count);
+      break;
 
     /* Address items are in the order of items on the address chain. We
     remember the current address value in case this function is called
@@ -3226,160 +3521,175 @@ while (!done)
 
 #ifdef SUPPORT_TLS
     case 'X':
-    if (!addr) goto ADDR_MISMATCH;          /* Below, in 'A' handler */
-    switch (subid)
-      {
-      case '1':
-      addr->cipher = NULL;
-      addr->peerdn = NULL;
+      if (!addr) goto ADDR_MISMATCH;          /* Below, in 'A' handler */
+      switch (*subid)
+	{
+	case '1':
+	  addr->cipher = NULL;
+	  addr->peerdn = NULL;
 
-      if (*ptr)
-	addr->cipher = string_copy(ptr);
-      while (*ptr++);
-      if (*ptr)
-	addr->peerdn = string_copy(ptr);
-      break;
+	  if (*ptr)
+	    addr->cipher = string_copy(ptr);
+	  while (*ptr++);
+	  if (*ptr)
+	    addr->peerdn = string_copy(ptr);
+	  break;
 
-      case '2':
-      if (*ptr)
-	(void) tls_import_cert(ptr, &addr->peercert);
-      else
-	addr->peercert = NULL;
-      break;
+	case '2':
+	  if (*ptr)
+	    (void) tls_import_cert(ptr, &addr->peercert);
+	  else
+	    addr->peercert = NULL;
+	  break;
 
-      case '3':
-      if (*ptr)
-	(void) tls_import_cert(ptr, &addr->ourcert);
-      else
-	addr->ourcert = NULL;
-      break;
+	case '3':
+	  if (*ptr)
+	    (void) tls_import_cert(ptr, &addr->ourcert);
+	  else
+	    addr->ourcert = NULL;
+	  break;
 
 # ifndef DISABLE_OCSP
-      case '4':
-      addr->ocsp = OCSP_NOT_REQ;
-      if (*ptr)
-	addr->ocsp = *ptr - '0';
-      break;
+	case '4':
+	  addr->ocsp = *ptr ? *ptr - '0' : OCSP_NOT_REQ;
+	  break;
 # endif
-      }
-    while (*ptr++);
-    break;
+	}
+      while (*ptr++);
+      break;
 #endif	/*SUPPORT_TLS*/
 
     case 'C':	/* client authenticator information */
-    switch (subid)
-      {
-      case '1':
-	addr->authenticator = (*ptr)? string_copy(ptr) : NULL;
-	break;
-      case '2':
-	addr->auth_id = (*ptr)? string_copy(ptr) : NULL;
-	break;
-      case '3':
-	addr->auth_sndr = (*ptr)? string_copy(ptr) : NULL;
-	break;
-      }
-    while (*ptr++);
-    break;
+      switch (*subid)
+	{
+	case '1': addr->authenticator = *ptr ? string_copy(ptr) : NULL; break;
+	case '2': addr->auth_id = *ptr ? string_copy(ptr) : NULL;	break;
+	case '3': addr->auth_sndr = *ptr ? string_copy(ptr) : NULL;	break;
+	}
+      while (*ptr++);
+      break;
 
 #ifndef DISABLE_PRDR
     case 'P':
-    addr->flags |= af_prdr_used;
-    break;
+      setflag(addr, af_prdr_used);
+      break;
 #endif
+
+    case 'L':
+      switch (*subid)
+	{
+#ifdef EXPERIMENTAL_PIPE_CONNECT
+	case 2: setflag(addr, af_early_pipe);	/*FALLTHROUGH*/
+#endif
+	case 1: setflag(addr, af_pipelining); break;
+	}
+      break;
+
+    case 'K':
+      setflag(addr, af_chunking_used);
+      break;
+
+    case 'T':
+      setflag(addr, af_tcp_fastopen_conn);
+      if (*subid > '0') setflag(addr, af_tcp_fastopen);
+      if (*subid > '1') setflag(addr, af_tcp_fastopen_data);
+      break;
 
     case 'D':
-    if (!addr) goto ADDR_MISMATCH;
-    memcpy(&(addr->dsn_aware), ptr, sizeof(addr->dsn_aware));
-    ptr += sizeof(addr->dsn_aware);
-    DEBUG(D_deliver) debug_printf("DSN read: addr->dsn_aware = %d\n", addr->dsn_aware);
-    break;
+      if (!addr) goto ADDR_MISMATCH;
+      memcpy(&(addr->dsn_aware), ptr, sizeof(addr->dsn_aware));
+      ptr += sizeof(addr->dsn_aware);
+      DEBUG(D_deliver) debug_printf("DSN read: addr->dsn_aware = %d\n", addr->dsn_aware);
+      break;
 
     case 'A':
-    if (!addr)
-      {
-      ADDR_MISMATCH:
-      msg = string_sprintf("address count mismatch for data read from pipe "
-        "for transport process %d for transport %s", pid,
-          addrlist->transport->driver_name);
-      done = TRUE;
+      if (!addr)
+	{
+	ADDR_MISMATCH:
+	msg = string_sprintf("address count mismatch for data read from pipe "
+	  "for transport process %d for transport %s", pid,
+	    addrlist->transport->driver_name);
+	done = TRUE;
+	break;
+	}
+
+      switch (*subid)
+	{
+  #ifdef SUPPORT_SOCKS
+	case '2':	/* proxy information; must arrive before A0 and applies to that addr XXX oops*/
+	  proxy_session = TRUE;	/*XXX should this be cleared somewhere? */
+	  if (*ptr == 0)
+	    ptr++;
+	  else
+	    {
+	    proxy_local_address = string_copy(ptr);
+	    while(*ptr++);
+	    memcpy(&proxy_local_port, ptr, sizeof(proxy_local_port));
+	    ptr += sizeof(proxy_local_port);
+	    }
+	  break;
+  #endif
+
+  #ifdef EXPERIMENTAL_DSN_INFO
+	case '1':	/* must arrive before A0, and applies to that addr */
+			/* Two strings: smtp_greeting and helo_response */
+	  addr->smtp_greeting = string_copy(ptr);
+	  while(*ptr++);
+	  addr->helo_response = string_copy(ptr);
+	  while(*ptr++);
+	  break;
+  #endif
+
+	case '0':
+	  DEBUG(D_deliver) debug_printf("A0 %s tret %d\n", addr->address, *ptr);
+	  addr->transport_return = *ptr++;
+	  addr->special_action = *ptr++;
+	  memcpy(&addr->basic_errno, ptr, sizeof(addr->basic_errno));
+	  ptr += sizeof(addr->basic_errno);
+	  memcpy(&addr->more_errno, ptr, sizeof(addr->more_errno));
+	  ptr += sizeof(addr->more_errno);
+	  memcpy(&addr->delivery_usec, ptr, sizeof(addr->delivery_usec));
+	  ptr += sizeof(addr->delivery_usec);
+	  memcpy(&addr->flags, ptr, sizeof(addr->flags));
+	  ptr += sizeof(addr->flags);
+	  addr->message = *ptr ? string_copy(ptr) : NULL;
+	  while(*ptr++);
+	  addr->user_message = *ptr ? string_copy(ptr) : NULL;
+	  while(*ptr++);
+
+	  /* Always two strings for host information, followed by the port number and DNSSEC mark */
+
+	  if (*ptr)
+	    {
+	    h = store_get(sizeof(host_item));
+	    h->name = string_copy(ptr);
+	    while (*ptr++);
+	    h->address = string_copy(ptr);
+	    while(*ptr++);
+	    memcpy(&h->port, ptr, sizeof(h->port));
+	    ptr += sizeof(h->port);
+	    h->dnssec = *ptr == '2' ? DS_YES
+		      : *ptr == '1' ? DS_NO
+		      : DS_UNK;
+	    ptr++;
+	    addr->host_used = h;
+	    }
+	  else ptr++;
+
+	  /* Finished with this address */
+
+	  addr = addr->next;
+	  break;
+	}
       break;
-      }
-
-    switch (subid)
-      {
-#ifdef SUPPORT_SOCKS
-      case '2':	/* proxy information; must arrive before A0 and applies to that addr XXX oops*/
-	proxy_session = TRUE;	/*XXX shouod this be cleared somewhere? */
-	if (*ptr == 0)
-	  ptr++;
-	else
-	  {
-	  proxy_local_address = string_copy(ptr);
-	  while(*ptr++);
-	  memcpy(&proxy_local_port, ptr, sizeof(proxy_local_port));
-	  ptr += sizeof(proxy_local_port);
-	  }
-	break;
-#endif
-
-#ifdef EXPERIMENTAL_DSN_INFO
-      case '1':	/* must arrive before A0, and applies to that addr */
-      		/* Two strings: smtp_greeting and helo_response */
-	addr->smtp_greeting = string_copy(ptr);
-	while(*ptr++);
-	addr->helo_response = string_copy(ptr);
-	while(*ptr++);
-	break;
-#endif
-
-      case '0':
-	addr->transport_return = *ptr++;
-	addr->special_action = *ptr++;
-	memcpy(&(addr->basic_errno), ptr, sizeof(addr->basic_errno));
-	ptr += sizeof(addr->basic_errno);
-	memcpy(&(addr->more_errno), ptr, sizeof(addr->more_errno));
-	ptr += sizeof(addr->more_errno);
-	memcpy(&(addr->flags), ptr, sizeof(addr->flags));
-	ptr += sizeof(addr->flags);
-	addr->message = (*ptr)? string_copy(ptr) : NULL;
-	while(*ptr++);
-	addr->user_message = (*ptr)? string_copy(ptr) : NULL;
-	while(*ptr++);
-
-	/* Always two strings for host information, followed by the port number and DNSSEC mark */
-
-	if (*ptr != 0)
-	  {
-	  h = store_get(sizeof(host_item));
-	  h->name = string_copy(ptr);
-	  while (*ptr++);
-	  h->address = string_copy(ptr);
-	  while(*ptr++);
-	  memcpy(&(h->port), ptr, sizeof(h->port));
-	  ptr += sizeof(h->port);
-	  h->dnssec = *ptr == '2' ? DS_YES
-		    : *ptr == '1' ? DS_NO
-		    : DS_UNK;
-	  ptr++;
-	  addr->host_used = h;
-	  }
-	else ptr++;
-
-	/* Finished with this address */
-
-	addr = addr->next;
-	break;
-      }
-    break;
 
     /* Local interface address/port */
     case 'I':
-    if (*ptr) sending_ip_address = string_copy(ptr);
-    while (*ptr++) ;
-    if (*ptr) sending_port = atoi(CS ptr);
-    while (*ptr++) ;
-    break;
+      if (*ptr) sending_ip_address = string_copy(ptr);
+      while (*ptr++) ;
+      if (*ptr) sending_port = atoi(CS ptr);
+      while (*ptr++) ;
+      break;
 
     /* Z marks the logical end of the data. It is followed by '0' if
     continue_transport was NULL at the end of transporting, otherwise '1'.
@@ -3388,23 +3698,23 @@ while (!done)
     most normal messages it will remain NULL all the time. */
 
     case 'Z':
-    if (*ptr == '0')
-      {
-      continue_transport = NULL;
-      continue_hostname = NULL;
-      }
-    done = TRUE;
-    DEBUG(D_deliver) debug_printf("Z0%c item read\n", *ptr);
-    break;
+      if (*ptr == '0')
+	{
+	continue_transport = NULL;
+	continue_hostname = NULL;
+	}
+      done = TRUE;
+      DEBUG(D_deliver) debug_printf("Z0%c item read\n", *ptr);
+      break;
 
     /* Anything else is a disaster. */
 
     default:
-    msg = string_sprintf("malformed data (%d) read from pipe for transport "
-      "process %d for transport %s", ptr[-1], pid,
-        addr->transport->driver_name);
-    done = TRUE;
-    break;
+      msg = string_sprintf("malformed data (%d) read from pipe for transport "
+	"process %d for transport %s", ptr[-1], pid,
+	  addr->transport->driver_name);
+      done = TRUE;
+      break;
     }
   }
 
@@ -3414,7 +3724,7 @@ call the function again when the process finishes. */
 p->done = done;
 
 /* If the process hadn't finished, and we haven't seen the end of the data
-or suffered a disaster, update the rest of the state, and return FALSE to
+or if we suffered a disaster, update the rest of the state, and return FALSE to
 indicate "not finished". */
 
 if (!eop && !done)
@@ -3447,6 +3757,7 @@ if (msg)
     addr->transport_return = DEFER;
     addr->special_action = SPECIAL_FREEZE;
     addr->message = msg;
+    log_write(0, LOG_MAIN|LOG_PANIC, "Delivery status for %s: %s\n", addr->address, addr->message);
     }
 
 /* Return TRUE to indicate we have got all we need from this process, even
@@ -3524,7 +3835,7 @@ while (addr)
       addr->transport_return = DEFER;
       }
     (void)post_process_one(addr, addr->transport_return, logflags,
-      DTYPE_TRANSPORT, addr->special_action);
+      EXIM_DTYPE_TRANSPORT, addr->special_action);
     }
 
   /* Next address */
@@ -3666,14 +3977,12 @@ for (;;)   /* Normally we do not repeat this loop */
     maxpipe = 0;
     FD_ZERO(&select_pipes);
     for (poffset = 0; poffset < remote_max_parallel; poffset++)
-      {
       if (parlist[poffset].pid != 0)
         {
         int fd = parlist[poffset].fd;
         FD_SET(fd, &select_pipes);
         if (fd > maxpipe) maxpipe = fd;
         }
-      }
 
     /* Stick in a 60-second timeout, just in case. */
 
@@ -3706,7 +4015,6 @@ for (;;)   /* Normally we do not repeat this loop */
         {
         readycount--;
         if (par_read_pipe(poffset, FALSE))    /* Finished with this pipe */
-          {
           for (;;)                            /* Loop for signals */
             {
             pid_t endedpid = waitpid(pid, &status, 0);
@@ -3716,7 +4024,6 @@ for (;;)   /* Normally we do not repeat this loop */
                 "%d (errno = %d) from waitpid() for process %d",
                 (int)endedpid, errno, (int)pid);
             }
-          }
         }
       }
 
@@ -3848,47 +4155,45 @@ while (parcount > max)
   }
 }
 
-
-
-
 static void
-rmt_dlv_checked_write(int fd, char id, char subid, void * buf, int size)
+rmt_dlv_checked_write(int fd, char id, char subid, void * buf, ssize_t size)
 {
-uschar	writebuffer[PIPE_HEADER_SIZE + BIG_BUFFER_SIZE];
-int     header_length;
+uschar pipe_header[PIPE_HEADER_SIZE+1];
+size_t total_len = PIPE_HEADER_SIZE + size;
+
+struct iovec iov[2] = {
+  { pipe_header, PIPE_HEADER_SIZE },  /* indication about the data to expect */
+  { buf, size }                       /* *the* data */
+};
+
+ssize_t ret;
 
 /* we assume that size can't get larger then BIG_BUFFER_SIZE which currently is set to 16k */
 /* complain to log if someone tries with buffer sizes we can't handle*/
 
-if (size > 99999)
+if (size > BIG_BUFFER_SIZE-1)
   {
   log_write(0, LOG_MAIN|LOG_PANIC_DIE,
-    "Failed writing transport result to pipe: can't handle buffers > 99999 bytes. truncating!\n");
-  size = 99999;
+    "Failed writing transport result to pipe: can't handle buffers > %d bytes. truncating!\n",
+      BIG_BUFFER_SIZE-1);
+  size = BIG_BUFFER_SIZE;
   }
 
-/* to keep the write() atomic we build header in writebuffer and copy buf behind */
-/* two write() calls would increase the complexity of reading from pipe */
+/* Should we check that we do not write more than PIPE_BUF? What would
+that help? */
 
 /* convert size to human readable string prepended by id and subid */
-header_length = snprintf(CS writebuffer, PIPE_HEADER_SIZE+1, "%c%c%05d", id, subid, size);
-if (header_length != PIPE_HEADER_SIZE)
-  {
+if (PIPE_HEADER_SIZE != snprintf(CS pipe_header, PIPE_HEADER_SIZE+1, "%c%c%05ld",
+    id, subid, (long)size))
   log_write(0, LOG_MAIN|LOG_PANIC_DIE, "header snprintf failed\n");
-  writebuffer[0] = '\0';
-  }
 
-DEBUG(D_deliver) debug_printf("header write id:%c,subid:%c,size:%d,final:%s\n",
-                                 id, subid, size, writebuffer);
+DEBUG(D_deliver) debug_printf("header write id:%c,subid:%c,size:%ld,final:%s\n",
+                                 id, subid, (long)size, pipe_header);
 
-if (buf && size > 0)
-  memcpy(writebuffer + PIPE_HEADER_SIZE, buf, size);
-
-size += PIPE_HEADER_SIZE;
-int ret = write(fd, writebuffer, size);
-if(ret != size)
-  log_write(0, LOG_MAIN|LOG_PANIC_DIE, "Failed writing transport result to pipe: %s\n",
-    ret == -1 ? strerror(errno) : "short write");
+if ((ret = writev(fd, iov, 2)) != total_len)
+  log_write(0, LOG_MAIN|LOG_PANIC_DIE,
+    "Failed writing transport result to pipe (%ld of %ld bytes): %s",
+    (long)ret, (long)total_len, ret == -1 ? strerror(errno) : "short write");
 }
 
 /*************************************************
@@ -3981,7 +4286,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
   if (!(tp = addr->transport))
     {
-    disable_logging = FALSE;  /* Jic */
+    f.disable_logging = FALSE;  /* Jic */
     panicmsg = US"No transport set by router";
     goto panic_continue;
     }
@@ -4112,7 +4417,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 	  )  )
        && (  !multi_domain
 	  || (  (
-		!tp->expand_multi_domain || (deliver_set_expansions(next), 1),
+		(void)(!tp->expand_multi_domain || ((void)deliver_set_expansions(next), 1)),
 	        exp_bool(addr,
 		    US"transport", next->transport->name, D_transport,
 		    US"multi_domain", next->transport->multi_domain,
@@ -4176,7 +4481,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
     uschar *new_return_path = expand_string(tp->return_path);
     if (new_return_path)
       return_path = new_return_path;
-    else if (!expand_string_forcedfail)
+    else if (!f.expand_string_forcedfail)
       {
       panicmsg = string_sprintf("Failed to expand return path \"%s\": %s",
 	tp->return_path, expand_string_message);
@@ -4204,23 +4509,58 @@ for (delivery_count = 0; addr_remote; delivery_count++)
   if (tp->setup)
     (void)((tp->setup)(addr->transport, addr, NULL, uid, gid, NULL));
 
+  /* If we have a connection still open from a verify stage (lazy-close)
+  treat it as if it is a continued connection (apart from the counter used
+  for the log line mark). */
+
+  if (cutthrough.cctx.sock >= 0 && cutthrough.callout_hold_only)
+    {
+    DEBUG(D_deliver)
+      debug_printf("lazy-callout-close: have conn still open from verification\n");
+    continue_transport = cutthrough.transport;
+    continue_hostname = string_copy(cutthrough.host.name);
+    continue_host_address = string_copy(cutthrough.host.address);
+    continue_sequence = 1;
+    sending_ip_address = cutthrough.snd_ip;
+    sending_port = cutthrough.snd_port;
+    smtp_peer_options = cutthrough.peer_options;
+    }
+
   /* If this is a run to continue delivery down an already-established
   channel, check that this set of addresses matches the transport and
   the channel. If it does not, defer the addresses. If a host list exists,
   we must check that the continue host is on the list. Otherwise, the
   host is set in the transport. */
 
-  continue_more = FALSE;           /* In case got set for the last lot */
+  f.continue_more = FALSE;           /* In case got set for the last lot */
   if (continue_transport)
     {
     BOOL ok = Ustrcmp(continue_transport, tp->name) == 0;
-    if (ok && addr->host_list)
+
+    /* If the transport is about to override the host list do not check
+    it here but take the cost of running the transport process to discover
+    if the continued_hostname connection is suitable.  This is a layering
+    violation which is unfortunate as it requires we haul in the smtp
+    include file. */
+
+    if (ok)
       {
-      host_item *h;
-      ok = FALSE;
-      for (h = addr->host_list; h; h = h->next)
-        if (Ustrcmp(h->name, continue_hostname) == 0)
-          { ok = TRUE; break; }
+      smtp_transport_options_block * ob;
+
+      if (  !(  Ustrcmp(tp->info->driver_name, "smtp") == 0
+	     && (ob = (smtp_transport_options_block *)tp->options_block)
+	     && ob->hosts_override && ob->hosts
+	     )
+	 && addr->host_list
+	 )
+	{
+	host_item * h;
+	ok = FALSE;
+	for (h = addr->host_list; h; h = h->next)
+	  if (Ustrcmp(h->name, continue_hostname) == 0)
+  /*XXX should also check port here */
+	    { ok = TRUE; break; }
+	}
       }
 
     /* Addresses not suitable; defer or queue for fallback hosts (which
@@ -4228,7 +4568,10 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
     if (!ok)
       {
-      DEBUG(D_deliver) debug_printf("not suitable for continue_transport\n");
+      DEBUG(D_deliver) debug_printf("not suitable for continue_transport (%s)\n",
+	Ustrcmp(continue_transport, tp->name) != 0
+	? string_sprintf("tpt %s vs %s", continue_transport, tp->name)
+	: string_sprintf("no host matching %s", continue_hostname));
       if (serialize_key) enq_end(serialize_key);
 
       if (addr->fallback_hosts && !fallback)
@@ -4245,7 +4588,11 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
       else
 	{
-	while (next->next) next = next->next;
+	for (next = addr; ; next = next->next)
+	  {
+	  DEBUG(D_deliver) debug_printf(" %s to def list\n", next->address);
+          if (!next->next) break;
+	  }
 	next->next = addr_defer;
 	addr_defer = addr;
 	}
@@ -4255,14 +4602,17 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
     /* Set a flag indicating whether there are further addresses that list
     the continued host. This tells the transport to leave the channel open,
-    but not to pass it to another delivery process. */
+    but not to pass it to another delivery process. We'd like to do that
+    for non-continue_transport cases too but the knowlege of which host is
+    connected to is too hard to manage.  Perhaps we need a finer-grain
+    interface to the transport. */
 
-    for (next = addr_remote; next; next = next->next)
+    for (next = addr_remote; next && !f.continue_more; next = next->next)
       {
       host_item *h;
       for (h = next->host_list; h; h = h->next)
         if (Ustrcmp(h->name, continue_hostname) == 0)
-          { continue_more = TRUE; break; }
+          { f.continue_more = TRUE; break; }
       }
     }
 
@@ -4290,11 +4640,15 @@ for (delivery_count = 0; addr_remote; delivery_count++)
     that it can use either of them, though it prefers O_NONBLOCK, which
     distinguishes between EOF and no-more-data. */
 
+/* The data appears in a timely manner and we already did a select on
+all pipes, so I do not see a reason to use non-blocking IO here
+
 #ifdef O_NONBLOCK
     (void)fcntl(pfd[pipe_read], F_SETFL, O_NONBLOCK);
 #else
     (void)fcntl(pfd[pipe_read], F_SETFL, O_NDELAY);
 #endif
+*/
 
     /* If the maximum number of subprocesses already exist, wait for a process
     to finish. If we ran out of file descriptors, parmax will have been reduced
@@ -4332,7 +4686,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
     }
 
   /* Now fork a subprocess to do the remote delivery, but before doing so,
-  ensure that any cached resourses are released so as not to interfere with
+  ensure that any cached resources are released so as not to interfere with
   what happens in the subprocess. */
 
   search_tidyup();
@@ -4346,7 +4700,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
     transport_name = tp->name;
 
     /* There are weird circumstances in which logging is disabled */
-    disable_logging = tp->disable_logging;
+    f.disable_logging = tp->disable_logging;
 
     /* Show pids on debug output if parallelism possible */
 
@@ -4361,7 +4715,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
     predictable settings for each delivery process, so do something explicit
     here rather they rely on the fixed reset in the random number function. */
 
-    random_seed = running_in_test_harness? 42 + 2*delivery_count : 0;
+    random_seed = f.running_in_test_harness ? 42 + 2*delivery_count : 0;
 
     /* Set close-on-exec on the pipe so that it doesn't get passed on to
     a new process that may be forked to do another delivery down the same
@@ -4384,18 +4738,23 @@ for (delivery_count = 0; addr_remote; delivery_count++)
     a dup-with-new-file-pointer. */
 
     (void)close(deliver_datafile);
-    sprintf(CS spoolname, "%s/input/%s/%s-D", spool_directory, message_subdir,
-      message_id);
-    deliver_datafile = Uopen(spoolname, O_RDWR | O_APPEND, 0);
+    {
+    uschar * fname = spool_fname(US"input", message_subdir, message_id, US"-D");
 
-    if (deliver_datafile < 0)
+    if ((deliver_datafile = Uopen(fname,
+#ifdef O_CLOEXEC
+					O_CLOEXEC |
+#endif
+					O_RDWR | O_APPEND, 0)) < 0)
       log_write(0, LOG_MAIN|LOG_PANIC_DIE, "Failed to reopen %s for remote "
-        "parallel delivery: %s", spoolname, strerror(errno));
+        "parallel delivery: %s", fname, strerror(errno));
+    }
 
     /* Set the close-on-exec flag */
-
+#ifndef O_CLOEXEC
     (void)fcntl(deliver_datafile, F_SETFD, fcntl(deliver_datafile, F_GETFD) |
       FD_CLOEXEC);
+#endif
 
     /* Set the uid/gid of this process; bombs out on failure. */
 
@@ -4459,7 +4818,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
       /* The certificate verification status goes into the flags */
       if (tls_out.certificate_verified) setflag(addr, af_cert_verified);
-#ifdef EXPERIMENTAL_DANE
+#ifdef SUPPORT_DANE
       if (tls_out.dane_verified)        setflag(addr, af_dane_verified);
 #endif
 
@@ -4471,13 +4830,17 @@ for (delivery_count = 0; addr_remote; delivery_count++)
         if (!addr->peerdn)
 	  *ptr++ = 0;
 	else
-          {
-          ptr += sprintf(CS ptr, "%.512s", addr->peerdn);
-          ptr++;
-          }
+          ptr += sprintf(CS ptr, "%.512s", addr->peerdn) + 1;
 
         rmt_dlv_checked_write(fd, 'X', '1', big_buffer, ptr - big_buffer);
         }
+      else if (continue_proxy_cipher)
+	{
+        ptr = big_buffer + sprintf(CS big_buffer, "%.128s", continue_proxy_cipher) + 1;
+	*ptr++ = 0;
+        rmt_dlv_checked_write(fd, 'X', '1', big_buffer, ptr - big_buffer);
+	}
+
       if (addr->peercert)
 	{
         ptr = big_buffer;
@@ -4522,13 +4885,29 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 	}
 
 #ifndef DISABLE_PRDR
-      if (addr->flags & af_prdr_used)
+      if (testflag(addr, af_prdr_used))
 	rmt_dlv_checked_write(fd, 'P', '0', NULL, 0);
 #endif
 
+      if (testflag(addr, af_pipelining))
+#ifdef EXPERIMENTAL_PIPE_CONNECT
+	if (testflag(addr, af_early_pipe))
+	  rmt_dlv_checked_write(fd, 'L', '2', NULL, 0);
+	else
+#endif
+	  rmt_dlv_checked_write(fd, 'L', '1', NULL, 0);
+
+      if (testflag(addr, af_chunking_used))
+	rmt_dlv_checked_write(fd, 'K', '0', NULL, 0);
+
+      if (testflag(addr, af_tcp_fastopen_conn))
+	rmt_dlv_checked_write(fd, 'T',
+	  testflag(addr, af_tcp_fastopen) ? testflag(addr, af_tcp_fastopen_data)
+	  ? '2' : '1' : '0',
+	  NULL, 0);
+
       memcpy(big_buffer, &addr->dsn_aware, sizeof(addr->dsn_aware));
       rmt_dlv_checked_write(fd, 'D', '0', big_buffer, sizeof(addr->dsn_aware));
-      DEBUG(D_deliver) debug_printf("DSN write: addr->dsn_aware = %d\n", addr->dsn_aware);
 
       /* Retry information: for most success cases this will be null. */
 
@@ -4536,9 +4915,9 @@ for (delivery_count = 0; addr_remote; delivery_count++)
         {
         sprintf(CS big_buffer, "%c%.500s", r->flags, r->key);
         ptr = big_buffer + Ustrlen(big_buffer+2) + 3;
-        memcpy(ptr, &(r->basic_errno), sizeof(r->basic_errno));
+        memcpy(ptr, &r->basic_errno, sizeof(r->basic_errno));
         ptr += sizeof(r->basic_errno);
-        memcpy(ptr, &(r->more_errno), sizeof(r->more_errno));
+        memcpy(ptr, &r->more_errno, sizeof(r->more_errno));
         ptr += sizeof(r->more_errno);
         if (!r->message) *ptr++ = 0; else
           {
@@ -4587,11 +4966,13 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
       sprintf(CS big_buffer, "%c%c", addr->transport_return, addr->special_action);
       ptr = big_buffer + 2;
-      memcpy(ptr, &(addr->basic_errno), sizeof(addr->basic_errno));
+      memcpy(ptr, &addr->basic_errno, sizeof(addr->basic_errno));
       ptr += sizeof(addr->basic_errno);
-      memcpy(ptr, &(addr->more_errno), sizeof(addr->more_errno));
+      memcpy(ptr, &addr->more_errno, sizeof(addr->more_errno));
       ptr += sizeof(addr->more_errno);
-      memcpy(ptr, &(addr->flags), sizeof(addr->flags));
+      memcpy(ptr, &addr->delivery_usec, sizeof(addr->delivery_usec));
+      ptr += sizeof(addr->delivery_usec);
+      memcpy(ptr, &addr->flags, sizeof(addr->flags));
       ptr += sizeof(addr->flags);
 
       if (!addr->message) *ptr++ = 0; else
@@ -4604,7 +4985,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
         {
         ptr += sprintf(CS ptr, "%.256s", addr->host_used->name) + 1;
         ptr += sprintf(CS ptr, "%.64s", addr->host_used->address) + 1;
-        memcpy(ptr, &(addr->host_used->port), sizeof(addr->host_used->port));
+        memcpy(ptr, &addr->host_used->port, sizeof(addr->host_used->port));
         ptr += sizeof(addr->host_used->port);
 
         /* DNS lookup status */
@@ -4643,9 +5024,23 @@ for (delivery_count = 0; addr_remote; delivery_count++)
 
   (void)close(pfd[pipe_write]);
 
+  /* If we have a connection still open from a verify stage (lazy-close)
+  release its TLS library context (if any) as responsibility was passed to
+  the delivery child process. */
+
+  if (cutthrough.cctx.sock >= 0 && cutthrough.callout_hold_only)
+    {
+#ifdef SUPPORT_TLS
+    if (cutthrough.is_tls)
+      tls_close(cutthrough.cctx.tls_ctx, TLS_NO_SHUTDOWN);
+#endif
+    (void) close(cutthrough.cctx.sock);
+    release_cutthrough_connection(US"passed to transport proc");
+    }
+
   /* Fork failed; defer with error message */
 
-  if (pid < 0)
+  if (pid == -1)
     {
     (void)close(pfd[pipe_read]);
     panicmsg = string_sprintf("fork failed for remote delivery to %s: %s",
@@ -4681,7 +5076,7 @@ for (delivery_count = 0; addr_remote; delivery_count++)
   newly created process get going before we create another process. This should
   ensure repeatability in the tests. We only need to wait a tad. */
 
-  else if (running_in_test_harness) millisleep(500);
+  else if (f.running_in_test_harness) millisleep(500);
 
   continue;
 
@@ -4721,13 +5116,17 @@ Returns:    OK
 */
 
 int
-deliver_split_address(address_item *addr)
+deliver_split_address(address_item * addr)
 {
-uschar *address = addr->address;
-uschar *domain = Ustrrchr(address, '@');
-uschar *t;
-int len = domain - address;
+uschar * address = addr->address;
+uschar * domain;
+uschar * t;
+int len;
 
+if (!(domain = Ustrrchr(address, '@')))
+  return DEFER;		/* should always have a domain, but just in case... */
+
+len = domain - address;
 addr->domain = string_copylc(domain+1);    /* Domains are always caseless */
 
 /* The implication in the RFCs (though I can't say I've seen it spelled out
@@ -4739,7 +5138,7 @@ removing quoting backslashes and any unquoted doublequotes. */
 t = addr->cc_local_part = store_get(len+1);
 while(len-- > 0)
   {
-  register int c = *address++;
+  int c = *address++;
   if (c == '\"') continue;
   if (c == '\\')
     {
@@ -4782,6 +5181,7 @@ if (percent_hack_domains)
     address_item *new_parent = store_get(sizeof(address_item));
     *new_parent = *addr;
     addr->parent = new_parent;
+    new_parent->child_count = 1;
     addr->address = new_address;
     addr->unique = string_copy(new_address);
     addr->domain = deliver_domain;
@@ -4818,9 +5218,8 @@ Returns:     NULL or an expanded string
 static uschar *
 next_emf(FILE *f, uschar *which)
 {
-int size = 256;
-int ptr = 0;
-uschar *para, *yield;
+uschar *yield;
+gstring * para;
 uschar buffer[256];
 
 if (!f) return NULL;
@@ -4828,16 +5227,14 @@ if (!f) return NULL;
 if (!Ufgets(buffer, sizeof(buffer), f) || Ustrcmp(buffer, "****\n") == 0)
   return NULL;
 
-para = store_get(size);
+para = string_get(256);
 for (;;)
   {
-  para = string_cat(para, &size, &ptr, buffer, Ustrlen(buffer));
+  para = string_cat(para, buffer);
   if (!Ufgets(buffer, sizeof(buffer), f) || Ustrcmp(buffer, "****\n") == 0)
     break;
   }
-para[ptr] = 0;
-
-if ((yield = expand_string(para)))
+if ((yield = expand_string(string_from_gstring(para))))
   return yield;
 
 log_write(0, LOG_MAIN|LOG_PANIC, "Failed to expand string from "
@@ -4981,7 +5378,7 @@ static void
 print_address_error(address_item *addr, FILE *f, uschar *t)
 {
 int count = Ustrlen(t);
-uschar *s = testflag(addr, af_pass_message)? addr->message : NULL;
+uschar *s = testflag(addr, af_pass_message) ? addr->message : NULL;
 
 if (!s && !(s = addr->user_message))
   return;
@@ -5110,6 +5507,25 @@ while ((addr = *anchor))
 
 
 
+/************************************************/
+
+static void
+print_dsn_addr_action(FILE * f, address_item * addr,
+  uschar * action, uschar * status)
+{
+address_item * pa;
+
+if (addr->dsn_orcpt)
+  fprintf(f,"Original-Recipient: %s\n", addr->dsn_orcpt);
+
+for (pa = addr; pa->parent; ) pa = pa->parent;
+fprintf(f, "Action: %s\n"
+    "Final-Recipient: rfc822;%s\n"
+    "Status: %s\n",
+  action, pa->address, status);
+}
+
+
 /*************************************************
 *              Deliver one message               *
 *************************************************/
@@ -5130,6 +5546,8 @@ whoever).
 A delivery operation has a process all to itself; we never deliver more than
 one message in the same process. Therefore we needn't worry too much about
 store leakage.
+
+Liable to be called as root.
 
 Arguments:
   id          the id of the message to be delivered
@@ -5155,7 +5573,6 @@ int final_yield = DELIVER_ATTEMPTED_NORMAL;
 time_t now = time(NULL);
 address_item *addr_last = NULL;
 uschar *filter_message = NULL;
-FILE *jread;
 int process_recipients = RECIP_ACCEPT;
 open_db dbblock;
 open_db *dbm_file;
@@ -5201,8 +5618,9 @@ message size. This use of strcpy() is OK because the length id is checked when
 it is obtained from a command line (the -M or -q options), and otherwise it is
 known to be a valid message id. */
 
-Ustrcpy(message_id, id);
-deliver_force = forced;
+if (id != message_id)
+  Ustrcpy(message_id, id);
+f.deliver_force = forced;
 return_count = 0;
 message_size = 0;
 
@@ -5226,7 +5644,7 @@ Any failures cause messages to be written to the log, except for missing files
 while queue running - another process probably completed delivery. As part of
 opening the data file, message_subdir gets set. */
 
-if (!spool_open_datafile(id))
+if ((deliver_datafile = spool_open_datafile(id)) < 0)
   return continue_closedown();  /* yields DELIVER_NOT_ATTEMPTED */
 
 /* The value of message_size at this point has been set to the data length,
@@ -5237,53 +5655,52 @@ store, and also the list of recipients and the tree of non-recipients and
 assorted flags. It updates message_size. If there is a reading or format error,
 give up; if the message has been around for sufficiently long, remove it. */
 
-sprintf(CS spoolname, "%s-H", id);
-if ((rc = spool_read_header(spoolname, TRUE, TRUE)) != spool_read_OK)
   {
-  if (errno == ERRNO_SPOOLFORMAT)
+  uschar * spoolname = string_sprintf("%s-H", id);
+  if ((rc = spool_read_header(spoolname, TRUE, TRUE)) != spool_read_OK)
     {
-    struct stat statbuf;
-    sprintf(CS big_buffer, "%s/input/%s/%s", spool_directory, message_subdir,
-      spoolname);
-    if (Ustat(big_buffer, &statbuf) == 0)
-      log_write(0, LOG_MAIN, "Format error in spool file %s: "
-        "size=" OFF_T_FMT, spoolname, statbuf.st_size);
-    else log_write(0, LOG_MAIN, "Format error in spool file %s", spoolname);
+    if (errno == ERRNO_SPOOLFORMAT)
+      {
+      struct stat statbuf;
+      if (Ustat(spool_fname(US"input", message_subdir, spoolname, US""),
+		&statbuf) == 0)
+	log_write(0, LOG_MAIN, "Format error in spool file %s: "
+	  "size=" OFF_T_FMT, spoolname, statbuf.st_size);
+      else
+	log_write(0, LOG_MAIN, "Format error in spool file %s", spoolname);
+      }
+    else
+      log_write(0, LOG_MAIN, "Error reading spool file %s: %s", spoolname,
+	strerror(errno));
+
+    /* If we managed to read the envelope data, received_time contains the
+    time the message was received. Otherwise, we can calculate it from the
+    message id. */
+
+    if (rc != spool_read_hdrerror)
+      {
+      received_time.tv_sec = received_time.tv_usec = 0;
+      /*XXX subsec precision?*/
+      for (i = 0; i < 6; i++)
+	received_time.tv_sec = received_time.tv_sec * BASE_62 + tab62[id[i] - '0'];
+      }
+
+    /* If we've had this malformed message too long, sling it. */
+
+    if (now - received_time.tv_sec > keep_malformed)
+      {
+      Uunlink(spool_fname(US"msglog", message_subdir, id, US""));
+      Uunlink(spool_fname(US"input", message_subdir, id, US"-D"));
+      Uunlink(spool_fname(US"input", message_subdir, id, US"-H"));
+      Uunlink(spool_fname(US"input", message_subdir, id, US"-J"));
+      log_write(0, LOG_MAIN, "Message removed because older than %s",
+	readconf_printtime(keep_malformed));
+      }
+
+    (void)close(deliver_datafile);
+    deliver_datafile = -1;
+    return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
     }
-  else
-    log_write(0, LOG_MAIN, "Error reading spool file %s: %s", spoolname,
-      strerror(errno));
-
-  /* If we managed to read the envelope data, received_time contains the
-  time the message was received. Otherwise, we can calculate it from the
-  message id. */
-
-  if (rc != spool_read_hdrerror)
-    {
-    received_time = 0;
-    for (i = 0; i < 6; i++)
-      received_time = received_time * BASE_62 + tab62[id[i] - '0'];
-    }
-
-  /* If we've had this malformed message too long, sling it. */
-
-  if (now - received_time > keep_malformed)
-    {
-    sprintf(CS spoolname, "%s/msglog/%s/%s", spool_directory, message_subdir, id);
-    Uunlink(spoolname);
-    sprintf(CS spoolname, "%s/input/%s/%s-D", spool_directory, message_subdir, id);
-    Uunlink(spoolname);
-    sprintf(CS spoolname, "%s/input/%s/%s-H", spool_directory, message_subdir, id);
-    Uunlink(spoolname);
-    sprintf(CS spoolname, "%s/input/%s/%s-J", spool_directory, message_subdir, id);
-    Uunlink(spoolname);
-    log_write(0, LOG_MAIN, "Message removed because older than %s",
-      readconf_printtime(keep_malformed));
-    }
-
-  (void)close(deliver_datafile);
-  deliver_datafile = -1;
-  return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
   }
 
 /* The spool header file has been read. Look to see if there is an existing
@@ -5295,37 +5712,55 @@ existence, as it will get further successful deliveries added to it in this
 run, and it will be deleted if this function gets to its end successfully.
 Otherwise it might be needed again. */
 
-sprintf(CS spoolname, "%s/input/%s/%s-J", spool_directory, message_subdir, id);
-jread = Ufopen(spoolname, "rb");
-if (jread)
   {
-  while (Ufgets(big_buffer, big_buffer_size, jread))
+  uschar * fname = spool_fname(US"input", message_subdir, id, US"-J");
+  FILE * jread;
+
+  if (  (journal_fd = Uopen(fname, O_RDWR|O_APPEND
+#ifdef O_CLOEXEC
+				    | O_CLOEXEC
+#endif
+#ifdef O_NOFOLLOW
+				    | O_NOFOLLOW
+#endif
+	, SPOOL_MODE)) >= 0
+     && lseek(journal_fd, 0, SEEK_SET) == 0
+     && (jread = fdopen(journal_fd, "rb"))
+     )
     {
-    int n = Ustrlen(big_buffer);
-    big_buffer[n-1] = 0;
-    tree_add_nonrecipient(big_buffer);
-    DEBUG(D_deliver) debug_printf("Previously delivered address %s taken from "
-      "journal file\n", big_buffer);
+    while (Ufgets(big_buffer, big_buffer_size, jread))
+      {
+      int n = Ustrlen(big_buffer);
+      big_buffer[n-1] = 0;
+      tree_add_nonrecipient(big_buffer);
+      DEBUG(D_deliver) debug_printf("Previously delivered address %s taken from "
+	"journal file\n", big_buffer);
+      }
+    rewind(jread);
+    if ((journal_fd = dup(fileno(jread))) < 0)
+      journal_fd = fileno(jread);
+    else
+      (void) fclose(jread);	/* Try to not leak the FILE resource */
+
+    /* Panic-dies on error */
+    (void)spool_write_header(message_id, SW_DELIVERING, NULL);
     }
-  (void)fclose(jread);
-  /* Panic-dies on error */
-  (void)spool_write_header(message_id, SW_DELIVERING, NULL);
-  }
-else if (errno != ENOENT)
-  {
-  log_write(0, LOG_MAIN|LOG_PANIC, "attempt to open journal for reading gave: "
-    "%s", strerror(errno));
-  return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
-  }
+  else if (errno != ENOENT)
+    {
+    log_write(0, LOG_MAIN|LOG_PANIC, "attempt to open journal for reading gave: "
+      "%s", strerror(errno));
+    return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
+    }
 
-/* A null recipients list indicates some kind of disaster. */
+  /* A null recipients list indicates some kind of disaster. */
 
-if (!recipients_list)
-  {
-  (void)close(deliver_datafile);
-  deliver_datafile = -1;
-  log_write(0, LOG_MAIN, "Spool error: no recipients for %s", spoolname);
-  return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
+  if (!recipients_list)
+    {
+    (void)close(deliver_datafile);
+    deliver_datafile = -1;
+    log_write(0, LOG_MAIN, "Spool error: no recipients for %s", fname);
+    return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
+    }
   }
 
 
@@ -5333,7 +5768,7 @@ if (!recipients_list)
 can happen, but in the default situation, unless forced, no delivery is
 attempted. */
 
-if (deliver_freeze)
+if (f.deliver_freeze)
   {
 #ifdef SUPPORT_MOVE_FROZEN_MESSAGES
   /* Moving to another directory removes the message from Exim's view. Other
@@ -5361,10 +5796,8 @@ if (deliver_freeze)
   ignore timer is exceeded. The message will be discarded if this delivery
   fails. */
 
-  else if (sender_address[0] == 0 && message_age >= ignore_bounce_errors_after)
-    {
+  else if (!*sender_address && message_age >= ignore_bounce_errors_after)
     log_write(0, LOG_MAIN, "Unfrozen by errmsg timer");
-    }
 
   /* If this is a bounce message, or there's no auto thaw, or we haven't
   reached the auto thaw time yet, and this delivery is not forced by an admin
@@ -5378,8 +5811,8 @@ if (deliver_freeze)
 	  || auto_thaw <= 0
 	  || now <= deliver_frozen_at + auto_thaw
           )
-       && (  !forced || !deliver_force_thaw
-	  || !admin_user || continue_hostname
+       && (  !forced || !f.deliver_force_thaw
+	  || !f.admin_user || continue_hostname
        )  )
       {
       (void)close(deliver_datafile);
@@ -5393,7 +5826,7 @@ if (deliver_freeze)
 
     if (forced)
       {
-      deliver_manual_thaw = TRUE;
+      f.deliver_manual_thaw = TRUE;
       log_write(0, LOG_MAIN, "Unfrozen by forced delivery");
       }
     else log_write(0, LOG_MAIN, "Unfrozen by auto-thaw");
@@ -5401,7 +5834,7 @@ if (deliver_freeze)
 
   /* We get here if any of the rules for unfreezing have triggered. */
 
-  deliver_freeze = FALSE;
+  f.deliver_freeze = FALSE;
   update_spool = TRUE;
   }
 
@@ -5413,16 +5846,14 @@ done by rewriting the header spool file. */
 
 if (message_logs)
   {
-  uschar *error;
+  uschar * fname = spool_fname(US"msglog", message_subdir, id, US"");
+  uschar * error;
   int fd;
 
-  sprintf(CS spoolname, "%s/msglog/%s/%s", spool_directory, message_subdir, id);
-  fd = open_msglog_file(spoolname, SPOOL_MODE, &error);
-
-  if (fd < 0)
+  if ((fd = open_msglog_file(fname, SPOOL_MODE, &error)) < 0)
     {
     log_write(0, LOG_MAIN|LOG_PANIC, "Couldn't %s message log %s: %s", error,
-      spoolname, strerror(errno));
+      fname, strerror(errno));
     return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
     }
 
@@ -5431,7 +5862,7 @@ if (message_logs)
   if (!(message_log = fdopen(fd, "a")))
     {
     log_write(0, LOG_MAIN|LOG_PANIC, "Couldn't fdopen message log %s: %s",
-      spoolname, strerror(errno));
+      fname, strerror(errno));
     return continue_closedown();   /* yields DELIVER_NOT_ATTEMPTED */
     }
   }
@@ -5473,13 +5904,11 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
     ugid.uid_set = ugid.gid_set = TRUE;
     }
   else
-    {
     ugid.uid_set = ugid.gid_set = FALSE;
-    }
 
   return_path = sender_address;
-  enable_dollar_recipients = TRUE;   /* Permit $recipients in system filter */
-  system_filtering = TRUE;
+  f.enable_dollar_recipients = TRUE;   /* Permit $recipients in system filter */
+  f.system_filtering = TRUE;
 
   /* Any error in the filter file causes a delivery to be abandoned. */
 
@@ -5527,8 +5956,8 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
   /* Reset things. If the filter message is an empty string, which can happen
   for a filter "fail" or "freeze" command with no text, reset it to NULL. */
 
-  system_filtering = FALSE;
-  enable_dollar_recipients = FALSE;
+  f.system_filtering = FALSE;
+  f.enable_dollar_recipients = FALSE;
   if (filter_message && filter_message[0] == 0) filter_message = NULL;
 
   /* Save the values of the system filter variables so that user filters
@@ -5551,9 +5980,9 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
   unset "delivered", which is forced by the "freeze" command to make -bF
   work properly. */
 
-  else if (rc == FF_FREEZE && !deliver_manual_thaw)
+  else if (rc == FF_FREEZE && !f.deliver_manual_thaw)
     {
-    deliver_freeze = TRUE;
+    f.deliver_freeze = TRUE;
     deliver_frozen_at = time(NULL);
     process_recipients = RECIP_DEFER;
     frozen_info = string_sprintf(" by the system filter%s%s",
@@ -5639,9 +6068,9 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
 
     while (p)
       {
-      if (parent->child_count == SHRT_MAX)
+      if (parent->child_count == USHRT_MAX)
         log_write(0, LOG_MAIN|LOG_PANIC_DIE, "system filter generated more "
-          "than %d delivery addresses", SHRT_MAX);
+          "than %d delivery addresses", USHRT_MAX);
       parent->child_count++;
       p->parent = parent;
 
@@ -5651,11 +6080,11 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
         uschar *type;
         p->uid = uid;
         p->gid = gid;
-        setflag(p, af_uid_set |
-                   af_gid_set |
-                   af_allow_file |
-                   af_allow_pipe |
-                   af_allow_reply);
+        setflag(p, af_uid_set);
+        setflag(p, af_gid_set);
+        setflag(p, af_allow_file);
+        setflag(p, af_allow_pipe);
+        setflag(p, af_allow_reply);
 
         /* Find the name of the system filter's appropriate pfr transport */
 
@@ -5698,22 +6127,18 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
           tpname = tmp;
           }
         else
-          {
           p->message = string_sprintf("system_filter_%s_transport is unset",
             type);
-          }
 
         if (tpname)
           {
           transport_instance *tp;
           for (tp = transports; tp; tp = tp->next)
-            {
             if (Ustrcmp(tp->name, tpname) == 0)
               {
               p->transport = tp;
               break;
               }
-            }
           if (!tp)
             p->message = string_sprintf("failed to find \"%s\" transport "
               "for system filter delivery", tpname);
@@ -5728,7 +6153,7 @@ else if (system_filter && process_recipients != RECIP_FAIL_TIMEOUT)
           p = p->next;
           if (!addr_last) addr_new = p; else addr_last->next = p;
           badp->local_part = badp->address;   /* Needed for log line */
-          post_process_one(badp, DEFER, LOG_MAIN|LOG_PANIC, DTYPE_ROUTER, 0);
+          post_process_one(badp, DEFER, LOG_MAIN|LOG_PANIC, EXIM_DTYPE_ROUTER, 0);
           continue;
           }
         }    /* End of pfr handling */
@@ -5761,9 +6186,7 @@ spool if the message is deferred, and in any case there are casing
 complications for local addresses. */
 
 if (process_recipients != RECIP_IGNORE)
-  {
   for (i = 0; i < recipients_count; i++)
-    {
     if (!tree_search(tree_nonrecipients, recipients_list[i].address))
       {
       recipient_item *r = recipients_list + i;
@@ -5789,26 +6212,26 @@ if (process_recipients != RECIP_IGNORE)
       new->dsn_flags = r->dsn_flags & rf_dsnflags;
       new->dsn_orcpt = r->orcpt;
       DEBUG(D_deliver) debug_printf("DSN: set orcpt: %s  flags: %d\n",
-	new->dsn_orcpt, new->dsn_flags);
+	new->dsn_orcpt ? new->dsn_orcpt : US"", new->dsn_flags);
 
       switch (process_recipients)
         {
         /* RECIP_DEFER is set when a system filter freezes a message. */
 
         case RECIP_DEFER:
-        new->next = addr_defer;
-        addr_defer = new;
-        break;
+	  new->next = addr_defer;
+	  addr_defer = new;
+	  break;
 
 
         /* RECIP_FAIL_FILTER is set when a system filter has obeyed a "fail"
         command. */
 
         case RECIP_FAIL_FILTER:
-        new->message =
-          filter_message ? filter_message : US"delivery cancelled";
-        setflag(new, af_pass_message);
-        goto RECIP_QUEUE_FAILED;   /* below */
+	  new->message =
+	    filter_message ? filter_message : US"delivery cancelled";
+	  setflag(new, af_pass_message);
+	  goto RECIP_QUEUE_FAILED;   /* below */
 
 
         /* RECIP_FAIL_TIMEOUT is set when a message is frozen, but is older
@@ -5818,15 +6241,15 @@ if (process_recipients != RECIP_IGNORE)
         been logged. */
 
         case RECIP_FAIL_TIMEOUT:
-        new->message  = US"delivery cancelled; message timed out";
-        goto RECIP_QUEUE_FAILED;   /* below */
+	  new->message  = US"delivery cancelled; message timed out";
+	  goto RECIP_QUEUE_FAILED;   /* below */
 
 
         /* RECIP_FAIL is set when -Mg has been used. */
 
         case RECIP_FAIL:
-        new->message  = US"delivery cancelled by administrator";
-        /* Fall through */
+	  new->message  = US"delivery cancelled by administrator";
+	  /* Fall through */
 
         /* Common code for the failure cases above. If this is not a bounce
         message, put the address on the failed list so that it is used to
@@ -5834,11 +6257,11 @@ if (process_recipients != RECIP_IGNORE)
         The incident has already been logged. */
 
         RECIP_QUEUE_FAILED:
-        if (sender_address[0] != 0)
-          {
-          new->next = addr_failed;
-          addr_failed = new;
-          }
+	  if (sender_address[0])
+	    {
+	    new->next = addr_failed;
+	    addr_failed = new;
+	    }
         break;
 
 
@@ -5847,17 +6270,17 @@ if (process_recipients != RECIP_IGNORE)
         is a bounce message, it will get frozen. */
 
         case RECIP_FAIL_LOOP:
-        new->message = US"Too many \"Received\" headers - suspected mail loop";
-        post_process_one(new, FAIL, LOG_MAIN, DTYPE_ROUTER, 0);
-        break;
+	  new->message = US"Too many \"Received\" headers - suspected mail loop";
+	  post_process_one(new, FAIL, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
+	  break;
 
 
         /* Value should be RECIP_ACCEPT; take this as the safe default. */
 
         default:
-        if (!addr_new) addr_new = new; else addr_last->next = new;
-        addr_last = new;
-        break;
+	  if (!addr_new) addr_new = new; else addr_last->next = new;
+	  addr_last = new;
+	  break;
         }
 
 #ifndef DISABLE_EVENT
@@ -5865,22 +6288,26 @@ if (process_recipients != RECIP_IGNORE)
 	{
 	uschar * save_local =  deliver_localpart;
 	const uschar * save_domain = deliver_domain;
+	uschar * addr = new->address, * errmsg = NULL;
+	int start, end, dom;
 
-	deliver_localpart = expand_string(
-		      string_sprintf("${local_part:%s}", new->address));
-	deliver_domain =    expand_string(
-		      string_sprintf("${domain:%s}", new->address));
+	if (!parse_extract_address(addr, &errmsg, &start, &end, &dom, TRUE))
+	  log_write(0, LOG_MAIN|LOG_PANIC,
+                "failed to parse address '%.100s': %s\n", addr, errmsg);
+	else
+	  {
+	  deliver_localpart =
+	    string_copyn(addr+start, dom ? (dom-1) - start : end - start);
+	  deliver_domain = dom ? CUS string_copyn(addr+dom, end - dom) : CUS"";
 
-	(void) event_raise(event_action,
-		      US"msg:fail:internal", new->message);
+	  event_raise(event_action, US"msg:fail:internal", new->message);
 
-	deliver_localpart = save_local;
-	deliver_domain =    save_domain;
+	  deliver_localpart = save_local;
+	  deliver_domain = save_domain;
+	  }
 	}
 #endif
       }
-    }
-  }
 
 DEBUG(D_deliver)
   {
@@ -5936,7 +6363,7 @@ deliver_out_buffer = store_malloc(DELIVER_OUT_BUFFER_SIZE);
  . If new addresses have been generated by the routers, da capo.
 */
 
-header_rewritten = FALSE;          /* No headers rewritten yet */
+f.header_rewritten = FALSE;          /* No headers rewritten yet */
 while (addr_new)           /* Loop until all addresses dealt with */
   {
   address_item *addr, *parent;
@@ -5945,10 +6372,8 @@ while (addr_new)           /* Loop until all addresses dealt with */
   not exist. In both cases, dbm_file is NULL. */
 
   if (!(dbm_file = dbfn_open(US"retry", O_RDONLY, &dbblock, FALSE)))
-    {
     DEBUG(D_deliver|D_retry|D_route|D_hints_lookup)
       debug_printf("no retry data available\n");
-    }
 
   /* Scan the current batch of new addresses, to handle pipes, files and
   autoreplies, and determine which others are ready for routing. */
@@ -5984,8 +6409,8 @@ while (addr_new)           /* Loop until all addresses dealt with */
         addr->local_part = addr->address;
         addr->message =
           US"filter autoreply generated syntactically invalid recipient";
-        setflag(addr, af_ignore_error);
-        (void)post_process_one(addr, FAIL, LOG_MAIN, DTYPE_ROUTER, 0);
+        addr->prop.ignore_error = TRUE;
+        (void) post_process_one(addr, FAIL, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
         continue;   /* with the next new address */
         }
 
@@ -6052,7 +6477,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
           {
           addr->basic_errno = ERRNO_FORBIDFILE;
           addr->message = US"delivery to file forbidden";
-          (void)post_process_one(addr, FAIL, LOG_MAIN, DTYPE_ROUTER, 0);
+          (void)post_process_one(addr, FAIL, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
           continue;   /* with the next new address */
           }
         }
@@ -6062,7 +6487,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
           {
           addr->basic_errno = ERRNO_FORBIDPIPE;
           addr->message = US"delivery to pipe forbidden";
-          (void)post_process_one(addr, FAIL, LOG_MAIN, DTYPE_ROUTER, 0);
+          (void)post_process_one(addr, FAIL, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
           continue;   /* with the next new address */
           }
         }
@@ -6070,7 +6495,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
         {
         addr->basic_errno = ERRNO_FORBIDREPLY;
         addr->message = US"autoreply forbidden";
-        (void)post_process_one(addr, FAIL, LOG_MAIN, DTYPE_ROUTER, 0);
+        (void)post_process_one(addr, FAIL, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
         continue;     /* with the next new address */
         }
 
@@ -6081,7 +6506,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
 
       if (addr->basic_errno == ERRNO_BADTRANSPORT)
         {
-        (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_ROUTER, 0);
+        (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
         continue;
         }
 
@@ -6093,7 +6518,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
         {
         uschar *save = addr->transport->name;
         addr->transport->name = US"**bypassed**";
-        (void)post_process_one(addr, OK, LOG_MAIN, DTYPE_TRANSPORT, '=');
+        (void)post_process_one(addr, OK, LOG_MAIN, EXIM_DTYPE_TRANSPORT, '=');
         addr->transport->name = save;
         continue;   /* with the next new address */
         }
@@ -6116,7 +6541,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
       {
       addr->message = US"cannot check percent_hack_domains";
       addr->basic_errno = ERRNO_LISTDEFER;
-      (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_NONE, 0);
+      (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_NONE, 0);
       continue;
       }
 
@@ -6140,7 +6565,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
         addr->message = US"domain is held";
         addr->basic_errno = ERRNO_HELD;
         }
-      (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_NONE, 0);
+      (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_NONE, 0);
       continue;
       }
 
@@ -6202,13 +6627,21 @@ while (addr_new)           /* Loop until all addresses dealt with */
       if (  domain_retry_record
          && now - domain_retry_record->time_stamp > retry_data_expire
 	 )
+	{
+	DEBUG(D_deliver|D_retry)
+	  debug_printf("domain retry record present but expired\n");
         domain_retry_record = NULL;    /* Ignore if too old */
+	}
 
       address_retry_record = dbfn_read(dbm_file, addr->address_retry_key);
       if (  address_retry_record
          && now - address_retry_record->time_stamp > retry_data_expire
 	 )
+	{
+	DEBUG(D_deliver|D_retry)
+	  debug_printf("address retry record present but expired\n");
         address_retry_record = NULL;   /* Ignore if too old */
+	}
 
       if (!address_retry_record)
         {
@@ -6217,7 +6650,11 @@ while (addr_new)           /* Loop until all addresses dealt with */
         address_retry_record = dbfn_read(dbm_file, altkey);
         if (  address_retry_record
 	   && now - address_retry_record->time_stamp > retry_data_expire)
+	  {
+	  DEBUG(D_deliver|D_retry)
+	    debug_printf("address<sender> retry record present but expired\n");
           address_retry_record = NULL;   /* Ignore if too old */
+	  }
         }
       }
     else
@@ -6226,9 +6663,18 @@ while (addr_new)           /* Loop until all addresses dealt with */
     DEBUG(D_deliver|D_retry)
       {
       if (!domain_retry_record)
-        debug_printf("no domain retry record\n");
+	debug_printf("no   domain  retry record\n");
+      else
+	debug_printf("have domain  retry record; next_try = now%+d\n",
+		      f.running_in_test_harness ? 0 :
+		      (int)(domain_retry_record->next_try - now));
+
       if (!address_retry_record)
-        debug_printf("no address retry record\n");
+	debug_printf("no   address retry record\n");
+      else
+	debug_printf("have address retry record; next_try = now%+d\n",
+		      f.running_in_test_harness ? 0 :
+		      (int)(address_retry_record->next_try - now));
       }
 
     /* If we are sending a message down an existing SMTP connection, we must
@@ -6249,7 +6695,10 @@ while (addr_new)           /* Loop until all addresses dealt with */
       {
       addr->message = US"reusing SMTP connection skips previous routing defer";
       addr->basic_errno = ERRNO_RRETRY;
-      (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_ROUTER, 0);
+      (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
+
+      addr->message = domain_retry_record->text;
+      setflag(addr, af_pass_message);
       }
 
     /* If we are in a queue run, defer routing unless there is no retry data or
@@ -6284,7 +6733,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
     which keep the retry record fresh, which can lead to us perpetually
     deferring messages. */
 
-    else if (  (  queue_running && !deliver_force
+    else if (  (  f.queue_running && !f.deliver_force
 	       || continue_hostname
 	       )
             && (  (  domain_retry_record
@@ -6302,7 +6751,17 @@ while (addr_new)           /* Loop until all addresses dealt with */
       {
       addr->message = US"retry time not reached";
       addr->basic_errno = ERRNO_RRETRY;
-      (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_ROUTER, 0);
+      (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
+
+      /* For remote-retry errors (here and just above) that we've not yet
+      hit the rery time, use the error recorded in the retry database
+      as info in the warning message.  This lets us send a message even
+      when we're not failing on a fresh attempt.  We assume that this
+      info is not sensitive. */
+
+      addr->message = domain_retry_record
+	? domain_retry_record->text : address_retry_record->text;
+      setflag(addr, af_pass_message);
       }
 
     /* The domain is OK for routing. Remember if retry data exists so it
@@ -6328,7 +6787,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
   those domains. During queue runs, queue_domains is forced to be unset.
   Optimize by skipping this pass through the addresses if nothing is set. */
 
-  if (!deliver_force && queue_domains)
+  if (!f.deliver_force && queue_domains)
     {
     address_item *okaddr = NULL;
     while (addr_route)
@@ -6340,24 +6799,22 @@ while (addr_new)           /* Loop until all addresses dealt with */
       if ((rc = match_isinlist(addr->domain, (const uschar **)&queue_domains, 0,
             &domainlist_anchor, addr->domain_cache, MCL_DOMAIN, TRUE, NULL))
               != OK)
-        {
         if (rc == DEFER)
           {
           addr->basic_errno = ERRNO_LISTDEFER;
           addr->message = US"queue_domains lookup deferred";
-          (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_ROUTER, 0);
+          (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
           }
         else
           {
           addr->next = okaddr;
           okaddr = addr;
           }
-        }
       else
         {
         addr->basic_errno = ERRNO_QUEUE_DOMAIN;
         addr->message = US"domain is in queue_domains";
-        (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_ROUTER, 0);
+        (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
         }
       }
 
@@ -6387,7 +6844,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
          &addr_succeed, v_none)) == DEFER)
       retry_add_item(addr,
         addr->router->retry_use_local_part
-        ?  string_sprintf("R:%s@%s", addr->local_part, addr->domain)
+        ? string_sprintf("R:%s@%s", addr->local_part, addr->domain)
 	: string_sprintf("R:%s", addr->domain),
 	0);
 
@@ -6422,7 +6879,7 @@ while (addr_new)           /* Loop until all addresses dealt with */
 
     if (rc != OK)
       {
-      (void)post_process_one(addr, rc, LOG_MAIN, DTYPE_ROUTER, 0);
+      (void)post_process_one(addr, rc, LOG_MAIN, EXIM_DTYPE_ROUTER, 0);
       continue;  /* route next address */
       }
 
@@ -6481,15 +6938,14 @@ while (addr_new)           /* Loop until all addresses dealt with */
         addr2->host_list = addr->host_list;
         addr2->fallback_hosts = addr->fallback_hosts;
         addr2->prop.errors_address = addr->prop.errors_address;
-        copyflag(addr2, addr, af_hide_child | af_local_host_removed);
+        copyflag(addr2, addr, af_hide_child);
+        copyflag(addr2, addr, af_local_host_removed);
 
         DEBUG(D_deliver|D_route)
-          {
           debug_printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n"
                        "routing %s\n"
                        "Routing for %s copied from %s\n",
             addr2->address, addr2->address, addr->address);
-          }
         }
       }
     }  /* Continue with routing the next address. */
@@ -6625,23 +7081,21 @@ remember them for all subsequent deliveries. This can be delayed till later if
 there is only address to be delivered - if it succeeds the spool write need not
 happen. */
 
-if (  header_rewritten
-   && (  (  addr_local
-         && (addr_local->next || addr_remote)
-	 )
-      || (addr_remote && addr_remote->next)
+if (  f.header_rewritten
+   && (  addr_local && (addr_local->next || addr_remote)
+      || addr_remote && addr_remote->next
    )  )
   {
   /* Panic-dies on error */
   (void)spool_write_header(message_id, SW_DELIVERING, NULL);
-  header_rewritten = FALSE;
+  f.header_rewritten = FALSE;
   }
 
 
-/* If there are any deliveries to be done, open the journal file. This is used
-to record successful deliveries as soon as possible after each delivery is
-known to be complete. A file opened with O_APPEND is used so that several
-processes can run simultaneously.
+/* If there are any deliveries to do and we do not already have the journal
+file, create it. This is used to record successful deliveries as soon as
+possible after each delivery is known to be complete. A file opened with
+O_APPEND is used so that several processes can run simultaneously.
 
 The journal is just insurance against crashes. When the spool file is
 ultimately updated at the end of processing, the journal is deleted. If a
@@ -6650,33 +7104,46 @@ therein are added to the non-recipients. */
 
 if (addr_local || addr_remote)
   {
-  sprintf(CS spoolname, "%s/input/%s/%s-J", spool_directory, message_subdir, id);
-  journal_fd = Uopen(spoolname, O_WRONLY|O_APPEND|O_CREAT, SPOOL_MODE);
-
   if (journal_fd < 0)
     {
-    log_write(0, LOG_MAIN|LOG_PANIC, "Couldn't open journal file %s: %s",
-      spoolname, strerror(errno));
-    return DELIVER_NOT_ATTEMPTED;
-    }
+    uschar * fname = spool_fname(US"input", message_subdir, id, US"-J");
 
-  /* Set the close-on-exec flag, make the file owned by Exim, and ensure
-  that the mode is correct - the group setting doesn't always seem to get
-  set automatically. */
+    if ((journal_fd = Uopen(fname,
+#ifdef O_CLOEXEC
+			O_CLOEXEC |
+#endif
+			O_WRONLY|O_APPEND|O_CREAT|O_EXCL, SPOOL_MODE)) < 0)
+      {
+      log_write(0, LOG_MAIN|LOG_PANIC, "Couldn't open journal file %s: %s",
+	fname, strerror(errno));
+      return DELIVER_NOT_ATTEMPTED;
+      }
 
-  if(  fcntl(journal_fd, F_SETFD, fcntl(journal_fd, F_GETFD) | FD_CLOEXEC)
-    || fchown(journal_fd, exim_uid, exim_gid)
-    || fchmod(journal_fd, SPOOL_MODE)
-    )
-    {
-    int ret = Uunlink(spoolname);
-    log_write(0, LOG_MAIN|LOG_PANIC, "Couldn't set perms on journal file %s: %s",
-      spoolname, strerror(errno));
-    if(ret  &&  errno != ENOENT)
-      log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s",
-        spoolname, strerror(errno));
-    return DELIVER_NOT_ATTEMPTED;
+    /* Set the close-on-exec flag, make the file owned by Exim, and ensure
+    that the mode is correct - the group setting doesn't always seem to get
+    set automatically. */
+
+    if(  fchown(journal_fd, exim_uid, exim_gid)
+      || fchmod(journal_fd, SPOOL_MODE)
+#ifndef O_CLOEXEC
+      || fcntl(journal_fd, F_SETFD, fcntl(journal_fd, F_GETFD) | FD_CLOEXEC)
+#endif
+      )
+      {
+      int ret = Uunlink(fname);
+      log_write(0, LOG_MAIN|LOG_PANIC, "Couldn't set perms on journal file %s: %s",
+	fname, strerror(errno));
+      if(ret  &&  errno != ENOENT)
+	log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s",
+	  fname, strerror(errno));
+      return DELIVER_NOT_ATTEMPTED;
+      }
     }
+  }
+else if (journal_fd >= 0)
+  {
+  close(journal_fd);
+  journal_fd = -1;
   }
 
 
@@ -6701,13 +7168,13 @@ if (addr_local)
   DEBUG(D_deliver|D_transport)
     debug_printf(">>>>>>>>>>>>>>>> Local deliveries >>>>>>>>>>>>>>>>\n");
   do_local_deliveries();
-  disable_logging = FALSE;
+  f.disable_logging = FALSE;
   }
 
 /* If queue_run_local is set, we do not want to attempt any remote deliveries,
 so just queue them all. */
 
-if (queue_run_local)
+if (f.queue_run_local)
   while (addr_remote)
     {
     address_item *addr = addr_remote;
@@ -6715,7 +7182,7 @@ if (queue_run_local)
     addr->next = NULL;
     addr->basic_errno = ERRNO_LOCAL_ONLY;
     addr->message = US"remote deliveries suppressed";
-    (void)post_process_one(addr, DEFER, LOG_MAIN, DTYPE_TRANSPORT, 0);
+    (void)post_process_one(addr, DEFER, LOG_MAIN, EXIM_DTYPE_TRANSPORT, 0);
     }
 
 /* Handle remote deliveries */
@@ -6759,7 +7226,7 @@ if (addr_remote)
     if (remote_sort_domains) sort_remote_deliveries();
     do_remote_deliveries(TRUE);
     }
-  disable_logging = FALSE;
+  f.disable_logging = FALSE;
   }
 
 
@@ -6768,6 +7235,7 @@ phase, to minimize cases of half-done things. */
 
 DEBUG(D_deliver)
   debug_printf(">>>>>>>>>>>>>>>> deliveries are done >>>>>>>>>>>>>>>>\n");
+cancel_cutthrough_connection(TRUE, US"deliveries are done");
 
 /* Root privilege is no longer needed */
 
@@ -6837,7 +7305,7 @@ retry cutoff time has expired for all alternative destinations. Bypass the
 updating of the database if the -N flag is set, which is a debugging thing that
 prevents actual delivery. */
 
-else if (!dont_deliver)
+else if (!f.dont_deliver)
   retry_update(&addr_defer, &addr_failed, &addr_succeed);
 
 /* Send DSN for successful messages if requested */
@@ -6853,11 +7321,12 @@ for (addr_dsntmp = addr_succeed; addr_dsntmp; addr_dsntmp = addr_dsntmp->next)
       "DSN: envid: %s  ret: %d\n"
       "DSN: Final recipient: %s\n"
       "DSN: Remote SMTP server supports DSN: %d\n",
-      addr_dsntmp->router->name,
+      addr_dsntmp->router ? addr_dsntmp->router->name : US"(unknown)",
       addr_dsntmp->address,
       sender_address,
-      addr_dsntmp->dsn_orcpt, addr_dsntmp->dsn_flags,
-      dsn_envid, dsn_ret,
+      addr_dsntmp->dsn_orcpt ? addr_dsntmp->dsn_orcpt : US"NULL",
+      addr_dsntmp->dsn_flags,
+      dsn_envid ? dsn_envid : US"NULL", dsn_ret,
       addr_dsntmp->address,
       addr_dsntmp->dsn_aware
       );
@@ -6867,15 +7336,13 @@ for (addr_dsntmp = addr_succeed; addr_dsntmp; addr_dsntmp = addr_dsntmp->next)
   if (  (  addr_dsntmp->dsn_aware != dsn_support_yes
 	|| addr_dsntmp->dsn_flags & rf_dsnlasthop
         )
-     && addr_dsntmp->dsn_flags & rf_dsnflags
      && addr_dsntmp->dsn_flags & rf_notify_success
      )
     {
     /* copy and relink address_item and send report with all of them at once later */
-    address_item *addr_next;
-    addr_next = addr_senddsn;
+    address_item * addr_next = addr_senddsn;
     addr_senddsn = store_get(sizeof(address_item));
-    memcpy(addr_senddsn, addr_dsntmp, sizeof(address_item));
+    *addr_senddsn = *addr_dsntmp;
     addr_senddsn->next = addr_next;
     }
   else
@@ -6902,10 +7369,10 @@ if (addr_senddsn)
     }
   else  /* Creation of child succeeded */
     {
-    FILE *f = fdopen(fd, "wb");
+    FILE * f = fdopen(fd, "wb");
     /* header only as required by RFC. only failure DSN needs to honor RET=FULL */
-    int topt = topt_add_return_path | topt_no_body;
     uschar * bound;
+    transport_ctx tctx = {{0}};
 
     DEBUG(D_deliver)
       debug_printf("sending error message to: %s\n", sender_address);
@@ -6917,8 +7384,8 @@ if (addr_senddsn)
     if (errors_reply_to)
       fprintf(f, "Reply-To: %s\n", errors_reply_to);
 
+    moan_write_from(f);
     fprintf(f, "Auto-Submitted: auto-generated\n"
-	"From: Mail Delivery System <Mailer-Daemon@%s>\n"
 	"To: %s\n"
 	"Subject: Delivery Status Notification\n"
 	"Content-Type: multipart/report; report-type=delivery-status; boundary=%s\n"
@@ -6929,17 +7396,15 @@ if (addr_senddsn)
 
 	"This message was created automatically by mail delivery software.\n"
 	" ----- The following addresses had successful delivery notifications -----\n",
-      qualify_domain_sender, sender_address, bound, bound);
+      sender_address, bound, bound);
 
     for (addr_dsntmp = addr_senddsn; addr_dsntmp;
 	 addr_dsntmp = addr_dsntmp->next)
       fprintf(f, "<%s> (relayed %s)\n\n",
 	addr_dsntmp->address,
-	(addr_dsntmp->dsn_flags & rf_dsnlasthop) == 1
-	  ? "via non DSN router"
-	  : addr_dsntmp->dsn_aware == dsn_support_no
-	  ? "to non-DSN-aware mailer"
-	  : "via non \"Remote SMTP\" router"
+	addr_dsntmp->dsn_flags & rf_dsnlasthop ? "via non DSN router"
+	: addr_dsntmp->dsn_aware == dsn_support_no ? "to non-DSN-aware mailer"
+	: "via non \"Remote SMTP\" router"
 	);
 
     fprintf(f, "--%s\n"
@@ -6953,7 +7418,7 @@ if (addr_senddsn)
       if (auth_xtextdecode(dsn_envid, &xdec_envid) > 0)
         fprintf(f, "Original-Envelope-ID: %s\n", dsn_envid);
       else
-        fprintf(f, "X-Original-Envelope-ID: error decoding xtext formated ENVID\n");
+        fprintf(f, "X-Original-Envelope-ID: error decoding xtext formatted ENVID\n");
       }
     fputc('\n', f);
 
@@ -6964,17 +7429,14 @@ if (addr_senddsn)
       if (addr_dsntmp->dsn_orcpt)
         fprintf(f,"Original-Recipient: %s\n", addr_dsntmp->dsn_orcpt);
 
-      fprintf(f, "Action: delivered\n"
-	  "Final-Recipient: rfc822;%s\n"
-	  "Status: 2.0.0\n",
-	addr_dsntmp->address);
+      print_dsn_addr_action(f, addr_dsntmp, US"delivered", US"2.0.0");
 
       if (addr_dsntmp->host_used && addr_dsntmp->host_used->name)
         fprintf(f, "Remote-MTA: dns; %s\nDiagnostic-Code: smtp; 250 Ok\n\n",
 	  addr_dsntmp->host_used->name);
       else
 	fprintf(f, "Diagnostic-Code: X-Exim; relayed via non %s router\n\n",
-	  (addr_dsntmp->dsn_flags & rf_dsnlasthop) == 1 ? "DSN" : "SMTP");
+	  addr_dsntmp->dsn_flags & rf_dsnlasthop ? "DSN" : "SMTP");
       }
 
     fprintf(f, "--%s\nContent-type: text/rfc822-headers\n\n", bound);
@@ -6984,7 +7446,12 @@ if (addr_senddsn)
     return_path = sender_address;   /* In case not previously set */
 
     /* Write the original email out */
-    transport_write_message(NULL, fileno(f), topt, 0, NULL, NULL, NULL, NULL, NULL, 0);
+
+    tctx.u.fd = fd;
+    tctx.options = topt_add_return_path | topt_no_body;
+    /*XXX hmm, FALSE(fail) retval ignored.
+    Could error for any number of reasons, and they are not handled. */
+    transport_write_message(&tctx, 0);
     fflush(f);
 
     fprintf(f,"\n--%s--\n", bound);
@@ -7014,9 +7481,9 @@ while (addr_failed)
   /* There are weird cases when logging is disabled in the transport. However,
   there may not be a transport (address failed by a router). */
 
-  disable_logging = FALSE;
+  f.disable_logging = FALSE;
   if (addr_failed->transport)
-    disable_logging = addr_failed->transport->disable_logging;
+    f.disable_logging = addr_failed->transport->disable_logging;
 
   DEBUG(D_deliver)
     debug_printf("processing failed address %s\n", addr_failed->address);
@@ -7040,27 +7507,29 @@ while (addr_failed)
   if (sender_address[0] == 0 && !addr_failed->prop.errors_address)
     {
     if (  !testflag(addr_failed, af_retry_timedout)
-       && !testflag(addr_failed, af_ignore_error))
-      {
+       && !addr_failed->prop.ignore_error)
       log_write(0, LOG_MAIN|LOG_PANIC, "internal error: bounce message "
         "failure is neither frozen nor ignored (it's been ignored)");
-      }
-    setflag(addr_failed, af_ignore_error);
+
+    addr_failed->prop.ignore_error = TRUE;
     }
 
   /* If the first address on the list has af_ignore_error set, just remove
   it from the list, throw away any saved message file, log it, and
   mark the recipient done. */
 
-  if (  testflag(addr_failed, af_ignore_error)
-     || (  addr_failed->dsn_flags & rf_dsnflags
-        && (addr_failed->dsn_flags & rf_notify_failure) != rf_notify_failure
-     )  )
+  if (  addr_failed->prop.ignore_error
+     ||    addr_failed->dsn_flags & rf_dsnflags
+	&& !(addr_failed->dsn_flags & rf_notify_failure)
+     )
     {
     addr = addr_failed;
     addr_failed = addr->next;
     if (addr->return_filename) Uunlink(addr->return_filename);
 
+#ifndef DISABLE_EVENT
+    msg_event_raise(US"msg:fail:delivery", addr);
+#endif
     log_write(0, LOG_MAIN, "%s%s%s%s: error ignored",
       addr->address,
       !addr->parent ? US"" : US" <",
@@ -7076,7 +7545,7 @@ while (addr_failed)
   /* Otherwise, handle the sending of a message. Find the error address for
   the first address, then send a message that includes all failed addresses
   that have the same error address. Note the bounce_recipient is a global so
-  that it can be accesssed by $bounce_recipient while creating a customized
+  that it can be accessed by $bounce_recipient while creating a customized
   error message. */
 
   else
@@ -7099,8 +7568,8 @@ while (addr_failed)
       int filecount = 0;
       int rcount = 0;
       uschar *bcc, *emf_text;
-      FILE *f = fdopen(fd, "wb");
-      FILE *emf = NULL;
+      FILE * fp = fdopen(fd, "wb");
+      FILE * emf = NULL;
       BOOL to_sender = strcmpic(sender_address, bounce_recipient) == 0;
       int max = (bounce_return_size_limit/DELIVER_IN_BUFFER_SIZE + 1) *
         DELIVER_IN_BUFFER_SIZE;
@@ -7138,10 +7607,10 @@ while (addr_failed)
         if (testflag(addr, af_hide_child)) continue;
         if (rcount >= 50)
           {
-          fprintf(f, "\n");
+          fprintf(fp, "\n");
           rcount = 0;
           }
-        fprintf(f, "%s%s",
+        fprintf(fp, "%s%s",
           rcount++ == 0
 	  ? "X-Failed-Recipients: "
 	  : ",\n  ",
@@ -7149,20 +7618,20 @@ while (addr_failed)
 	  ? string_printing(addr->parent->address)
 	  : string_printing(addr->address));
         }
-      if (rcount > 0) fprintf(f, "\n");
+      if (rcount > 0) fprintf(fp, "\n");
 
       /* Output the standard headers */
 
       if (errors_reply_to)
-        fprintf(f, "Reply-To: %s\n", errors_reply_to);
-      fprintf(f, "Auto-Submitted: auto-replied\n");
-      moan_write_from(f);
-      fprintf(f, "To: %s\n", bounce_recipient);
+        fprintf(fp, "Reply-To: %s\n", errors_reply_to);
+      fprintf(fp, "Auto-Submitted: auto-replied\n");
+      moan_write_from(fp);
+      fprintf(fp, "To: %s\n", bounce_recipient);
 
       /* generate boundary string and output MIME-Headers */
       bound = string_sprintf(TIME_T_FMT "-eximdsn-%d", time(NULL), rand());
 
-      fprintf(f, "Content-Type: multipart/report;"
+      fprintf(fp, "Content-Type: multipart/report;"
 	    " report-type=delivery-status; boundary=%s\n"
 	  "MIME-Version: 1.0\n",
 	bound);
@@ -7178,46 +7647,46 @@ while (addr_failed)
       /* Quietly copy to configured additional addresses if required. */
 
       if ((bcc = moan_check_errorcopy(bounce_recipient)))
-	fprintf(f, "Bcc: %s\n", bcc);
+	fprintf(fp, "Bcc: %s\n", bcc);
 
       /* The texts for the message can be read from a template file; if there
       isn't one, or if it is too short, built-in texts are used. The first
       emf text is a Subject: and any other headers. */
 
       if ((emf_text = next_emf(emf, US"header")))
-	fprintf(f, "%s\n", emf_text);
+	fprintf(fp, "%s\n", emf_text);
       else
-        fprintf(f, "Subject: Mail delivery failed%s\n\n",
+        fprintf(fp, "Subject: Mail delivery failed%s\n\n",
           to_sender? ": returning message to sender" : "");
 
       /* output human readable part as text/plain section */
-      fprintf(f, "--%s\n"
+      fprintf(fp, "--%s\n"
 	  "Content-type: text/plain; charset=us-ascii\n\n",
 	bound);
 
       if ((emf_text = next_emf(emf, US"intro")))
-	fprintf(f, "%s", CS emf_text);
+	fprintf(fp, "%s", CS emf_text);
       else
         {
-        fprintf(f,
+        fprintf(fp,
 /* This message has been reworded several times. It seems to be confusing to
 somebody, however it is worded. I have retreated to the original, simple
 wording. */
 "This message was created automatically by mail delivery software.\n");
 
         if (bounce_message_text)
-	  fprintf(f, "%s", CS bounce_message_text);
+	  fprintf(fp, "%s", CS bounce_message_text);
         if (to_sender)
-          fprintf(f,
+          fprintf(fp,
 "\nA message that you sent could not be delivered to one or more of its\n"
 "recipients. This is a permanent error. The following address(es) failed:\n");
         else
-          fprintf(f,
+          fprintf(fp,
 "\nA message sent by\n\n  <%s>\n\n"
 "could not be delivered to one or more of its recipients. The following\n"
 "address(es) failed:\n", sender_address);
         }
-      fputc('\n', f);
+      fputc('\n', fp);
 
       /* Process the addresses, leaving them on the msgchain if they have a
       file name for a return message. (There has already been a check in
@@ -7228,12 +7697,12 @@ wording. */
       paddr = &msgchain;
       for (addr = msgchain; addr; addr = *paddr)
         {
-        if (print_address_information(addr, f, US"  ", US"\n    ", US""))
-          print_address_error(addr, f, US"");
+        if (print_address_information(addr, fp, US"  ", US"\n    ", US""))
+          print_address_error(addr, fp, US"");
 
         /* End the final line for the address */
 
-        fputc('\n', f);
+        fputc('\n', fp);
 
         /* Leave on msgchain if there's a return file. */
 
@@ -7254,7 +7723,7 @@ wording. */
           }
         }
 
-      fputc('\n', f);
+      fputc('\n', fp);
 
       /* Get the next text, whether we need it or not, so as to be
       positioned for the one after. */
@@ -7273,9 +7742,9 @@ wording. */
         address_item *nextaddr;
 
         if (emf_text)
-	  fprintf(f, "%s", CS emf_text);
+	  fprintf(fp, "%s", CS emf_text);
 	else
-          fprintf(f,
+          fprintf(fp,
             "The following text was generated during the delivery "
             "attempt%s:\n", (filecount > 1)? "s" : "");
 
@@ -7286,24 +7755,24 @@ wording. */
 
           /* List all the addresses that relate to this file */
 
-	  fputc('\n', f);
+	  fputc('\n', fp);
           while(addr)                   /* Insurance */
             {
-            print_address_information(addr, f, US"------ ",  US"\n       ",
+            print_address_information(addr, fp, US"------ ",  US"\n       ",
               US" ------\n");
             if (addr->return_filename) break;
             addr = addr->next;
             }
-	  fputc('\n', f);
+	  fputc('\n', fp);
 
           /* Now copy the file */
 
           if (!(fm = Ufopen(addr->return_filename, "rb")))
-            fprintf(f, "    +++ Exim error... failed to open text file: %s\n",
+            fprintf(fp, "    +++ Exim error... failed to open text file: %s\n",
               strerror(errno));
           else
             {
-            while ((ch = fgetc(fm)) != EOF) fputc(ch, f);
+            while ((ch = fgetc(fm)) != EOF) fputc(ch, fp);
             (void)fclose(fm);
             }
           Uunlink(addr->return_filename);
@@ -7315,19 +7784,19 @@ wording. */
           addr->next = handled_addr;
           handled_addr = topaddr;
           }
-	fputc('\n', f);
+	fputc('\n', fp);
         }
 
       /* output machine readable part */
 #ifdef SUPPORT_I18N
       if (message_smtputf8)
-	fprintf(f, "--%s\n"
+	fprintf(fp, "--%s\n"
 	    "Content-type: message/global-delivery-status\n\n"
 	    "Reporting-MTA: dns; %s\n",
 	  bound, smtp_active_hostname);
       else
 #endif
-	fprintf(f, "--%s\n"
+	fprintf(fp, "--%s\n"
 	    "Content-type: message/delivery-status\n\n"
 	    "Reporting-MTA: dns; %s\n",
 	  bound, smtp_active_hostname);
@@ -7337,40 +7806,41 @@ wording. */
         /* must be decoded from xtext: see RFC 3461:6.3a */
         uschar *xdec_envid;
         if (auth_xtextdecode(dsn_envid, &xdec_envid) > 0)
-          fprintf(f, "Original-Envelope-ID: %s\n", dsn_envid);
+          fprintf(fp, "Original-Envelope-ID: %s\n", dsn_envid);
         else
-          fprintf(f, "X-Original-Envelope-ID: error decoding xtext formated ENVID\n");
+          fprintf(fp, "X-Original-Envelope-ID: error decoding xtext formatted ENVID\n");
         }
-      fputc('\n', f);
+      fputc('\n', fp);
 
       for (addr = handled_addr; addr; addr = addr->next)
         {
 	host_item * hu;
-        fprintf(f, "Action: failed\n"
-	    "Final-Recipient: rfc822;%s\n"
-	    "Status: 5.0.0\n",
-	    addr->address);
+
+	print_dsn_addr_action(fp, addr, US"failed", US"5.0.0");
+
         if ((hu = addr->host_used) && hu->name)
 	  {
-	  const uschar * s;
-	  fprintf(f, "Remote-MTA: dns; %s\n", hu->name);
+	  fprintf(fp, "Remote-MTA: dns; %s\n", hu->name);
 #ifdef EXPERIMENTAL_DSN_INFO
+	  {
+	  const uschar * s;
 	  if (hu->address)
 	    {
 	    uschar * p = hu->port == 25
 	      ? US"" : string_sprintf(":%d", hu->port);
-	    fprintf(f, "Remote-MTA: X-ip; [%s]%s\n", hu->address, p);
+	    fprintf(fp, "Remote-MTA: X-ip; [%s]%s\n", hu->address, p);
 	    }
 	  if ((s = addr->smtp_greeting) && *s)
-	    fprintf(f, "X-Remote-MTA-smtp-greeting: X-str; %s\n", s);
+	    fprintf(fp, "X-Remote-MTA-smtp-greeting: X-str; %s\n", s);
 	  if ((s = addr->helo_response) && *s)
-	    fprintf(f, "X-Remote-MTA-helo-response: X-str; %s\n", s);
+	    fprintf(fp, "X-Remote-MTA-helo-response: X-str; %s\n", s);
 	  if ((s = addr->message) && *s)
-	    fprintf(f, "X-Exim-Diagnostic: X-str; %s\n", s);
-#endif
-	  print_dsn_diagnostic_code(addr, f);
+	    fprintf(fp, "X-Exim-Diagnostic: X-str; %s\n", s);
 	  }
-	fputc('\n', f);
+#endif
+	  print_dsn_diagnostic_code(addr, fp);
+	  }
+	fputc('\n', fp);
         }
 
       /* Now copy the message, trying to give an intelligible comment if
@@ -7391,7 +7861,7 @@ wording. */
          bounce_return_size_limit is always honored.
       */
 
-      fprintf(f, "--%s\n", bound);
+      fprintf(fp, "--%s\n", bound);
 
       dsnlimitmsg = US"X-Exim-DSN-Information: Due to administrative limits only headers are returned";
       dsnnotifyhdr = NULL;
@@ -7429,35 +7899,45 @@ wording. */
       if (message_smtputf8)
 	fputs(topt & topt_no_body ? "Content-type: message/global-headers\n\n"
 				  : "Content-type: message/global\n\n",
-	      f);
+	      fp);
       else
 #endif
 	fputs(topt & topt_no_body ? "Content-type: text/rfc822-headers\n\n"
 				  : "Content-type: message/rfc822\n\n",
-	      f);
+	      fp);
 
-      fflush(f);
+      fflush(fp);
       transport_filter_argv = NULL;   /* Just in case */
       return_path = sender_address;   /* In case not previously set */
-      transport_write_message(NULL, fileno(f), topt,
-        0, dsnnotifyhdr, NULL, NULL, NULL, NULL, 0);
-      fflush(f);
+	{			      /* Dummy transport for headers add */
+	transport_ctx tctx = {{0}};
+	transport_instance tb = {0};
+
+	tctx.u.fd = fileno(fp);
+	tctx.tblock = &tb;
+	tctx.options = topt;
+	tb.add_headers = dsnnotifyhdr;
+
+	/*XXX no checking for failure!  buggy! */
+	transport_write_message(&tctx, 0);
+	}
+      fflush(fp);
 
       /* we never add the final text. close the file */
       if (emf)
         (void)fclose(emf);
 
-      fprintf(f, "\n--%s--\n", bound);
+      fprintf(fp, "\n--%s--\n", bound);
 
       /* Close the file, which should send an EOF to the child process
       that is receiving the message. Wait for it to finish. */
 
-      (void)fclose(f);
+      (void)fclose(fp);
       rc = child_close(pid, 0);     /* Waits for child to close, no timeout */
 
       /* In the test harness, let the child do it's thing first. */
 
-      if (running_in_test_harness) millisleep(500);
+      if (f.running_in_test_harness) millisleep(500);
 
       /* If the process failed, there was some disaster in setting up the
       error message. Unless the message is very old, ensure that addr_defer
@@ -7471,10 +7951,10 @@ wording. */
       if (rc != 0)
         {
         uschar *s = US"";
-        if (now - received_time < retry_maximum_timeout && !addr_defer)
+        if (now - received_time.tv_sec < retry_maximum_timeout && !addr_defer)
           {
           addr_defer = (address_item *)(+1);
-          deliver_freeze = TRUE;
+          f.deliver_freeze = TRUE;
           deliver_frozen_at = time(NULL);
           /* Panic-dies on error */
           (void)spool_write_header(message_id, SW_DELIVERING, NULL);
@@ -7503,7 +7983,7 @@ wording. */
     }
   }
 
-disable_logging = FALSE;  /* In case left set */
+f.disable_logging = FALSE;  /* In case left set */
 
 /* Come here from the mua_wrapper case if routing goes wrong */
 
@@ -7515,51 +7995,53 @@ Then delete the message itself. */
 
 if (!addr_defer)
   {
+  uschar * fname;
+
   if (message_logs)
     {
-    sprintf(CS spoolname, "%s/msglog/%s/%s", spool_directory, message_subdir,
-      id);
+    fname = spool_fname(US"msglog", message_subdir, id, US"");
     if (preserve_message_logs)
       {
       int rc;
-      sprintf(CS big_buffer, "%s/msglog.OLD/%s", spool_directory, id);
-      if ((rc = Urename(spoolname, big_buffer)) < 0)
+      uschar * moname = spool_fname(US"msglog.OLD", US"", id, US"");
+
+      if ((rc = Urename(fname, moname)) < 0)
         {
-        (void)directory_make(spool_directory, US"msglog.OLD",
-          MSGLOG_DIRECTORY_MODE, TRUE);
-        rc = Urename(spoolname, big_buffer);
+        (void)directory_make(spool_directory,
+			      spool_sname(US"msglog.OLD", US""),
+			      MSGLOG_DIRECTORY_MODE, TRUE);
+        rc = Urename(fname, moname);
         }
       if (rc < 0)
         log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to move %s to the "
-          "msglog.OLD directory", spoolname);
+          "msglog.OLD directory", fname);
       }
     else
-      if (Uunlink(spoolname) < 0)
+      if (Uunlink(fname) < 0)
         log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s",
-		  spoolname, strerror(errno));
+		  fname, strerror(errno));
     }
 
   /* Remove the two message files. */
 
-  sprintf(CS spoolname, "%s/input/%s/%s-D", spool_directory, message_subdir, id);
-  if (Uunlink(spoolname) < 0)
+  fname = spool_fname(US"input", message_subdir, id, US"-D");
+  if (Uunlink(fname) < 0)
     log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s",
-      spoolname, strerror(errno));
-  sprintf(CS spoolname, "%s/input/%s/%s-H", spool_directory, message_subdir, id);
-  if (Uunlink(spoolname) < 0)
+      fname, strerror(errno));
+  fname = spool_fname(US"input", message_subdir, id, US"-H");
+  if (Uunlink(fname) < 0)
     log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s",
-      spoolname, strerror(errno));
+      fname, strerror(errno));
 
   /* Log the end of this message, with queue time if requested. */
 
   if (LOGGING(queue_time_overall))
-    log_write(0, LOG_MAIN, "Completed QT=%s",
-      readconf_printtime( (int) ((long)time(NULL) - (long)received_time)) );
+    log_write(0, LOG_MAIN, "Completed QT=%s", string_timesince(&received_time));
   else
     log_write(0, LOG_MAIN, "Completed");
 
   /* Unset deliver_freeze so that we won't try to move the spool files further down */
-  deliver_freeze = FALSE;
+  f.deliver_freeze = FALSE;
 
 #ifndef DISABLE_EVENT
   (void) event_raise(event_action, US"msg:complete", NULL);
@@ -7578,6 +8060,8 @@ the parent's domain.
 If all the deferred addresses have an error number that indicates "retry time
 not reached", skip sending the warning message, because it won't contain the
 reason for the delay. It will get sent at the next real delivery attempt.
+  Exception: for retries caused by a remote peer we use the error message
+  store in the retry DB as the reason.
 However, if at least one address has tried, we'd better include all of them in
 the message.
 
@@ -7597,7 +8081,7 @@ else if (addr_defer != (address_item *)(+1))
   {
   address_item *addr;
   uschar *recipients = US"";
-  BOOL delivery_attempted = FALSE;
+  BOOL want_warning_msg = FALSE;
 
   deliver_domain = testflag(addr_defer, af_pfr)
     ? addr_defer->parent->domain : addr_defer->domain;
@@ -7606,7 +8090,7 @@ else if (addr_defer != (address_item *)(+1))
     {
     address_item *otaddr;
 
-    if (addr->basic_errno > ERRNO_RETRY_BASE) delivery_attempted = TRUE;
+    if (addr->basic_errno > ERRNO_WARN_BASE) want_warning_msg = TRUE;
 
     if (deliver_domain)
       {
@@ -7642,10 +8126,12 @@ else if (addr_defer != (address_item *)(+1))
         }
 
       /* Didn't find the address already in the list, and did find the
-      ultimate parent's address in the list. After adding the recipient,
+      ultimate parent's address in the list, and they really are different
+      (i.e. not from an identity-redirect). After adding the recipient,
       update the errors address in the recipients list. */
 
-      if (i >= recipients_count && t < recipients_count)
+      if (  i >= recipients_count && t < recipients_count
+         && Ustrcmp(otaddr->address, otaddr->parent->address) != 0)
         {
         DEBUG(D_deliver) debug_printf("one_time: adding %s in place of %s\n",
           otaddr->address, otaddr->parent->address);
@@ -7660,19 +8146,14 @@ else if (addr_defer != (address_item *)(+1))
     this deferred address or, if there is none, the sender address, is on the
     list of recipients for a warning message. */
 
-    if (sender_address[0] != 0)
-      if (addr->prop.errors_address)
-        {
-        if (Ustrstr(recipients, addr->prop.errors_address) == NULL)
-          recipients = string_sprintf("%s%s%s", recipients,
-            (recipients[0] == 0)? "" : ",", addr->prop.errors_address);
-        }
-      else
-        {
-        if (Ustrstr(recipients, sender_address) == NULL)
-          recipients = string_sprintf("%s%s%s", recipients,
-            (recipients[0] == 0)? "" : ",", sender_address);
-        }
+    if (sender_address[0])
+      {
+      uschar * s = addr->prop.errors_address;
+      if (!s) s = sender_address;
+      if (Ustrstr(recipients, s) == NULL)
+	recipients = string_sprintf("%s%s%s", recipients,
+	  recipients[0] ? "," : "", s);
+      }
     }
 
   /* Send a warning message if the conditions are right. If the condition check
@@ -7680,10 +8161,10 @@ else if (addr_defer != (address_item *)(+1))
   is not sent. Another attempt will be made at the next delivery attempt (if
   it also defers). */
 
-  if (  !queue_2stage
-     && delivery_attempted
-     && (  ((addr_defer->dsn_flags & rf_dsnflags) == 0)
-        || (addr_defer->dsn_flags & rf_notify_delay) == rf_notify_delay
+  if (  !f.queue_2stage
+     && want_warning_msg
+     && (  !(addr_defer->dsn_flags & rf_dsnflags)
+        || addr_defer->dsn_flags & rf_notify_delay
 	)
      && delay_warning[1] > 0
      && sender_address[0] != 0
@@ -7695,14 +8176,14 @@ else if (addr_defer != (address_item *)(+1))
     {
     int count;
     int show_time;
-    int queue_time = time(NULL) - received_time;
+    int queue_time = time(NULL) - received_time.tv_sec;
 
     /* When running in the test harness, there's an option that allows us to
     fudge this time so as to get repeatability of the tests. Take the first
     time off the list. In queue runs, the list pointer gets updated in the
     calling process. */
 
-    if (running_in_test_harness && fudged_queue_times[0] != 0)
+    if (f.running_in_test_harness && fudged_queue_times[0] != 0)
       {
       int qt = readconf_readtime(fudged_queue_times, '/', FALSE);
       if (qt >= 0)
@@ -7732,7 +8213,7 @@ else if (addr_defer != (address_item *)(+1))
 
     DEBUG(D_deliver)
       {
-      debug_printf("time on queue = %s\n", readconf_printtime(queue_time));
+      debug_printf("time on queue = %s  id %s  addr %s\n", readconf_printtime(queue_time), message_id, addr_defer->address);
       debug_printf("warning counts: required %d done %d\n", count,
         warning_count);
       }
@@ -7753,7 +8234,7 @@ else if (addr_defer != (address_item *)(+1))
         FILE *wmf = NULL;
         FILE *f = fdopen(fd, "wb");
 	uschar * bound;
-        int topt;
+	transport_ctx tctx = {{0}};
 
         if (warn_message_file)
           if (!(wmf = Ufopen(warn_message_file, "rb")))
@@ -7872,19 +8353,15 @@ else if (addr_defer != (address_item *)(+1))
           if (auth_xtextdecode(dsn_envid, &xdec_envid) > 0)
             fprintf(f,"Original-Envelope-ID: %s\n", dsn_envid);
           else
-            fprintf(f,"X-Original-Envelope-ID: error decoding xtext formated ENVID\n");
+            fprintf(f,"X-Original-Envelope-ID: error decoding xtext formatted ENVID\n");
           }
         fputc('\n', f);
 
         for ( ; addr_dsndefer; addr_dsndefer = addr_dsndefer->next)
           {
-          if (addr_dsndefer->dsn_orcpt)
-            fprintf(f, "Original-Recipient: %s\n", addr_dsndefer->dsn_orcpt);
 
-          fprintf(f, "Action: delayed\n"
-	      "Final-Recipient: rfc822;%s\n"
-	      "Status: 4.0.0\n",
-	    addr_dsndefer->address);
+	  print_dsn_addr_action(f, addr_dsndefer, US"delayed", US"4.0.0");
+
           if (addr_dsndefer->host_used && addr_dsndefer->host_used->name)
             {
             fprintf(f, "Remote-MTA: dns; %s\n",
@@ -7900,11 +8377,14 @@ else if (addr_defer != (address_item *)(+1))
 
         fflush(f);
         /* header only as required by RFC. only failure DSN needs to honor RET=FULL */
-        topt = topt_add_return_path | topt_no_body;
+	tctx.u.fd = fileno(f);
+        tctx.options = topt_add_return_path | topt_no_body;
         transport_filter_argv = NULL;   /* Just in case */
         return_path = sender_address;   /* In case not previously set */
+
         /* Write the original email out */
-        transport_write_message(NULL, fileno(f), topt, 0, NULL, NULL, NULL, NULL, NULL, 0);
+	/*XXX no checking for failure!  buggy! */
+        transport_write_message(&tctx, 0);
         fflush(f);
 
         fprintf(f,"\n--%s--\n", bound);
@@ -7931,9 +8411,9 @@ else if (addr_defer != (address_item *)(+1))
   /* If this was a first delivery attempt, unset the first time flag, and
   ensure that the spool gets updated. */
 
-  if (deliver_firsttime)
+  if (f.deliver_firsttime)
     {
-    deliver_firsttime = FALSE;
+    f.deliver_firsttime = FALSE;
     update_spool = TRUE;
     }
 
@@ -7944,9 +8424,9 @@ else if (addr_defer != (address_item *)(+1))
   For the "tell" message, we turn \n back into newline. Also, insert a newline
   near the start instead of the ": " string. */
 
-  if (deliver_freeze)
+  if (f.deliver_freeze)
     {
-    if (freeze_tell && freeze_tell[0] != 0 && !local_error_message)
+    if (freeze_tell && freeze_tell[0] != 0 && !f.local_error_message)
       {
       uschar *s = string_copy(frozen_info);
       uschar *ss = Ustrstr(s, " by the system filter: ");
@@ -7987,9 +8467,9 @@ else if (addr_defer != (address_item *)(+1))
 
   DEBUG(D_deliver)
     debug_printf("delivery deferred: update_spool=%d header_rewritten=%d\n",
-      update_spool, header_rewritten);
+      update_spool, f.header_rewritten);
 
-  if (update_spool || header_rewritten)
+  if (update_spool || f.header_rewritten)
     /* Panic-dies on error */
     (void)spool_write_header(message_id, SW_DELIVERING, NULL);
   }
@@ -8015,15 +8495,16 @@ if (journal_fd >= 0) (void)close(journal_fd);
 
 if (remove_journal)
   {
-  sprintf(CS spoolname, "%s/input/%s/%s-J", spool_directory, message_subdir, id);
-  if (Uunlink(spoolname) < 0 && errno != ENOENT)
-    log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s", spoolname,
+  uschar * fname = spool_fname(US"input", message_subdir, id, US"-J");
+
+  if (Uunlink(fname) < 0 && errno != ENOENT)
+    log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to unlink %s: %s", fname,
       strerror(errno));
 
-  /* Move the message off the spool if reqested */
+  /* Move the message off the spool if requested */
 
 #ifdef SUPPORT_MOVE_FROZEN_MESSAGES
-  if (deliver_freeze && move_frozen_messages)
+  if (f.deliver_freeze && move_frozen_messages)
     (void)spool_move_message(id, message_subdir, US"", US"F");
 #endif
   }
@@ -8052,6 +8533,13 @@ return final_yield;
 void
 deliver_init(void)
 {
+#ifdef EXIM_TFO_PROBE
+tfo_probe();
+#else
+f.tcp_fastopen_ok = TRUE;
+#endif
+
+
 if (!regex_PIPELINING) regex_PIPELINING =
   regex_must_compile(US"\\n250[\\s\\-]PIPELINING(\\s|\\n|$)", FALSE, TRUE);
 
@@ -8059,13 +8547,20 @@ if (!regex_SIZE) regex_SIZE =
   regex_must_compile(US"\\n250[\\s\\-]SIZE(\\s|\\n|$)", FALSE, TRUE);
 
 if (!regex_AUTH) regex_AUTH =
-  regex_must_compile(US"\\n250[\\s\\-]AUTH\\s+([\\-\\w\\s]+)(?:\\n|$)",
-    FALSE, TRUE);
+  regex_must_compile(AUTHS_REGEX, FALSE, TRUE);
 
 #ifdef SUPPORT_TLS
 if (!regex_STARTTLS) regex_STARTTLS =
   regex_must_compile(US"\\n250[\\s\\-]STARTTLS(\\s|\\n|$)", FALSE, TRUE);
+
+# ifdef EXPERIMENTAL_REQUIRETLS
+if (!regex_REQUIRETLS) regex_REQUIRETLS =
+  regex_must_compile(US"\\n250[\\s\\-]REQUIRETLS(\\s|\\n|$)", FALSE, TRUE);
+# endif
 #endif
+
+if (!regex_CHUNKING) regex_CHUNKING =
+  regex_must_compile(US"\\n250[\\s\\-]CHUNKING(\\s|\\n|$)", FALSE, TRUE);
 
 #ifndef DISABLE_PRDR
 if (!regex_PRDR) regex_PRDR =
@@ -8082,6 +8577,11 @@ if (!regex_DSN) regex_DSN  =
 
 if (!regex_IGNOREQUOTA) regex_IGNOREQUOTA =
   regex_must_compile(US"\\n250[\\s\\-]IGNOREQUOTA(\\s|\\n|$)", FALSE, TRUE);
+
+#ifdef EXPERIMENTAL_PIPE_CONNECT
+if (!regex_EARLY_PIPE) regex_EARLY_PIPE =
+  regex_must_compile(US"\\n250[\\s\\-]" EARLY_PIPE_FEATURE_NAME "(\\s|\\n|$)", FALSE, TRUE);
+#endif
 }
 
 
@@ -8091,8 +8591,18 @@ deliver_get_sender_address (uschar * id)
 int rc;
 uschar * new_sender_address,
        * save_sender_address;
+BOOL save_qr = f.queue_running;
+uschar * spoolname;
 
-if (!spool_open_datafile(id))
+/* make spool_open_datafile non-noisy on fail */
+
+f.queue_running = TRUE;
+
+/* Side effect: message_subdir is set for the (possibly split) spool directory */
+
+deliver_datafile = spool_open_datafile(id);
+f.queue_running = save_qr;
+if (deliver_datafile < 0)
   return NULL;
 
 /* Save and restore the global sender_address.  I'm not sure if we should
@@ -8101,7 +8611,7 @@ spool_read_header() may change all of them. But OTOH, when this
 deliver_get_sender_address() gets called, the current message is done
 already and nobody needs the globals anymore. (HS12, 2015-08-21) */
 
-sprintf(CS spoolname, "%s-H", id);
+spoolname = string_sprintf("%s-H", id);
 save_sender_address = sender_address;
 
 rc = spool_read_header(spoolname, TRUE, TRUE);
@@ -8118,6 +8628,76 @@ assert(new_sender_address);
 deliver_datafile = -1;
 
 return new_sender_address;
+}
+
+
+
+void
+delivery_re_exec(int exec_type)
+{
+uschar * where;
+
+if (cutthrough.cctx.sock >= 0 && cutthrough.callout_hold_only)
+  {
+  int channel_fd = cutthrough.cctx.sock;
+
+  smtp_peer_options = cutthrough.peer_options;
+  continue_sequence = 0;
+
+#ifdef SUPPORT_TLS
+  if (cutthrough.is_tls)
+    {
+    int pfd[2], pid;
+
+    smtp_peer_options |= OPTION_TLS;
+    sending_ip_address = cutthrough.snd_ip;
+    sending_port = cutthrough.snd_port;
+
+    where = US"socketpair";
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pfd) != 0)
+      goto fail;
+
+    where = US"fork";
+    if ((pid = fork()) < 0)
+      goto fail;
+
+    else if (pid == 0)		/* child: fork again to totally disconnect */
+      {
+      if (f.running_in_test_harness) millisleep(100); /* let parent debug out */
+      /* does not return */
+      smtp_proxy_tls(cutthrough.cctx.tls_ctx, big_buffer, big_buffer_size,
+		      pfd, 5*60);
+      }
+
+    DEBUG(D_transport) debug_printf("proxy-proc inter-pid %d\n", pid);
+    close(pfd[0]);
+    waitpid(pid, NULL, 0);
+    (void) close(channel_fd);	/* release the client socket */
+    channel_fd = pfd[1];
+    }
+#endif
+
+  transport_do_pass_socket(cutthrough.transport, cutthrough.host.name,
+    cutthrough.host.address, message_id, channel_fd);
+  }
+else
+  {
+  cancel_cutthrough_connection(TRUE, US"non-continued delivery");
+  (void) child_exec_exim(exec_type, FALSE, NULL, FALSE, 2, US"-Mc", message_id);
+  }
+return;		/* compiler quietening; control does not reach here. */
+
+#ifdef SUPPORT_TLS
+fail:
+  log_write(0,
+    LOG_MAIN | (exec_type == CEE_EXEC_EXIT ? LOG_PANIC : LOG_PANIC_DIE),
+    "delivery re-exec %s failed: %s", where, strerror(errno));
+
+  /* Get here if exec_type == CEE_EXEC_EXIT.
+  Note: this must be _exit(), not exit(). */
+
+  _exit(EX_EXECFAILED);
+#endif
 }
 
 /* vi: aw ai sw=2

@@ -1,9 +1,6 @@
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: v0 propagating DSN
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 LOG: MAIN
   <= CALLER@test.ex U=CALLER P=local S=sss
 created log directory TESTSUITE/spool/log
@@ -11,9 +8,6 @@ Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 trusted user
 admin user
-DSN: v0 propagating DSN
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 delivering 10HmaX-0005vi-00
 locking TESTSUITE/spool/db/retry.lockfile
 no retry data available
@@ -150,14 +144,11 @@ After routing:
 locking TESTSUITE/spool/db/retry.lockfile
 LOG: MAIN
   *> unknown@recurse.test.ex.test.ex <cms@test.ex> R=r1 T=t1 H=recurse.test.ex.test.ex [V4NET.99.0.2] C="delivery bypassed by -N option"
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: v0 propagating DSN
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 LOG: queue_run MAIN
   Start queue run: pid=pppp -qf
 locking TESTSUITE/spool/db/retry.lockfile
@@ -251,4 +242,4 @@ After routing:
     defer@test.ex
 LOG: queue_run MAIN
   End queue run: pid=pppp -qf
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

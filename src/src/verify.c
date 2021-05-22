@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions concerned with verifying things. The original code for callout
@@ -14,7 +14,7 @@ caching was contributed by Kevin Fleming (but I hacked it around a bit). */
 
 #define CUTTHROUGH_CMD_TIMEOUT  30	/* timeout for cutthrough-routing calls */
 #define CUTTHROUGH_DATA_TIMEOUT 60	/* timeout for cutthrough-routing calls */
-static smtp_outblock ctblock;
+static smtp_context ctctx;
 uschar ctbuffer[8192];
 
 
@@ -39,7 +39,8 @@ static tree_node *dnsbl_cache = NULL;
 #define MT_NOT 1
 #define MT_ALL 2
 
-static uschar cutthrough_response(char, uschar **);
+static uschar cutthrough_response(client_conn_ctx *, char, uschar **, int);
+
 
 
 /*************************************************
@@ -67,9 +68,7 @@ int length, expire;
 time_t now;
 dbdata_callout_cache *cache_record;
 
-cache_record = dbfn_read_with_length(dbm_file, key, &length);
-
-if (cache_record == NULL)
+if (!(cache_record = dbfn_read_with_length(dbm_file, key, &length)))
   {
   HDEBUG(D_verify) debug_printf("callout cache: no %s record found for %s\n", type, key);
   return NULL;
@@ -118,6 +117,355 @@ return cache_record;
 
 
 
+/* Check the callout cache.
+Options * pm_mailfrom may be modified by cache partial results.
+
+Return: TRUE if result found
+*/
+
+static BOOL
+cached_callout_lookup(address_item * addr, uschar * address_key,
+  uschar * from_address, int * opt_ptr, uschar ** pm_ptr,
+  int * yield, uschar ** failure_ptr,
+  dbdata_callout_cache * new_domain_record, int * old_domain_res)
+{
+int options = *opt_ptr;
+open_db dbblock;
+open_db *dbm_file = NULL;
+
+/* Open the callout cache database, it it exists, for reading only at this
+stage, unless caching has been disabled. */
+
+if (options & vopt_callout_no_cache)
+  {
+  HDEBUG(D_verify) debug_printf("callout cache: disabled by no_cache\n");
+  }
+else if (!(dbm_file = dbfn_open(US"callout", O_RDWR, &dbblock, FALSE)))
+  {
+  HDEBUG(D_verify) debug_printf("callout cache: not available\n");
+  }
+else
+  {
+  /* If a cache database is available see if we can avoid the need to do an
+  actual callout by making use of previously-obtained data. */
+
+  dbdata_callout_cache_address * cache_address_record;
+  dbdata_callout_cache * cache_record = get_callout_cache_record(dbm_file,
+      addr->domain, US"domain",
+      callout_cache_domain_positive_expire, callout_cache_domain_negative_expire);
+
+  /* If an unexpired cache record was found for this domain, see if the callout
+  process can be short-circuited. */
+
+  if (cache_record)
+    {
+    /* In most cases, if an early command (up to and including MAIL FROM:<>)
+    was rejected, there is no point carrying on. The callout fails. However, if
+    we are doing a recipient verification with use_sender or use_postmaster
+    set, a previous failure of MAIL FROM:<> doesn't count, because this time we
+    will be using a non-empty sender. We have to remember this situation so as
+    not to disturb the cached domain value if this whole verification succeeds
+    (we don't want it turning into "accept"). */
+
+    *old_domain_res = cache_record->result;
+
+    if (  cache_record->result == ccache_reject
+       || *from_address == 0 && cache_record->result == ccache_reject_mfnull)
+      {
+      HDEBUG(D_verify)
+	debug_printf("callout cache: domain gave initial rejection, or "
+	  "does not accept HELO or MAIL FROM:<>\n");
+      setflag(addr, af_verify_nsfail);
+      addr->user_message = US"(result of an earlier callout reused).";
+      *yield = FAIL;
+      *failure_ptr = US"mail";
+      dbfn_close(dbm_file);
+      return TRUE;
+      }
+
+    /* If a previous check on a "random" local part was accepted, we assume
+    that the server does not do any checking on local parts. There is therefore
+    no point in doing the callout, because it will always be successful. If a
+    random check previously failed, arrange not to do it again, but preserve
+    the data in the new record. If a random check is required but hasn't been
+    done, skip the remaining cache processing. */
+
+    if (options & vopt_callout_random) switch(cache_record->random_result)
+      {
+      case ccache_accept:
+	HDEBUG(D_verify)
+	  debug_printf("callout cache: domain accepts random addresses\n");
+	*failure_ptr = US"random";
+	dbfn_close(dbm_file);
+	return TRUE;     /* Default yield is OK */
+
+      case ccache_reject:
+	HDEBUG(D_verify)
+	  debug_printf("callout cache: domain rejects random addresses\n");
+	*opt_ptr = options & ~vopt_callout_random;
+	new_domain_record->random_result = ccache_reject;
+	new_domain_record->random_stamp = cache_record->random_stamp;
+	break;
+
+      default:
+	HDEBUG(D_verify)
+	  debug_printf("callout cache: need to check random address handling "
+	    "(not cached or cache expired)\n");
+	dbfn_close(dbm_file);
+	return FALSE;
+      }
+
+    /* If a postmaster check is requested, but there was a previous failure,
+    there is again no point in carrying on. If a postmaster check is required,
+    but has not been done before, we are going to have to do a callout, so skip
+    remaining cache processing. */
+
+    if (*pm_ptr)
+      {
+      if (cache_record->postmaster_result == ccache_reject)
+	{
+	setflag(addr, af_verify_pmfail);
+	HDEBUG(D_verify)
+	  debug_printf("callout cache: domain does not accept "
+	    "RCPT TO:<postmaster@domain>\n");
+	*yield = FAIL;
+	*failure_ptr = US"postmaster";
+	setflag(addr, af_verify_pmfail);
+	addr->user_message = US"(result of earlier verification reused).";
+	dbfn_close(dbm_file);
+	return TRUE;
+	}
+      if (cache_record->postmaster_result == ccache_unknown)
+	{
+	HDEBUG(D_verify)
+	  debug_printf("callout cache: need to check RCPT "
+	    "TO:<postmaster@domain> (not cached or cache expired)\n");
+	dbfn_close(dbm_file);
+	return FALSE;
+	}
+
+      /* If cache says OK, set pm_mailfrom NULL to prevent a redundant
+      postmaster check if the address itself has to be checked. Also ensure
+      that the value in the cache record is preserved (with its old timestamp).
+      */
+
+      HDEBUG(D_verify) debug_printf("callout cache: domain accepts RCPT "
+	"TO:<postmaster@domain>\n");
+      *pm_ptr = NULL;
+      new_domain_record->postmaster_result = ccache_accept;
+      new_domain_record->postmaster_stamp = cache_record->postmaster_stamp;
+      }
+    }
+
+  /* We can't give a result based on information about the domain. See if there
+  is an unexpired cache record for this specific address (combined with the
+  sender address if we are doing a recipient callout with a non-empty sender).
+  */
+
+  if (!(cache_address_record = (dbdata_callout_cache_address *)
+    get_callout_cache_record(dbm_file, address_key, US"address",
+      callout_cache_positive_expire, callout_cache_negative_expire)))
+    {
+    dbfn_close(dbm_file);
+    return FALSE;
+    }
+
+  if (cache_address_record->result == ccache_accept)
+    {
+    HDEBUG(D_verify)
+      debug_printf("callout cache: address record is positive\n");
+    }
+  else
+    {
+    HDEBUG(D_verify)
+      debug_printf("callout cache: address record is negative\n");
+    addr->user_message = US"Previous (cached) callout verification failure";
+    *failure_ptr = US"recipient";
+    *yield = FAIL;
+    }
+
+  /* Close the cache database while we actually do the callout for real. */
+
+  dbfn_close(dbm_file);
+  return TRUE;
+  }
+return FALSE;
+}
+
+
+/* Write results to callout cache
+*/
+static void
+cache_callout_write(dbdata_callout_cache * dom_rec, const uschar * domain,
+  int done, dbdata_callout_cache_address * addr_rec, uschar * address_key)
+{
+open_db dbblock;
+open_db *dbm_file = NULL;
+
+/* If we get here with done == TRUE, a successful callout happened, and yield
+will be set OK or FAIL according to the response to the RCPT command.
+Otherwise, we looped through the hosts but couldn't complete the business.
+However, there may be domain-specific information to cache in both cases.
+
+The value of the result field in the new_domain record is ccache_unknown if
+there was an error before or with MAIL FROM:, and errno was not zero,
+implying some kind of I/O error. We don't want to write the cache in that case.
+Otherwise the value is ccache_accept, ccache_reject, or ccache_reject_mfnull. */
+
+if (dom_rec->result != ccache_unknown)
+  if (!(dbm_file = dbfn_open(US"callout", O_RDWR|O_CREAT, &dbblock, FALSE)))
+    {
+    HDEBUG(D_verify) debug_printf("callout cache: not available\n");
+    }
+  else
+    {
+    (void)dbfn_write(dbm_file, domain, dom_rec,
+      (int)sizeof(dbdata_callout_cache));
+    HDEBUG(D_verify) debug_printf("wrote callout cache domain record for %s:\n"
+      "  result=%d postmaster=%d random=%d\n",
+      domain,
+      dom_rec->result,
+      dom_rec->postmaster_result,
+      dom_rec->random_result);
+    }
+
+/* If a definite result was obtained for the callout, cache it unless caching
+is disabled. */
+
+if (done  &&  addr_rec->result != ccache_unknown)
+  {
+  if (!dbm_file)
+    dbm_file = dbfn_open(US"callout", O_RDWR|O_CREAT, &dbblock, FALSE);
+  if (!dbm_file)
+    {
+    HDEBUG(D_verify) debug_printf("no callout cache available\n");
+    }
+  else
+    {
+    (void)dbfn_write(dbm_file, address_key, addr_rec,
+      (int)sizeof(dbdata_callout_cache_address));
+    HDEBUG(D_verify) debug_printf("wrote %s callout cache address record for %s\n",
+      addr_rec->result == ccache_accept ? "positive" : "negative",
+      address_key);
+    }
+  }
+
+if (dbm_file) dbfn_close(dbm_file);
+}
+
+
+/* Cutthrough-multi.  If the existing cached cutthrough connection matches
+the one we would make for a subsequent recipient, use it.  Send the RCPT TO
+and check the result, nonpipelined as it may be wanted immediately for
+recipient-verification.
+
+It seems simpler to deal with this case separately from the main callout loop.
+We will need to remember it has sent, or not, so that rcpt-acl tail code
+can do it there for the non-rcpt-verify case.  For this we keep an addresscount.
+
+Return: TRUE for a definitive result for the recipient
+*/
+static int
+cutthrough_multi(address_item * addr, host_item * host_list,
+  transport_feedback * tf, int * yield)
+{
+BOOL done = FALSE;
+host_item * host;
+
+if (addr->transport == cutthrough.addr.transport)
+  for (host = host_list; host; host = host->next)
+    if (Ustrcmp(host->address, cutthrough.host.address) == 0)
+      {
+      int host_af;
+      uschar *interface = NULL;  /* Outgoing interface to use; NULL => any */
+      int port = 25;
+
+      deliver_host = host->name;
+      deliver_host_address = host->address;
+      deliver_host_port = host->port;
+      deliver_domain = addr->domain;
+      transport_name = addr->transport->name;
+
+      host_af = Ustrchr(host->address, ':') ? AF_INET6 : AF_INET;
+
+      if (  !smtp_get_interface(tf->interface, host_af, addr, &interface,
+	      US"callout")
+	 || !smtp_get_port(tf->port, addr, &port, US"callout")
+	 )
+	log_write(0, LOG_MAIN|LOG_PANIC, "<%s>: %s", addr->address,
+	  addr->message);
+
+      smtp_port_for_connect(host, port);
+
+      if (  (  interface == cutthrough.interface
+	    || (  interface
+	       && cutthrough.interface
+	       && Ustrcmp(interface, cutthrough.interface) == 0
+	    )  )
+	 && host->port == cutthrough.host.port
+	 )
+	{
+	uschar * resp = NULL;
+
+	/* Match!  Send the RCPT TO, set done from the response */
+	done =
+	     smtp_write_command(&ctctx, SCMD_FLUSH, "RCPT TO:<%.1000s>\r\n",
+	      transport_rcpt_address(addr,
+		 addr->transport->rcpt_include_affixes)) >= 0
+	  && cutthrough_response(&cutthrough.cctx, '2', &resp,
+	      CUTTHROUGH_DATA_TIMEOUT) == '2';
+
+	/* This would go horribly wrong if a callout fail was ignored by ACL.
+	We punt by abandoning cutthrough on a reject, like the
+	first-rcpt does. */
+
+	if (done)
+	  {
+	  address_item * na = store_get(sizeof(address_item));
+	  *na = cutthrough.addr;
+	  cutthrough.addr = *addr;
+	  cutthrough.addr.host_used = &cutthrough.host;
+	  cutthrough.addr.next = na;
+
+	  cutthrough.nrcpt++;
+	  }
+	else
+	  {
+	  cancel_cutthrough_connection(TRUE, US"recipient rejected");
+	  if (!resp || errno == ETIMEDOUT)
+	    {
+	    HDEBUG(D_verify) debug_printf("SMTP timeout\n");
+	    }
+	  else if (errno == 0)
+	    {
+	    if (*resp == 0)
+	      Ustrcpy(resp, US"connection dropped");
+
+	    addr->message =
+	      string_sprintf("response to \"%s\" was: %s",
+		big_buffer, string_printing(resp));
+
+	    addr->user_message =
+	      string_sprintf("Callout verification failed:\n%s", resp);
+
+	    /* Hard rejection ends the process */
+
+	    if (resp[0] == '5')   /* Address rejected */
+	      {
+	      *yield = FAIL;
+	      done = TRUE;
+	      }
+	    }
+	  }
+	}
+      break;	/* host_list */
+      }
+if (!done)
+  cancel_cutthrough_connection(TRUE, US"incompatible connection");
+return done;
+}
+
+
 /*************************************************
 *      Do callout verification for an address    *
 *************************************************/
@@ -144,6 +492,7 @@ Arguments:
                       vopt_callout_random => do the "random" thing
                       vopt_callout_recipsender => use real sender for recipient
                       vopt_callout_recippmaster => use postmaster for recipient
+		      vopt_callout_hold         => lazy close connection
   se_mailfrom         MAIL FROM address for sender verify; NULL => ""
   pm_mailfrom         if non-NULL, do the postmaster check with this sender
 
@@ -155,10 +504,6 @@ do_callout(address_item *addr, host_item *host_list, transport_feedback *tf,
   int callout, int callout_overall, int callout_connect, int options,
   uschar *se_mailfrom, uschar *pm_mailfrom)
 {
-BOOL is_recipient = (options & vopt_is_recipient) != 0;
-BOOL callout_no_cache = (options & vopt_callout_no_cache) != 0;
-BOOL callout_random = (options & vopt_callout_random) != 0;
-
 int yield = OK;
 int old_domain_cache_result = ccache_accept;
 BOOL done = FALSE;
@@ -166,17 +511,11 @@ uschar *address_key;
 uschar *from_address;
 uschar *random_local_part = NULL;
 const uschar *save_deliver_domain = deliver_domain;
-uschar **failure_ptr = is_recipient?
-  &recipient_verify_failure : &sender_verify_failure;
-open_db dbblock;
-open_db *dbm_file = NULL;
+uschar **failure_ptr = options & vopt_is_recipient
+  ? &recipient_verify_failure : &sender_verify_failure;
 dbdata_callout_cache new_domain_record;
 dbdata_callout_cache_address new_address_record;
-host_item *host;
 time_t callout_start_time;
-#ifdef SUPPORT_I18N
-BOOL utf8_offered = FALSE;
-#endif
 
 new_domain_record.result = ccache_unknown;
 new_domain_record.postmaster_result = ccache_unknown;
@@ -188,189 +527,41 @@ memset(&new_address_record, 0, sizeof(new_address_record));
 include the sender address if we are using the real sender in the callout,
 because that may influence the result of the callout. */
 
-address_key = addr->address;
-from_address = US"";
-
-if (is_recipient)
-  {
+if (options & vopt_is_recipient)
   if (options & vopt_callout_recipsender)
     {
-    address_key = string_sprintf("%s/<%s>", addr->address, sender_address);
     from_address = sender_address;
+    address_key = string_sprintf("%s/<%s>", addr->address, sender_address);
+    if (cutthrough.delivery) options |= vopt_callout_no_cache;
     }
   else if (options & vopt_callout_recippmaster)
     {
+    from_address = string_sprintf("postmaster@%s", qualify_domain_sender);
     address_key = string_sprintf("%s/<postmaster@%s>", addr->address,
       qualify_domain_sender);
-    from_address = string_sprintf("postmaster@%s", qualify_domain_sender);
     }
-  }
+  else
+    {
+    from_address = US"";
+    address_key = addr->address;
+    }
 
 /* For a sender callout, we must adjust the key if the mailfrom address is not
 empty. */
 
 else
   {
-  from_address = (se_mailfrom == NULL)? US"" : se_mailfrom;
-  if (from_address[0] != 0)
-    address_key = string_sprintf("%s/<%s>", addr->address, from_address);
+  from_address = se_mailfrom ? se_mailfrom : US"";
+  address_key = *from_address
+    ? string_sprintf("%s/<%s>", addr->address, from_address) : addr->address;
   }
 
-/* Open the callout cache database, it it exists, for reading only at this
-stage, unless caching has been disabled. */
-
-if (callout_no_cache)
+if (cached_callout_lookup(addr, address_key, from_address,
+      &options, &pm_mailfrom, &yield, failure_ptr,
+      &new_domain_record, &old_domain_cache_result))
   {
-  HDEBUG(D_verify) debug_printf("callout cache: disabled by no_cache\n");
-  }
-else if ((dbm_file = dbfn_open(US"callout", O_RDWR, &dbblock, FALSE)) == NULL)
-  {
-  HDEBUG(D_verify) debug_printf("callout cache: not available\n");
-  }
-
-/* If a cache database is available see if we can avoid the need to do an
-actual callout by making use of previously-obtained data. */
-
-if (dbm_file != NULL)
-  {
-  dbdata_callout_cache_address *cache_address_record;
-  dbdata_callout_cache *cache_record = get_callout_cache_record(dbm_file,
-    addr->domain, US"domain",
-    callout_cache_domain_positive_expire,
-    callout_cache_domain_negative_expire);
-
-  /* If an unexpired cache record was found for this domain, see if the callout
-  process can be short-circuited. */
-
-  if (cache_record != NULL)
-    {
-    /* In most cases, if an early command (up to and including MAIL FROM:<>)
-    was rejected, there is no point carrying on. The callout fails. However, if
-    we are doing a recipient verification with use_sender or use_postmaster
-    set, a previous failure of MAIL FROM:<> doesn't count, because this time we
-    will be using a non-empty sender. We have to remember this situation so as
-    not to disturb the cached domain value if this whole verification succeeds
-    (we don't want it turning into "accept"). */
-
-    old_domain_cache_result = cache_record->result;
-
-    if (cache_record->result == ccache_reject ||
-         (*from_address == 0 && cache_record->result == ccache_reject_mfnull))
-      {
-      setflag(addr, af_verify_nsfail);
-      HDEBUG(D_verify)
-        debug_printf("callout cache: domain gave initial rejection, or "
-          "does not accept HELO or MAIL FROM:<>\n");
-      setflag(addr, af_verify_nsfail);
-      addr->user_message = US"(result of an earlier callout reused).";
-      yield = FAIL;
-      *failure_ptr = US"mail";
-      goto END_CALLOUT;
-      }
-
-    /* If a previous check on a "random" local part was accepted, we assume
-    that the server does not do any checking on local parts. There is therefore
-    no point in doing the callout, because it will always be successful. If a
-    random check previously failed, arrange not to do it again, but preserve
-    the data in the new record. If a random check is required but hasn't been
-    done, skip the remaining cache processing. */
-
-    if (callout_random) switch(cache_record->random_result)
-      {
-      case ccache_accept:
-      HDEBUG(D_verify)
-        debug_printf("callout cache: domain accepts random addresses\n");
-      goto END_CALLOUT;     /* Default yield is OK */
-
-      case ccache_reject:
-      HDEBUG(D_verify)
-        debug_printf("callout cache: domain rejects random addresses\n");
-      callout_random = FALSE;
-      new_domain_record.random_result = ccache_reject;
-      new_domain_record.random_stamp = cache_record->random_stamp;
-      break;
-
-      default:
-      HDEBUG(D_verify)
-        debug_printf("callout cache: need to check random address handling "
-          "(not cached or cache expired)\n");
-      goto END_CACHE;
-      }
-
-    /* If a postmaster check is requested, but there was a previous failure,
-    there is again no point in carrying on. If a postmaster check is required,
-    but has not been done before, we are going to have to do a callout, so skip
-    remaining cache processing. */
-
-    if (pm_mailfrom != NULL)
-      {
-      if (cache_record->postmaster_result == ccache_reject)
-        {
-        setflag(addr, af_verify_pmfail);
-        HDEBUG(D_verify)
-          debug_printf("callout cache: domain does not accept "
-            "RCPT TO:<postmaster@domain>\n");
-        yield = FAIL;
-        *failure_ptr = US"postmaster";
-        setflag(addr, af_verify_pmfail);
-        addr->user_message = US"(result of earlier verification reused).";
-        goto END_CALLOUT;
-        }
-      if (cache_record->postmaster_result == ccache_unknown)
-        {
-        HDEBUG(D_verify)
-          debug_printf("callout cache: need to check RCPT "
-            "TO:<postmaster@domain> (not cached or cache expired)\n");
-        goto END_CACHE;
-        }
-
-      /* If cache says OK, set pm_mailfrom NULL to prevent a redundant
-      postmaster check if the address itself has to be checked. Also ensure
-      that the value in the cache record is preserved (with its old timestamp).
-      */
-
-      HDEBUG(D_verify) debug_printf("callout cache: domain accepts RCPT "
-        "TO:<postmaster@domain>\n");
-      pm_mailfrom = NULL;
-      new_domain_record.postmaster_result = ccache_accept;
-      new_domain_record.postmaster_stamp = cache_record->postmaster_stamp;
-      }
-    }
-
-  /* We can't give a result based on information about the domain. See if there
-  is an unexpired cache record for this specific address (combined with the
-  sender address if we are doing a recipient callout with a non-empty sender).
-  */
-
-  cache_address_record = (dbdata_callout_cache_address *)
-    get_callout_cache_record(dbm_file,
-      address_key, US"address",
-      callout_cache_positive_expire,
-      callout_cache_negative_expire);
-
-  if (cache_address_record != NULL)
-    {
-    if (cache_address_record->result == ccache_accept)
-      {
-      HDEBUG(D_verify)
-        debug_printf("callout cache: address record is positive\n");
-      }
-    else
-      {
-      HDEBUG(D_verify)
-        debug_printf("callout cache: address record is negative\n");
-      addr->user_message = US"Previous (cached) callout verification failure";
-      *failure_ptr = US"recipient";
-      yield = FAIL;
-      }
-    goto END_CALLOUT;
-    }
-
-  /* Close the cache database while we actually do the callout for real. */
-
-  END_CACHE:
-  dbfn_close(dbm_file);
-  dbm_file = NULL;
+  cancel_cutthrough_connection(TRUE, US"cache-hit");
+  goto END_CALLOUT;
   }
 
 if (!addr->transport)
@@ -384,14 +575,15 @@ else
   {
   smtp_transport_options_block *ob =
     (smtp_transport_options_block *)addr->transport->options_block;
+  host_item * host;
 
   /* The information wasn't available in the cache, so we have to do a real
   callout and save the result in the cache for next time, unless no_cache is set,
   or unless we have a previously cached negative random result. If we are to test
   with a random local part, ensure that such a local part is available. If not,
-  log the fact, but carry on without randomming. */
+  log the fact, but carry on without randomising. */
 
-  if (callout_random && callout_random_local_part != NULL)
+  if (options & vopt_callout_random  &&  callout_random_local_part)
     if (!(random_local_part = expand_string(callout_random_local_part)))
       log_write(0, LOG_MAIN|LOG_PANIC, "failed to expand "
         "callout_random_local_part: %s", expand_string_message);
@@ -409,146 +601,36 @@ else
   and cause the client to time out. So in this case we forgo the PIPELINING
   optimization. */
 
-  if (smtp_out != NULL && !disable_callout_flush) mac_smtp_fflush();
+  if (smtp_out && !f.disable_callout_flush) mac_smtp_fflush();
+
+  clearflag(addr, af_verify_pmfail);  /* postmaster callout flag */
+  clearflag(addr, af_verify_nsfail);  /* null sender callout flag */
 
 /* cutthrough-multi: if a nonfirst rcpt has the same routing as the first,
 and we are holding a cutthrough conn open, we can just append the rcpt to
 that conn for verification purposes (and later delivery also).  Simplest
-coding means skipping this whole loop and doing the append separately.
-
-We will need to remember it has been appended so that rcpt-acl tail code
-can do it there for the non-rcpt-verify case.  For this we keep an addresscount.
-*/
+coding means skipping this whole loop and doing the append separately.  */
 
   /* Can we re-use an open cutthrough connection? */
-  if (  cutthrough.fd >= 0
+  if (  cutthrough.cctx.sock >= 0
      && (options & (vopt_callout_recipsender | vopt_callout_recippmaster))
 	== vopt_callout_recipsender
      && !random_local_part
      && !pm_mailfrom
      )
+    done = cutthrough_multi(addr, host_list, tf, &yield);
+
+  /* If we did not use a cached connection, make connections to the hosts
+  and do real callouts. The list of hosts is passed in as an argument. */
+
+  for (host = host_list; host && !done; host = host->next)
     {
-    if (addr->transport == cutthrough.addr.transport)
-      for (host = host_list; host; host = host->next)
-	if (Ustrcmp(host->address, cutthrough.host.address) == 0)
-	  {
-	  int host_af;
-	  uschar *interface = NULL;  /* Outgoing interface to use; NULL => any */
-	  int port = 25;
-
-	  deliver_host = host->name;
-	  deliver_host_address = host->address;
-	  deliver_host_port = host->port;
-	  deliver_domain = addr->domain;
-	  transport_name = addr->transport->name;
-
-	  host_af = (Ustrchr(host->address, ':') == NULL)? AF_INET:AF_INET6;
-
-	  if (!smtp_get_interface(tf->interface, host_af, addr, &interface,
-		  US"callout") ||
-	      !smtp_get_port(tf->port, addr, &port, US"callout"))
-	    log_write(0, LOG_MAIN|LOG_PANIC, "<%s>: %s", addr->address,
-	      addr->message);
-
-	  if (  (  interface == cutthrough.interface
-	        || (  interface
-	           && cutthrough.interface
-		   && Ustrcmp(interface, cutthrough.interface) == 0
-		)  )
-	     && port == cutthrough.host.port
-	     )
-	    {
-	    uschar * resp;
-
-	    /* Match!  Send the RCPT TO, append the addr, set done */
-	    done =
-	      smtp_write_command(&ctblock, FALSE, "RCPT TO:<%.1000s>\r\n",
-		transport_rcpt_address(addr,
-		  (addr->transport == NULL)? FALSE :
-		   addr->transport->rcpt_include_affixes)) >= 0 &&
-	      cutthrough_response('2', &resp) == '2';
-
-	    /* This would go horribly wrong if a callout fail was ignored by ACL.
-	    We punt by abandoning cutthrough on a reject, like the
-	    first-rcpt does. */
-
-	    if (done)
-	      {
-	      address_item * na = store_get(sizeof(address_item));
-	      *na = cutthrough.addr;
-	      cutthrough.addr = *addr;
-	      cutthrough.addr.host_used = &cutthrough.host;
-	      cutthrough.addr.next = na;
-
-	      cutthrough.nrcpt++;
-	      }
-	    else
-	      {
-	      cancel_cutthrough_connection("recipient rejected");
-	      if (errno == ETIMEDOUT)
-		{
-		HDEBUG(D_verify) debug_printf("SMTP timeout\n");
-		}
-	      else if (errno == 0)
-		{
-		if (*resp == 0)
-		  Ustrcpy(resp, US"connection dropped");
-
-		addr->message =
-		  string_sprintf("response to \"%s\" from %s [%s] was: %s",
-		    big_buffer, host->name, host->address,
-		    string_printing(resp));
-
-		addr->user_message =
-		  string_sprintf("Callout verification failed:\n%s", resp);
-
-		/* Hard rejection ends the process */
-
-		if (resp[0] == '5')   /* Address rejected */
-		  {
-		  yield = FAIL;
-		  done = TRUE;
-		  }
-		}
-	      }
-	    }
-	  break;
-	  }
-    if (!done)
-      cancel_cutthrough_connection("incompatible connection");
-    }
-
-  /* Now make connections to the hosts and do real callouts. The list of hosts
-  is passed in as an argument. */
-
-  for (host = host_list; host != NULL && !done; host = host->next)
-    {
-    smtp_inblock inblock;
-    smtp_outblock outblock;
     int host_af;
     int port = 25;
-    BOOL send_quit = TRUE;
-    uschar *active_hostname = smtp_active_hostname;
-    BOOL lmtp;
-    BOOL smtps;
-    BOOL esmtp;
-    BOOL suppress_tls = FALSE;
     uschar *interface = NULL;  /* Outgoing interface to use; NULL => any */
-#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_DANE)
-    BOOL dane = FALSE;
-    BOOL dane_required;
-    dns_answer tlsa_dnsa;
-#endif
-    uschar inbuffer[4096];
-    uschar outbuffer[1024];
-    uschar responsebuffer[4096];
+    smtp_context sx;
 
-    clearflag(addr, af_verify_pmfail);  /* postmaster callout flag */
-    clearflag(addr, af_verify_nsfail);  /* null sender callout flag */
-
-    /* Skip this host if we don't have an IP address for it. */
-
-    if (host->address == NULL)
+    if (!host->address)
       {
       DEBUG(D_verify) debug_printf("no IP address for host name %s: skipping\n",
         host->name);
@@ -565,7 +647,7 @@ can do it there for the non-rcpt-verify case.  For this we keep an addresscount.
 
     /* Set IPv4 or IPv6 */
 
-    host_af = (Ustrchr(host->address, ':') == NULL)? AF_INET:AF_INET6;
+    host_af = Ustrchr(host->address, ':') ? AF_INET6 : AF_INET;
 
     /* Expand and interpret the interface and port strings. The latter will not
     be used if there is a host-specific port (e.g. from a manualroute router).
@@ -586,440 +668,83 @@ can do it there for the non-rcpt-verify case.  For this we keep an addresscount.
       log_write(0, LOG_MAIN|LOG_PANIC, "<%s>: %s", addr->address,
         addr->message);
 
-    /* Set HELO string according to the protocol */
-    lmtp= Ustrcmp(tf->protocol, "lmtp") == 0;
-    smtps= Ustrcmp(tf->protocol, "smtps") == 0;
+    sx.addrlist = addr;
+    sx.conn_args.host = host;
+    sx.conn_args.host_af = host_af,
+    sx.port = port;
+    sx.conn_args.interface = interface;
+    sx.helo_data = tf->helo_data;
+    sx.conn_args.tblock = addr->transport;
+    sx.verify = TRUE;
 
+tls_retry_connection:
+    /* Set the address state so that errors are recorded in it */
 
-    HDEBUG(D_verify) debug_printf("interface=%s port=%d\n", interface, port);
+    addr->transport_return = PENDING_DEFER;
+    ob->connect_timeout = callout_connect;
+    ob->command_timeout = callout;
 
-    /* Set up the buffer for reading SMTP response packets. */
+    /* Get the channel set up ready for a message (MAIL FROM being the next
+    SMTP command to send.  If we tried TLS but it failed, try again without
+    if permitted */
 
-    inblock.buffer = inbuffer;
-    inblock.buffersize = sizeof(inbuffer);
-    inblock.ptr = inbuffer;
-    inblock.ptrend = inbuffer;
-
-    /* Set up the buffer for holding SMTP commands while pipelining */
-
-    outblock.buffer = outbuffer;
-    outblock.buffersize = sizeof(outbuffer);
-    outblock.ptr = outbuffer;
-    outblock.cmd_count = 0;
-    outblock.authenticating = FALSE;
-
-    /* Connect to the host; on failure, just loop for the next one, but we
-    set the error for the last one. Use the callout_connect timeout. */
-
-    tls_retry_connection:
-
-    /* Reset the parameters of a TLS session */
-    tls_out.cipher = tls_out.peerdn = tls_out.peercert = NULL;
-
-    inblock.sock = outblock.sock =
-      smtp_connect(host, host_af, port, interface, callout_connect,
-		  addr->transport);
-    if (inblock.sock < 0)
+    yield = smtp_setup_conn(&sx, FALSE);
+#ifdef SUPPORT_TLS
+    if (  yield == DEFER
+       && addr->basic_errno == ERRNO_TLSFAILURE
+       && ob->tls_tempfail_tryclear
+       && verify_check_given_host(CUSS &ob->hosts_require_tls, host) != OK
+       )
       {
-      addr->message = string_sprintf("could not connect to %s [%s]: %s",
-          host->name, host->address, strerror(errno));
+      log_write(0, LOG_MAIN,
+	"%s: callout unencrypted to %s [%s] (not in hosts_require_tls)",
+	addr->message, host->name, host->address);
+      addr->transport_return = PENDING_DEFER;
+      yield = smtp_setup_conn(&sx, TRUE);
+      }
+#endif
+    if (yield != OK)
+      {
+      errno = addr->basic_errno;
       transport_name = NULL;
       deliver_host = deliver_host_address = NULL;
       deliver_domain = save_deliver_domain;
-      continue;
-      }
 
-#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_DANE)
-      {
-      int rc;
+      /* Failure to accept HELO is cached; this blocks the whole domain for all
+      senders. I/O errors and defer responses are not cached. */
 
-      tls_out.dane_verified = FALSE;
-      tls_out.tlsa_usage = 0;
-
-      dane_required =
-	verify_check_given_host(&ob->hosts_require_dane, host) == OK;
-
-      if (host->dnssec == DS_YES)
+      if (yield == FAIL && (errno == 0 || errno == ERRNO_SMTPCLOSED))
 	{
-	if(  (  dane_required
-	     || verify_check_given_host(&ob->hosts_try_dane, host) == OK
-	     )
-	  && (rc = tlsa_lookup(host, &tlsa_dnsa, dane_required, &dane)) != OK
-	  )
-	  return rc;
-	}
-      else if (dane_required)
-	{
-	log_write(0, LOG_MAIN, "DANE error: %s lookup not DNSSEC", host->name);
-	return FAIL;
-	}
-
-      if (dane)
-	ob->tls_tempfail_tryclear = FALSE;
-      }
-#endif  /*DANE*/
-
-    /* Expand the helo_data string to find the host name to use. */
-
-    if (tf->helo_data != NULL)
-      {
-      uschar *s = expand_string(tf->helo_data);
-      if (s == NULL)
-        log_write(0, LOG_MAIN|LOG_PANIC, "<%s>: failed to expand transport's "
-          "helo_data value for callout: %s", addr->address,
-          expand_string_message);
-      else active_hostname = s;
-      }
-
-    /* Wait for initial response, and send HELO. The smtp_write_command()
-    function leaves its command in big_buffer. This is used in error responses.
-    Initialize it in case the connection is rejected. */
-
-    Ustrcpy(big_buffer, "initial connection");
-
-    /* Unless ssl-on-connect, wait for the initial greeting */
-    smtps_redo_greeting:
-
-#ifdef SUPPORT_TLS
-    if (!smtps || (smtps && tls_out.active >= 0))
-#endif
-      {
-      if (!(done= smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer), '2', callout)))
-        goto RESPONSE_FAILED;
-
-#ifndef DISABLE_EVENT
-      lookup_dnssec_authenticated = host->dnssec==DS_YES ? US"yes"
-	: host->dnssec==DS_NO ? US"no" : NULL;
-      if (event_raise(addr->transport->event_action,
-			    US"smtp:connect", responsebuffer))
-	{
-	lookup_dnssec_authenticated = NULL;
-	/* Logging?  Debug? */
-	goto RESPONSE_FAILED;
-	}
-      lookup_dnssec_authenticated = NULL;
-#endif
-      }
-
-    /* Not worth checking greeting line for ESMTP support */
-    if (!(esmtp = verify_check_given_host(&ob->hosts_avoid_esmtp, host) != OK))
-      DEBUG(D_transport)
-        debug_printf("not sending EHLO (host matches hosts_avoid_esmtp)\n");
-
-    tls_redo_helo:
-
-#ifdef SUPPORT_TLS
-    if (smtps  &&  tls_out.active < 0)	/* ssl-on-connect, first pass */
-      {
-      tls_offered = TRUE;
-      ob->tls_tempfail_tryclear = FALSE;
-      }
-    else				/* all other cases */
-#endif
-
-      { esmtp_retry:
-
-      if (!(done= smtp_write_command(&outblock, FALSE, "%s %s\r\n",
-        !esmtp? "HELO" : lmtp? "LHLO" : "EHLO", active_hostname) >= 0))
-        goto SEND_FAILED;
-      if (!smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer), '2', callout))
-        {
-	if (errno != 0 || responsebuffer[0] == 0 || lmtp || !esmtp || tls_out.active >= 0)
-	  {
-	  done= FALSE;
-	  goto RESPONSE_FAILED;
-	  }
-#ifdef SUPPORT_TLS
-        tls_offered = FALSE;
-#endif
-        esmtp = FALSE;
-        goto esmtp_retry;			/* fallback to HELO */
-        }
-
-      /* Set tls_offered if the response to EHLO specifies support for STARTTLS. */
-#ifdef SUPPORT_TLS
-      if (esmtp && !suppress_tls &&  tls_out.active < 0)
-	{
-	if (regex_STARTTLS == NULL) regex_STARTTLS =
-	  regex_must_compile(US"\\n250[\\s\\-]STARTTLS(\\s|\\n|$)", FALSE, TRUE);
-
-	tls_offered = pcre_exec(regex_STARTTLS, NULL, CS responsebuffer,
-		      Ustrlen(responsebuffer), 0, PCRE_EOPT, NULL, 0) >= 0;
+	setflag(addr, af_verify_nsfail);
+	new_domain_record.result = ccache_reject;
+	done = TRUE;
 	}
       else
-        tls_offered = FALSE;
-#endif
+	done = FALSE;
+      goto no_conn;
       }
 
-    /* If TLS is available on this connection attempt to
-    start up a TLS session, unless the host is in hosts_avoid_tls. If successful,
-    send another EHLO - the server may give a different answer in secure mode. We
-    use a separate buffer for reading the response to STARTTLS so that if it is
-    negative, the original EHLO data is available for subsequent analysis, should
-    the client not be required to use TLS. If the response is bad, copy the buffer
-    for error analysis. */
+    /* If we needed to authenticate, smtp_setup_conn() did that.  Copy
+    the AUTH info for logging */
 
-#ifdef SUPPORT_TLS
-    if (  tls_offered
-       && verify_check_given_host(&ob->hosts_avoid_tls, host) != OK
-       && verify_check_given_host(&ob->hosts_verify_avoid_tls, host) != OK
-       )
+    addr->authenticator = client_authenticator;
+    addr->auth_id = client_authenticated_id;
+
+    sx.from_addr = from_address;
+    sx.first_addr = sx.sync_addr = addr;
+    sx.ok = FALSE;			/*XXX these 3 last might not be needed for verify? */
+    sx.send_rset = TRUE;
+    sx.completed_addr = FALSE;
+
+    new_domain_record.result = old_domain_cache_result == ccache_reject_mfnull
+      ? ccache_reject_mfnull : ccache_accept;
+
+    /* Do the random local part check first. Temporarily replace the recipient
+    with the "random" value */
+
+    if (random_local_part)
       {
-      uschar buffer2[4096];
-      if (  !smtps
-         && !(done= smtp_write_command(&outblock, FALSE, "STARTTLS\r\n") >= 0))
-        goto SEND_FAILED;
-
-      /* If there is an I/O error, transmission of this message is deferred. If
-      there is a temporary rejection of STARRTLS and tls_tempfail_tryclear is
-      false, we also defer. However, if there is a temporary rejection of STARTTLS
-      and tls_tempfail_tryclear is true, or if there is an outright rejection of
-      STARTTLS, we carry on. This means we will try to send the message in clear,
-      unless the host is in hosts_require_tls (tested below). */
-
-      if (!smtps && !smtp_read_response(&inblock, buffer2, sizeof(buffer2), '2',
-  			ob->command_timeout))
-        {
-        if (errno != 0 || buffer2[0] == 0 ||
-        	(buffer2[0] == '4' && !ob->tls_tempfail_tryclear))
-	  {
-	  Ustrncpy(responsebuffer, buffer2, sizeof(responsebuffer));
-	  done= FALSE;
-	  goto RESPONSE_FAILED;
-	  }
-        }
-
-       /* STARTTLS accepted or ssl-on-connect: try to negotiate a TLS session. */
-      else
-        {
-	int oldtimeout = ob->command_timeout;
-	int rc;
-
-	tls_negotiate:
-	ob->command_timeout = callout;
-        rc = tls_client_start(inblock.sock, host, addr, addr->transport
-# ifdef EXPERIMENTAL_DANE
-			    , dane ? &tlsa_dnsa : NULL
-# endif
-			    );
-	ob->command_timeout = oldtimeout;
-
-        /* TLS negotiation failed; give an error.  Try in clear on a new
-	connection, if the options permit it for this host. */
-        if (rc != OK)
-          {
-	  if (rc == DEFER)
-	    {
-	    (void)close(inblock.sock);
-# ifndef DISABLE_EVENT
-	    (void) event_raise(addr->transport->event_action,
-				    US"tcp:close", NULL);
-# endif
-# ifdef EXPERIMENTAL_DANE
-	    if (dane)
-	      {
-	      if (!dane_required)
-		{
-		log_write(0, LOG_MAIN, "DANE attempt failed;"
-		  " trying CA-root TLS to %s [%s] (not in hosts_require_dane)",
-		  host->name, host->address);
-		dane = FALSE;
-		goto tls_negotiate;
-		}
-	      }
-	    else
-# endif
-	      if (  ob->tls_tempfail_tryclear
-		 && !smtps
-		 && verify_check_given_host(&ob->hosts_require_tls, host) != OK
-		 )
-	      {
-	      log_write(0, LOG_MAIN, "TLS session failure:"
-		" delivering unencrypted to %s [%s] (not in hosts_require_tls)",
-		host->name, host->address);
-	      suppress_tls = TRUE;
-	      goto tls_retry_connection;
-	      }
-	    }
-
-	  /*save_errno = ERRNO_TLSFAILURE;*/
-	  /*message = US"failure while setting up TLS session";*/
-	  send_quit = FALSE;
-	  done= FALSE;
-	  goto TLS_FAILED;
-	  }
-
-        /* TLS session is set up.  Copy info for logging. */
-        addr->cipher = tls_out.cipher;
-        addr->peerdn = tls_out.peerdn;
-
-        /* For SMTPS we need to wait for the initial OK response, then do HELO. */
-        if (smtps)
-	  goto smtps_redo_greeting;
-
-        /* For STARTTLS we need to redo EHLO */
-        goto tls_redo_helo;
-        }
-      }
-
-    /* If the host is required to use a secure channel, ensure that we have one. */
-    if (tls_out.active < 0)
-      if (
-# ifdef EXPERIMENTAL_DANE
-	 dane ||
-# endif
-         verify_check_given_host(&ob->hosts_require_tls, host) == OK
-	 )
-        {
-        /*save_errno = ERRNO_TLSREQUIRED;*/
-        log_write(0, LOG_MAIN,
-	  "H=%s [%s]: a TLS session is required for this host, but %s",
-          host->name, host->address,
-	  tls_offered ? "an attempt to start TLS failed"
-		      : "the server did not offer TLS support");
-        done= FALSE;
-        goto TLS_FAILED;
-        }
-
-#endif /*SUPPORT_TLS*/
-
-    done = TRUE; /* so far so good; have response to HELO */
-
-    /*XXX the EHLO response would be analyzed here for IGNOREQUOTA, SIZE, PIPELINING */
-
-    /* For now, transport_filter by cutthrough-delivery is not supported */
-    /* Need proper integration with the proper transport mechanism. */
-    if (cutthrough.delivery)
-      {
-      if (addr->transport->filter_command)
-        {
-        cutthrough.delivery = FALSE;
-        HDEBUG(D_acl|D_v) debug_printf("Cutthrough cancelled by presence of transport filter\n");
-        }
-#ifndef DISABLE_DKIM
-      if (ob->dkim_domain)
-        {
-        cutthrough.delivery = FALSE;
-        HDEBUG(D_acl|D_v) debug_printf("Cutthrough cancelled by presence of DKIM signing\n");
-        }
-#endif
-      }
-
-    SEND_FAILED:
-    RESPONSE_FAILED:
-    TLS_FAILED:
-    ;
-    /* Clear down of the TLS, SMTP and TCP layers on error is handled below.  */
-
-    /* Failure to accept HELO is cached; this blocks the whole domain for all
-    senders. I/O errors and defer responses are not cached. */
-
-    if (!done)
-      {
-      *failure_ptr = US"mail";     /* At or before MAIL */
-      if (errno == 0 && responsebuffer[0] == '5')
-        {
-        setflag(addr, af_verify_nsfail);
-        new_domain_record.result = ccache_reject;
-        }
-      }
-
-#ifdef SUPPORT_I18N
-    else if (  addr->prop.utf8_msg
-	    && !addr->prop.utf8_downcvt
-	    && !(  esmtp
-		&& (  regex_UTF8
-		   || ( (regex_UTF8 = regex_must_compile(
-			  US"\\n250[\\s\\-]SMTPUTF8(\\s|\\n|$)", FALSE, TRUE)),
-		      TRUE
-		   )  )
-		&& (  (utf8_offered = pcre_exec(regex_UTF8, NULL,
-			    CS responsebuffer, Ustrlen(responsebuffer),
-			    0, PCRE_EOPT, NULL, 0) >= 0)
-		   || addr->prop.utf8_downcvt_maybe
-	    )   )  )
-      {
-      HDEBUG(D_acl|D_v) debug_printf("utf8 required but not offered\n");
-      errno = ERRNO_UTF8_FWD;
-      setflag(addr, af_verify_nsfail);
-      done = FALSE;
-      }
-    else if (  addr->prop.utf8_msg
-	    && (addr->prop.utf8_downcvt || !utf8_offered)
-	    && (setflag(addr, af_utf8_downcvt),
-	        from_address = string_address_utf8_to_alabel(from_address,
-				      &addr->message),
-		addr->message
-	    )  )
-      {
-      errno = ERRNO_EXPANDFAIL;
-      setflag(addr, af_verify_nsfail);
-      done = FALSE;
-      }
-#endif
-
-    /* If we haven't authenticated, but are required to, give up. */
-    /* Try to AUTH */
-
-    else done = smtp_auth(responsebuffer, sizeof(responsebuffer),
-	addr, host, ob, esmtp, &inblock, &outblock) == OK  &&
-
-      		/* Copy AUTH info for logging */
-      ( (addr->authenticator = client_authenticator),
-        (addr->auth_id = client_authenticated_id),
-
-    /* Build a mail-AUTH string (re-using responsebuffer for convenience */
-        !smtp_mail_auth_str(responsebuffer, sizeof(responsebuffer), addr, ob)
-      )  &&
-
-      ( (addr->auth_sndr = client_authenticated_sender),
-
-    /* Send the MAIL command */
-        (smtp_write_command(&outblock, FALSE,
-#ifdef SUPPORT_I18N
-	  addr->prop.utf8_msg && !addr->prop.utf8_downcvt
-	  ? "MAIL FROM:<%s>%s SMTPUTF8\r\n"
-	  :
-#endif
-	    "MAIL FROM:<%s>%s\r\n",
-          from_address, responsebuffer) >= 0)
-      )  &&
-
-      smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer),
-        '2', callout);
-
-    deliver_host = deliver_host_address = NULL;
-    deliver_domain = save_deliver_domain;
-
-    /* If the host does not accept MAIL FROM:<>, arrange to cache this
-    information, but again, don't record anything for an I/O error or a defer. Do
-    not cache rejections of MAIL when a non-empty sender has been used, because
-    that blocks the whole domain for all senders. */
-
-    if (!done)
-      {
-      *failure_ptr = US"mail";     /* At or before MAIL */
-      if (errno == 0 && responsebuffer[0] == '5')
-        {
-        setflag(addr, af_verify_nsfail);
-        if (from_address[0] == 0)
-          new_domain_record.result = ccache_reject_mfnull;
-        }
-      }
-
-    /* Otherwise, proceed to check a "random" address (if required), then the
-    given address, and the postmaster address (if required). Between each check,
-    issue RSET, because some servers accept only one recipient after MAIL
-    FROM:<>.
-
-    Before doing this, set the result in the domain cache record to "accept",
-    unless its previous value was ccache_reject_mfnull. In that case, the domain
-    rejects MAIL FROM:<> and we want to continue to remember that. When that is
-    the case, we have got here only in the case of a recipient verification with
-    a non-null sender. */
-
-    else
-      {
+      uschar * main_address = addr->address;
       const uschar * rcpt_domain = addr->domain;
 
 #ifdef SUPPORT_I18N
@@ -1037,181 +762,199 @@ can do it there for the non-rcpt-verify case.  For this we keep an addresscount.
 	}
 #endif
 
-      new_domain_record.result =
-        (old_domain_cache_result == ccache_reject_mfnull)?
-          ccache_reject_mfnull: ccache_accept;
+      /* This would be ok for 1st rcpt of a cutthrough (the case handled here;
+      subsequents are done in cutthrough_multi()), but no way to
+      handle a subsequent because of the RSET vaporising the MAIL FROM.
+      So refuse to support any.  Most cutthrough use will not involve
+      random_local_part, so no loss. */
+      cancel_cutthrough_connection(TRUE, US"random-recipient");
 
-      /* Do the random local part check first */
+      addr->address = string_sprintf("%s@%.1000s",
+				    random_local_part, rcpt_domain);
+      done = FALSE;
 
-      if (random_local_part != NULL)
-        {
-        uschar randombuffer[1024];
-        BOOL random_ok =
-          smtp_write_command(&outblock, FALSE,
-            "RCPT TO:<%.1000s@%.1000s>\r\n", random_local_part,
-            rcpt_domain) >= 0 &&
-          smtp_read_response(&inblock, randombuffer,
-            sizeof(randombuffer), '2', callout);
+      /* If accepted, we aren't going to do any further tests below.
+      Otherwise, cache a real negative response, and get back to the right
+      state to send RCPT. Unless there's some problem such as a dropped
+      connection, we expect to succeed, because the commands succeeded above.
+      However, some servers drop the connection after responding to an
+      invalid recipient, so on (any) error we drop and remake the connection.
+      XXX We don't care about that for postmaster_full.  Should we?
 
-        /* Remember when we last did a random test */
+      XXX could we add another flag to the context, and have the common
+      code emit the RSET too?  Even pipelined after the RCPT...
+      Then the main-verify call could use it if there's to be a subsequent
+      postmaster-verify.
+      The sync_responses() would need to be taught about it and we'd
+      need another return code filtering out to here.
 
-        new_domain_record.random_stamp = time(NULL);
+      Avoid using a SIZE option on the MAIL for all random-rcpt checks.
+      */
 
-        /* If accepted, we aren't going to do any further tests below. */
+      sx.avoid_option = OPTION_SIZE;
 
-        if (random_ok)
-          new_domain_record.random_result = ccache_accept;
+      /* Remember when we last did a random test */
+      new_domain_record.random_stamp = time(NULL);
 
-        /* Otherwise, cache a real negative response, and get back to the right
-        state to send RCPT. Unless there's some problem such as a dropped
-        connection, we expect to succeed, because the commands succeeded above.
-	However, some servers drop the connection after responding to  an
-	invalid recipient, so on (any) error we drop and remake the connection.
-	*/
+      if (smtp_write_mail_and_rcpt_cmds(&sx, &yield) == 0)
+	switch(addr->transport_return)
+	  {
+	  case PENDING_OK:	/* random was accepted, unfortunately */
+	    new_domain_record.random_result = ccache_accept;
+	    yield = OK;		/* Only usable verify result we can return */
+	    done = TRUE;
+	    *failure_ptr = US"random";
+	    goto no_conn;
+	  case FAIL:		/* rejected: the preferred result */
+	    new_domain_record.random_result = ccache_reject;
+	    sx.avoid_option = 0;
 
-        else if (errno == 0)
-          {
-	  /* This would be ok for 1st rcpt a cutthrough, but no way to
-	  handle a subsequent.  So refuse to support any */
-	  cancel_cutthrough_connection("random-recipient");
+	    /* Between each check, issue RSET, because some servers accept only
+	    one recipient after MAIL FROM:<>.
+	    XXX We don't care about that for postmaster_full.  Should we? */
 
-          if (randombuffer[0] == '5')
-            new_domain_record.random_result = ccache_reject;
+	    if ((done =
+	      smtp_write_command(&sx, SCMD_FLUSH, "RSET\r\n") >= 0 &&
+	      smtp_read_response(&sx, sx.buffer, sizeof(sx.buffer), '2', callout)))
+	      break;
 
-          done =
-            smtp_write_command(&outblock, FALSE, "RSET\r\n") >= 0 &&
-            smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer),
-              '2', callout) &&
-
-            smtp_write_command(&outblock, FALSE,
-#ifdef SUPPORT_I18N
-	      addr->prop.utf8_msg && !addr->prop.utf8_downcvt
-	      ? "MAIL FROM:<%s> SMTPUTF8\r\n"
-	      :
-#endif
-	        "MAIL FROM:<%s>\r\n",
-              from_address) >= 0 &&
-            smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer),
-              '2', callout);
-
-	  if (!done)
-	    {
 	    HDEBUG(D_acl|D_v)
-	      debug_printf("problem after random/rset/mfrom; reopen conn\n");
+	      debug_printf_indent("problem after random/rset/mfrom; reopen conn\n");
 	    random_local_part = NULL;
 #ifdef SUPPORT_TLS
-	    tls_close(FALSE, TRUE);
+	    tls_close(sx.cctx.tls_ctx, TLS_SHUTDOWN_NOWAIT);
 #endif
-	    (void)close(inblock.sock);
+	    HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SMTP(close)>>\n");
+	    (void)close(sx.cctx.sock);
+	    sx.cctx.sock = -1;
 #ifndef DISABLE_EVENT
 	    (void) event_raise(addr->transport->event_action,
 			      US"tcp:close", NULL);
 #endif
+	    addr->address = main_address;
+	    addr->transport_return = PENDING_DEFER;
+	    sx.first_addr = sx.sync_addr = addr;
+	    sx.ok = FALSE;
+	    sx.send_rset = TRUE;
+	    sx.completed_addr = FALSE;
 	    goto tls_retry_connection;
-	    }
-          }
-        else done = FALSE;    /* Some timeout/connection problem */
-        }                     /* Random check */
+	  case DEFER:		/* 4xx response to random */
+	    break;		/* Just to be clear. ccache_unknown, !done. */
+	  }
 
-      /* If the host is accepting all local parts, as determined by the "random"
-      check, we don't need to waste time doing any further checking. */
+      /* Re-setup for main verify, or for the error message when failing */
+      addr->address = main_address;
+      addr->transport_return = PENDING_DEFER;
+      sx.first_addr = sx.sync_addr = addr;
+      sx.ok = FALSE;
+      sx.send_rset = TRUE;
+      sx.completed_addr = FALSE;
+      }
+    else
+      done = TRUE;
 
-      if (new_domain_record.random_result != ccache_accept && done)
-        {
-        /* Get the rcpt_include_affixes flag from the transport if there is one,
-        but assume FALSE if there is not. */
+    /* Main verify.  For rcpt-verify use SIZE if we know it and we're not cacheing;
+    for sndr-verify never use it. */
 
-	uschar * rcpt = transport_rcpt_address(addr,
-              addr->transport ? addr->transport->rcpt_include_affixes : FALSE);
+    if (done)
+      {
+      if (!(options & vopt_is_recipient  &&  options & vopt_callout_no_cache))
+	sx.avoid_option = OPTION_SIZE;
 
-#ifdef SUPPORT_I18N
-	/*XXX should the conversion be moved into transport_rcpt_address() ? */
-	uschar * dummy_errstr = NULL;
-	if (  testflag(addr, af_utf8_downcvt)
-	   && (rcpt = string_address_utf8_to_alabel(rcpt, &dummy_errstr),
-	       dummy_errstr
-	   )  )
+      done = FALSE;
+      switch(smtp_write_mail_and_rcpt_cmds(&sx, &yield))
 	{
-	errno = ERRNO_EXPANDFAIL;
-	*failure_ptr = US"recipient";
-	done = FALSE;
+	case 0:  switch(addr->transport_return)	/* ok so far */
+		    {
+		    case PENDING_OK:  done = TRUE;
+				      new_address_record.result = ccache_accept;
+				      break;
+		    case FAIL:	    done = TRUE;
+				      yield = FAIL;
+				      *failure_ptr = US"recipient";
+				      new_address_record.result = ccache_reject;
+				      break;
+		    default:	    break;
+		    }
+		  break;
+
+	case -1:				/* MAIL response error */
+		  *failure_ptr = US"mail";
+		  if (errno == 0 && sx.buffer[0] == '5')
+		    {
+		    setflag(addr, af_verify_nsfail);
+		    if (from_address[0] == 0)
+		      new_domain_record.result = ccache_reject_mfnull;
+		    }
+		  break;
+						/* non-MAIL read i/o error */
+						/* non-MAIL response timeout */
+						/* internal error; channel still usable */
+	default:  break;			/* transmit failed */
 	}
+      }
+
+    addr->auth_sndr = client_authenticated_sender;
+
+    deliver_host = deliver_host_address = NULL;
+    deliver_domain = save_deliver_domain;
+
+    /* Do postmaster check if requested; if a full check is required, we
+    check for RCPT TO:<postmaster> (no domain) in accordance with RFC 821. */
+
+    if (done && pm_mailfrom)
+      {
+      /* Could possibly shift before main verify, just above, and be ok
+      for cutthrough.  But no way to handle a subsequent rcpt, so just
+      refuse any */
+      cancel_cutthrough_connection(TRUE, US"postmaster verify");
+      HDEBUG(D_acl|D_v) debug_printf_indent("Cutthrough cancelled by presence of postmaster verify\n");
+
+      done = smtp_write_command(&sx, SCMD_FLUSH, "RSET\r\n") >= 0
+          && smtp_read_response(&sx, sx.buffer, sizeof(sx.buffer), '2', callout);
+
+      if (done)
+	{
+	uschar * main_address = addr->address;
+
+	/*XXX oops, affixes */
+	addr->address = string_sprintf("postmaster@%.1000s", addr->domain);
+	addr->transport_return = PENDING_DEFER;
+
+	sx.from_addr = pm_mailfrom;
+	sx.first_addr = sx.sync_addr = addr;
+	sx.ok = FALSE;
+	sx.send_rset = TRUE;
+	sx.completed_addr = FALSE;
+	sx.avoid_option = OPTION_SIZE;
+
+	if(  smtp_write_mail_and_rcpt_cmds(&sx, &yield) == 0
+	  && addr->transport_return == PENDING_OK
+	  )
+	  done = TRUE;
 	else
-#endif
+	  done = (options & vopt_callout_fullpm) != 0
+	      && smtp_write_command(&sx, SCMD_FLUSH,
+			    "RCPT TO:<postmaster>\r\n") >= 0
+	      && smtp_read_response(&sx, sx.buffer,
+			    sizeof(sx.buffer), '2', callout);
 
-        done =
-          smtp_write_command(&outblock, FALSE, "RCPT TO:<%.1000s>\r\n",
-            rcpt) >= 0 &&
-          smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer),
-            '2', callout);
+	/* Sort out the cache record */
 
-        if (done)
-          new_address_record.result = ccache_accept;
-        else if (errno == 0 && responsebuffer[0] == '5')
-          {
-          *failure_ptr = US"recipient";
-          new_address_record.result = ccache_reject;
-          }
+	new_domain_record.postmaster_stamp = time(NULL);
 
-        /* Do postmaster check if requested; if a full check is required, we
-        check for RCPT TO:<postmaster> (no domain) in accordance with RFC 821. */
+	if (done)
+	  new_domain_record.postmaster_result = ccache_accept;
+	else if (errno == 0 && sx.buffer[0] == '5')
+	  {
+	  *failure_ptr = US"postmaster";
+	  setflag(addr, af_verify_pmfail);
+	  new_domain_record.postmaster_result = ccache_reject;
+	  }
 
-        if (done && pm_mailfrom != NULL)
-          {
-          /* Could possibly shift before main verify, just above, and be ok
-	  for cutthrough.  But no way to handle a subsequent rcpt, so just
-	  refuse any */
-	cancel_cutthrough_connection("postmaster verify");
-  	HDEBUG(D_acl|D_v) debug_printf("Cutthrough cancelled by presence of postmaster verify\n");
-
-          done =
-            smtp_write_command(&outblock, FALSE, "RSET\r\n") >= 0 &&
-            smtp_read_response(&inblock, responsebuffer,
-              sizeof(responsebuffer), '2', callout) &&
-
-            smtp_write_command(&outblock, FALSE,
-              "MAIL FROM:<%s>\r\n", pm_mailfrom) >= 0 &&
-            smtp_read_response(&inblock, responsebuffer,
-              sizeof(responsebuffer), '2', callout) &&
-
-            /* First try using the current domain */
-
-            ((
-            smtp_write_command(&outblock, FALSE,
-              "RCPT TO:<postmaster@%.1000s>\r\n", rcpt_domain) >= 0 &&
-            smtp_read_response(&inblock, responsebuffer,
-              sizeof(responsebuffer), '2', callout)
-            )
-
-            ||
-
-            /* If that doesn't work, and a full check is requested,
-            try without the domain. */
-
-            (
-            (options & vopt_callout_fullpm) != 0 &&
-            smtp_write_command(&outblock, FALSE,
-              "RCPT TO:<postmaster>\r\n") >= 0 &&
-            smtp_read_response(&inblock, responsebuffer,
-              sizeof(responsebuffer), '2', callout)
-            ));
-
-          /* Sort out the cache record */
-
-          new_domain_record.postmaster_stamp = time(NULL);
-
-          if (done)
-            new_domain_record.postmaster_result = ccache_accept;
-          else if (errno == 0 && responsebuffer[0] == '5')
-            {
-            *failure_ptr = US"postmaster";
-            setflag(addr, af_verify_pmfail);
-            new_domain_record.postmaster_result = ccache_reject;
-            }
-          }
-        }           /* Random not accepted */
-      }             /* MAIL FROM: accepted */
-
+	addr->address = main_address;
+	}
+      }
     /* For any failure of the main check, other than a negative response, we just
     close the connection and carry on. We can identify a negative response by the
     fact that errno is zero. For I/O errors it will be non-zero
@@ -1222,179 +965,219 @@ can do it there for the non-rcpt-verify case.  For this we keep an addresscount.
     don't give the IP address because this may be an internal host whose identity
     is not to be widely broadcast. */
 
-    if (!done)
+no_conn:
+    switch(errno)
       {
-      if (errno == ETIMEDOUT)
-        {
-        HDEBUG(D_verify) debug_printf("SMTP timeout\n");
-        send_quit = FALSE;
-        }
+      case ETIMEDOUT:
+	HDEBUG(D_verify) debug_printf("SMTP timeout\n");
+	sx.send_quit = FALSE;
+	break;
+
 #ifdef SUPPORT_I18N
-      else if (errno == ERRNO_UTF8_FWD)
+      case ERRNO_UTF8_FWD:
 	{
 	extern int acl_where;	/* src/acl.c */
 	errno = 0;
 	addr->message = string_sprintf(
-	    "response to \"%s\" from %s [%s] did not include SMTPUTF8",
-            big_buffer, host->name, host->address);
-        addr->user_message = acl_where == ACL_WHERE_RCPT
-	  ? US"533 mailbox name not allowed"
+	    "response to \"EHLO\" did not include SMTPUTF8");
+	addr->user_message = acl_where == ACL_WHERE_RCPT
+	  ? US"533 no support for internationalised mailbox name"
 	  : US"550 mailbox unavailable";
 	yield = FAIL;
 	done = TRUE;
 	}
+	break;
 #endif
-      else if (errno == 0)
-        {
-        if (*responsebuffer == 0) Ustrcpy(responsebuffer, US"connection dropped");
+#if defined(SUPPORT_TLS) && defined(EXPERIMENTAL_REQUIRETLS)
+      case ERRNO_REQUIRETLS:
+        addr->user_message = US"530 5.7.4 REQUIRETLS support required";
+	yield = FAIL;
+	done = TRUE;
+	break;
+#endif
+      case ECONNREFUSED:
+	sx.send_quit = FALSE;
+	break;
 
-        addr->message =
-          string_sprintf("response to \"%s\" from %s [%s] was: %s",
-            big_buffer, host->name, host->address,
-            string_printing(responsebuffer));
+      case 0:
+	if (*sx.buffer == 0) Ustrcpy(sx.buffer, US"connection dropped");
 
-        addr->user_message = is_recipient?
-          string_sprintf("Callout verification failed:\n%s", responsebuffer)
-          :
-          string_sprintf("Called:   %s\nSent:     %s\nResponse: %s",
-            host->address, big_buffer, responsebuffer);
+	/*XXX test here is ugly; seem to have a split of responsibility for
+	building this message.  Need to rationalise.  Where is it done
+	before here, and when not?
+	Not == 5xx resp to MAIL on main-verify
+	*/
+	if (!addr->message) addr->message =
+	  string_sprintf("response to \"%s\" was: %s",
+			  big_buffer, string_printing(sx.buffer));
 
-        /* Hard rejection ends the process */
+	addr->user_message = options & vopt_is_recipient
+	  ? string_sprintf("Callout verification failed:\n%s", sx.buffer)
+	  : string_sprintf("Called:   %s\nSent:     %s\nResponse: %s",
+	    host->address, big_buffer, sx.buffer);
 
-        if (responsebuffer[0] == '5')   /* Address rejected */
-          {
-          yield = FAIL;
-          done = TRUE;
-          }
-        }
+	/* Hard rejection ends the process */
+
+	if (sx.buffer[0] == '5')   /* Address rejected */
+	  {
+	  yield = FAIL;
+	  done = TRUE;
+	  }
+	break;
       }
 
     /* End the SMTP conversation and close the connection. */
 
-    /* Cutthrough - on a successfull connect and recipient-verify with
+    /* Cutthrough - on a successful connect and recipient-verify with
     use-sender and we are 1st rcpt and have no cutthrough conn so far
-    here is where we want to leave the conn open */
-    if (  cutthrough.delivery
+    here is where we want to leave the conn open.  Ditto for a lazy-close
+    verify. */
+
+    if (cutthrough.delivery)
+      {
+      if (addr->transport->filter_command)
+        {
+        cutthrough.delivery= FALSE;
+        HDEBUG(D_acl|D_v) debug_printf("Cutthrough cancelled by presence of transport filter\n");
+        }
+#ifndef DISABLE_DKIM
+      if (ob->dkim.dkim_domain)
+        {
+        cutthrough.delivery= FALSE;
+        HDEBUG(D_acl|D_v) debug_printf("Cutthrough cancelled by presence of DKIM signing\n");
+        }
+#endif
+#ifdef EXPERIMENTAL_ARC
+      if (ob->arc_sign)
+        {
+        cutthrough.delivery= FALSE;
+        HDEBUG(D_acl|D_v) debug_printf("Cutthrough cancelled by presence of ARC signing\n");
+        }
+#endif
+      }
+
+    if (  (cutthrough.delivery || options & vopt_callout_hold)
        && rcpt_count == 1
        && done
        && yield == OK
-       && (options & (vopt_callout_recipsender|vopt_callout_recippmaster)) == vopt_callout_recipsender
+       &&    (options & (vopt_callout_recipsender|vopt_callout_recippmaster|vopt_success_on_redirect))
+	   == vopt_callout_recipsender
        && !random_local_part
        && !pm_mailfrom
-       && cutthrough.fd < 0
-       && !lmtp
+       && cutthrough.cctx.sock < 0
+       && !sx.lmtp
        )
       {
-      cutthrough.fd = outblock.sock;	/* We assume no buffer in use in the outblock */
-      cutthrough.nrcpt = 1;
-      cutthrough.interface = interface;
-      cutthrough.host = *host;
-      cutthrough.addr = *addr;		/* Save the address_item for later logging */
-      cutthrough.addr.next =	  NULL;
+      address_item * parent, * caddr;
+
+      HDEBUG(D_acl|D_v) debug_printf_indent("holding verify callout open for %s\n",
+	cutthrough.delivery
+	? "cutthrough delivery" : "potential further verifies and delivery");
+
+      cutthrough.callout_hold_only = !cutthrough.delivery;
+      cutthrough.is_tls =	tls_out.active.sock >= 0;
+      /* We assume no buffer in use in the outblock */
+      cutthrough.cctx =		sx.cctx;
+      cutthrough.nrcpt =	1;
+      cutthrough.transport =	addr->transport->name;
+      cutthrough.interface =	interface;
+      cutthrough.snd_port =	sending_port;
+      cutthrough.peer_options =	smtp_peer_options;
+      cutthrough.host =		*host;
+	{
+	int oldpool = store_pool;
+	store_pool = POOL_PERM;
+	cutthrough.snd_ip = string_copy(sending_ip_address);
+	cutthrough.host.name = string_copy(host->name);
+	cutthrough.host.address = string_copy(host->address);
+	store_pool = oldpool;
+	}
+
+      /* Save the address_item and parent chain for later logging */
+      cutthrough.addr =		*addr;
+      cutthrough.addr.next =	NULL;
       cutthrough.addr.host_used = &cutthrough.host;
-      if (addr->parent)
-        *(cutthrough.addr.parent = store_get(sizeof(address_item))) =
-	  *addr->parent;
-      ctblock.buffer = ctbuffer;
-      ctblock.buffersize = sizeof(ctbuffer);
-      ctblock.ptr = ctbuffer;
-      /* ctblock.cmd_count = 0; ctblock.authenticating = FALSE; */
-      ctblock.sock = cutthrough.fd;
+      for (caddr = &cutthrough.addr, parent = addr->parent;
+	   parent;
+	   caddr = caddr->parent, parent = parent->parent)
+        *(caddr->parent = store_get(sizeof(address_item))) = *parent;
+
+      ctctx.outblock.buffer = ctbuffer;
+      ctctx.outblock.buffersize = sizeof(ctbuffer);
+      ctctx.outblock.ptr = ctbuffer;
+      /* ctctx.outblock.cmd_count = 0; ctctx.outblock.authenticating = FALSE; */
+      ctctx.outblock.cctx = &cutthrough.cctx;
       }
     else
       {
-      /* Ensure no cutthrough on multiple address verifies */
+      /* Ensure no cutthrough on multiple verifies that were incompatible */
       if (options & vopt_callout_recipsender)
-        cancel_cutthrough_connection("multiple verify calls");
-      if (send_quit) (void)smtp_write_command(&outblock, FALSE, "QUIT\r\n");
+        cancel_cutthrough_connection(TRUE, US"not usable for cutthrough");
+      if (sx.send_quit)
+	{
+	(void) smtp_write_command(&sx, SCMD_FLUSH, "QUIT\r\n");
 
+	/* Wait a short time for response, and discard it */
+	smtp_read_response(&sx, sx.buffer, sizeof(sx.buffer), '2', 1);
+	}
+
+      if (sx.cctx.sock >= 0)
+	{
 #ifdef SUPPORT_TLS
-      tls_close(FALSE, TRUE);
+	if (sx.cctx.tls_ctx)
+	  {
+	  tls_close(sx.cctx.tls_ctx, TLS_SHUTDOWN_NOWAIT);
+	  sx.cctx.tls_ctx = NULL;
+	  }
 #endif
-      (void)close(inblock.sock);
+	HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SMTP(close)>>\n");
+	(void)close(sx.cctx.sock);
+	sx.cctx.sock = -1;
 #ifndef DISABLE_EVENT
-      (void) event_raise(addr->transport->event_action, US"tcp:close", NULL);
+	(void) event_raise(addr->transport->event_action, US"tcp:close", NULL);
 #endif
+	}
       }
 
+    if (!done || yield != OK)
+      addr->message = string_sprintf("%s [%s] : %s", host->name, host->address,
+				    addr->message);
     }    /* Loop through all hosts, while !done */
   }
 
 /* If we get here with done == TRUE, a successful callout happened, and yield
 will be set OK or FAIL according to the response to the RCPT command.
 Otherwise, we looped through the hosts but couldn't complete the business.
-However, there may be domain-specific information to cache in both cases.
+However, there may be domain-specific information to cache in both cases. */
 
-The value of the result field in the new_domain record is ccache_unknown if
-there was an error before or with MAIL FROM:, and errno was not zero,
-implying some kind of I/O error. We don't want to write the cache in that case.
-Otherwise the value is ccache_accept, ccache_reject, or ccache_reject_mfnull. */
-
-if (!callout_no_cache && new_domain_record.result != ccache_unknown)
-  {
-  if ((dbm_file = dbfn_open(US"callout", O_RDWR|O_CREAT, &dbblock, FALSE))
-       == NULL)
-    {
-    HDEBUG(D_verify) debug_printf("callout cache: not available\n");
-    }
-  else
-    {
-    (void)dbfn_write(dbm_file, addr->domain, &new_domain_record,
-      (int)sizeof(dbdata_callout_cache));
-    HDEBUG(D_verify) debug_printf("wrote callout cache domain record:\n"
-      "  result=%d postmaster=%d random=%d\n",
-      new_domain_record.result,
-      new_domain_record.postmaster_result,
-      new_domain_record.random_result);
-    }
-  }
-
-/* If a definite result was obtained for the callout, cache it unless caching
-is disabled. */
-
-if (done)
-  {
-  if (!callout_no_cache && new_address_record.result != ccache_unknown)
-    {
-    if (dbm_file == NULL)
-      dbm_file = dbfn_open(US"callout", O_RDWR|O_CREAT, &dbblock, FALSE);
-    if (dbm_file == NULL)
-      {
-      HDEBUG(D_verify) debug_printf("no callout cache available\n");
-      }
-    else
-      {
-      (void)dbfn_write(dbm_file, address_key, &new_address_record,
-        (int)sizeof(dbdata_callout_cache_address));
-      HDEBUG(D_verify) debug_printf("wrote %s callout cache address record\n",
-        (new_address_record.result == ccache_accept)? "positive" : "negative");
-      }
-    }
-  }    /* done */
+if (!(options & vopt_callout_no_cache))
+  cache_callout_write(&new_domain_record, addr->domain,
+    done, &new_address_record, address_key);
 
 /* Failure to connect to any host, or any response other than 2xx or 5xx is a
 temporary error. If there was only one host, and a response was received, leave
 it alone if supplying details. Otherwise, give a generic response. */
 
-else   /* !done */
+if (!done)
   {
-  uschar *dullmsg = string_sprintf("Could not complete %s verify callout",
-    is_recipient? "recipient" : "sender");
+  uschar * dullmsg = string_sprintf("Could not complete %s verify callout",
+    options & vopt_is_recipient ? "recipient" : "sender");
   yield = DEFER;
 
-  if (host_list->next != NULL || addr->message == NULL) addr->message = dullmsg;
+  addr->message = host_list->next || !addr->message
+    ? dullmsg : string_sprintf("%s: %s", dullmsg, addr->message);
 
-  addr->user_message = (!smtp_return_error_details)? dullmsg :
-    string_sprintf("%s for <%s>.\n"
+  addr->user_message = smtp_return_error_details
+    ? string_sprintf("%s for <%s>.\n"
       "The mail server(s) for the domain may be temporarily unreachable, or\n"
       "they may be permanently unreachable from this server. In the latter case,\n%s",
       dullmsg, addr->address,
-      is_recipient?
-        "the address will never be accepted."
-        :
-        "you need to change the address or create an MX record for its domain\n"
-        "if it is supposed to be generally accessible from the Internet.\n"
-        "Talk to your mail administrator for details.");
+      options & vopt_is_recipient
+	? "the address will never be accepted."
+        : "you need to change the address or create an MX record for its domain\n"
+	  "if it is supposed to be generally accessible from the Internet.\n"
+	  "Talk to your mail administrator for details.")
+    : dullmsg;
 
   /* Force a specific error code */
 
@@ -1404,7 +1187,7 @@ else   /* !done */
 /* Come here from within the cache-reading code on fast-track exit. */
 
 END_CALLOUT:
-if (dbm_file != NULL) dbfn_close(dbm_file);
+tls_modify_variables(&tls_in);
 return yield;
 }
 
@@ -1413,24 +1196,27 @@ return yield;
 /* Called after recipient-acl to get a cutthrough connection open when
    one was requested and a recipient-verify wasn't subsequently done.
 */
-void
-open_cutthrough_connection( address_item * addr )
+int
+open_cutthrough_connection(address_item * addr)
 {
 address_item addr2;
+int rc;
 
 /* Use a recipient-verify-callout to set up the cutthrough connection. */
 /* We must use a copy of the address for verification, because it might
 get rewritten. */
 
 addr2 = *addr;
-HDEBUG(D_acl) debug_printf("----------- %s cutthrough setup ------------\n",
+HDEBUG(D_acl) debug_printf_indent("----------- %s cutthrough setup ------------\n",
   rcpt_count > 1 ? "more" : "start");
-(void) verify_address(&addr2, NULL,
+rc = verify_address(&addr2, NULL,
 	vopt_is_recipient | vopt_callout_recipsender | vopt_callout_no_cache,
 	CUTTHROUGH_CMD_TIMEOUT, -1, -1,
 	NULL, NULL, NULL);
-HDEBUG(D_acl) debug_printf("----------- end cutthrough setup ------------\n");
-return;
+addr->message = addr2.message;
+addr->user_message = addr2.user_message;
+HDEBUG(D_acl) debug_printf_indent("----------- end cutthrough setup ------------\n");
+return rc;
 }
 
 
@@ -1439,22 +1225,24 @@ return;
 static BOOL
 cutthrough_send(int n)
 {
-if(cutthrough.fd < 0)
+if(cutthrough.cctx.sock < 0)
   return TRUE;
 
 if(
 #ifdef SUPPORT_TLS
-   (tls_out.active == cutthrough.fd) ? tls_write(FALSE, ctblock.buffer, n) :
+   cutthrough.is_tls
+   ? tls_write(cutthrough.cctx.tls_ctx, ctctx.outblock.buffer, n, FALSE)
+   :
 #endif
-   send(cutthrough.fd, ctblock.buffer, n, 0) > 0
+     send(cutthrough.cctx.sock, ctctx.outblock.buffer, n, 0) > 0
   )
 {
   transport_count += n;
-  ctblock.ptr= ctblock.buffer;
+  ctctx.outblock.ptr= ctctx.outblock.buffer;
   return TRUE;
 }
 
-HDEBUG(D_transport|D_acl) debug_printf("cutthrough_send failed: %s\n", strerror(errno));
+HDEBUG(D_transport|D_acl) debug_printf_indent("cutthrough_send failed: %s\n", strerror(errno));
 return FALSE;
 }
 
@@ -1465,30 +1253,37 @@ _cutthrough_puts(uschar * cp, int n)
 {
 while(n--)
  {
- if(ctblock.ptr >= ctblock.buffer+ctblock.buffersize)
-   if(!cutthrough_send(ctblock.buffersize))
+ if(ctctx.outblock.ptr >= ctctx.outblock.buffer+ctctx.outblock.buffersize)
+   if(!cutthrough_send(ctctx.outblock.buffersize))
      return FALSE;
 
- *ctblock.ptr++ = *cp++;
+ *ctctx.outblock.ptr++ = *cp++;
  }
 return TRUE;
 }
 
 /* Buffered output of counted data block.   Return boolean success */
-BOOL
+static BOOL
 cutthrough_puts(uschar * cp, int n)
 {
-if (cutthrough.fd < 0)       return TRUE;
-if (_cutthrough_puts(cp, n)) return TRUE;
-cancel_cutthrough_connection("transmit failed");
+if (cutthrough.cctx.sock < 0) return TRUE;
+if (_cutthrough_puts(cp, n))  return TRUE;
+cancel_cutthrough_connection(TRUE, US"transmit failed");
 return FALSE;
+}
+
+void
+cutthrough_data_puts(uschar * cp, int n)
+{
+if (cutthrough.delivery) (void) cutthrough_puts(cp, n);
+return;
 }
 
 
 static BOOL
 _cutthrough_flush_send(void)
 {
-int n= ctblock.ptr-ctblock.buffer;
+int n = ctctx.outblock.ptr - ctctx.outblock.buffer;
 
 if(n>0)
   if(!cutthrough_send(n))
@@ -1502,36 +1297,42 @@ BOOL
 cutthrough_flush_send(void)
 {
 if (_cutthrough_flush_send()) return TRUE;
-cancel_cutthrough_connection("transmit failed");
+cancel_cutthrough_connection(TRUE, US"transmit failed");
 return FALSE;
 }
 
 
-BOOL
+static BOOL
 cutthrough_put_nl(void)
 {
 return cutthrough_puts(US"\r\n", 2);
 }
 
 
+void
+cutthrough_data_put_nl(void)
+{
+cutthrough_data_puts(US"\r\n", 2);
+}
+
+
 /* Get and check response from cutthrough target */
 static uschar
-cutthrough_response(char expect, uschar ** copy)
+cutthrough_response(client_conn_ctx * cctx, char expect, uschar ** copy, int timeout)
 {
-smtp_inblock inblock;
+smtp_context sx = {0};
 uschar inbuffer[4096];
 uschar responsebuffer[4096];
 
-inblock.buffer = inbuffer;
-inblock.buffersize = sizeof(inbuffer);
-inblock.ptr = inbuffer;
-inblock.ptrend = inbuffer;
-inblock.sock = cutthrough.fd;
-/* this relies on (inblock.sock == tls_out.active) */
-if(!smtp_read_response(&inblock, responsebuffer, sizeof(responsebuffer), expect, CUTTHROUGH_DATA_TIMEOUT))
-  cancel_cutthrough_connection("target timeout on read");
+sx.inblock.buffer = inbuffer;
+sx.inblock.buffersize = sizeof(inbuffer);
+sx.inblock.ptr = inbuffer;
+sx.inblock.ptrend = inbuffer;
+sx.inblock.cctx = cctx;
+if(!smtp_read_response(&sx, responsebuffer, sizeof(responsebuffer), expect, timeout))
+  cancel_cutthrough_connection(TRUE, US"target timeout on read");
 
-if(copy != NULL)
+if(copy)
   {
   uschar * cp;
   *copy = cp = string_copy(responsebuffer);
@@ -1549,21 +1350,21 @@ return responsebuffer[0];
 BOOL
 cutthrough_predata(void)
 {
-if(cutthrough.fd < 0)
+if(cutthrough.cctx.sock < 0 || cutthrough.callout_hold_only)
   return FALSE;
 
-HDEBUG(D_transport|D_acl|D_v) debug_printf("  SMTP>> DATA\n");
+HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SMTP>> DATA\n");
 cutthrough_puts(US"DATA\r\n", 6);
 cutthrough_flush_send();
 
 /* Assume nothing buffered.  If it was it gets ignored. */
-return cutthrough_response('3', NULL) == '3';
+return cutthrough_response(&cutthrough.cctx, '3', NULL, CUTTHROUGH_DATA_TIMEOUT) == '3';
 }
 
 
-/* fd and use_crlf args only to match write_chunk() */
+/* tctx arg only to match write_chunk() */
 static BOOL
-cutthrough_write_chunk(int fd, uschar * s, int len, BOOL use_crlf)
+cutthrough_write_chunk(transport_ctx * tctx, uschar * s, int len)
 {
 uschar * s2;
 while(s && (s2 = Ustrchr(s, '\n')))
@@ -1582,57 +1383,85 @@ return TRUE;
 BOOL
 cutthrough_headers_send(void)
 {
-if(cutthrough.fd < 0)
+transport_ctx tctx;
+
+if(cutthrough.cctx.sock < 0 || cutthrough.callout_hold_only)
   return FALSE;
 
 /* We share a routine with the mainline transport to handle header add/remove/rewrites,
    but having a separate buffered-output function (for now)
 */
-HDEBUG(D_acl) debug_printf("----------- start cutthrough headers send -----------\n");
+HDEBUG(D_acl) debug_printf_indent("----------- start cutthrough headers send -----------\n");
 
-if (!transport_headers_send(&cutthrough.addr, cutthrough.fd,
-	cutthrough.addr.transport->add_headers,
-	cutthrough.addr.transport->remove_headers,
-	&cutthrough_write_chunk, TRUE,
-	cutthrough.addr.transport->rewrite_rules,
-	cutthrough.addr.transport->rewrite_existflags))
+tctx.u.fd = cutthrough.cctx.sock;
+tctx.tblock = cutthrough.addr.transport;
+tctx.addr = &cutthrough.addr;
+tctx.check_string = US".";
+tctx.escape_string = US"..";
+/*XXX check under spool_files_wireformat.  Might be irrelevant */
+tctx.options = topt_use_crlf;
+
+if (!transport_headers_send(&tctx, &cutthrough_write_chunk))
   return FALSE;
 
-HDEBUG(D_acl) debug_printf("----------- done cutthrough headers send ------------\n");
+HDEBUG(D_acl) debug_printf_indent("----------- done cutthrough headers send ------------\n");
 return TRUE;
 }
 
 
 static void
-close_cutthrough_connection(const char * why)
+close_cutthrough_connection(const uschar * why)
 {
-if(cutthrough.fd >= 0)
+int fd = cutthrough.cctx.sock;
+if(fd >= 0)
   {
   /* We could be sending this after a bunch of data, but that is ok as
      the only way to cancel the transfer in dataphase is to drop the tcp
      conn before the final dot.
   */
-  ctblock.ptr = ctbuffer;
-  HDEBUG(D_transport|D_acl|D_v) debug_printf("  SMTP>> QUIT\n");
+  client_conn_ctx tmp_ctx = cutthrough.cctx;
+  ctctx.outblock.ptr = ctbuffer;
+  HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SMTP>> QUIT\n");
   _cutthrough_puts(US"QUIT\r\n", 6);	/* avoid recursion */
   _cutthrough_flush_send();
-  /* No wait for response */
+  cutthrough.cctx.sock = -1;		/* avoid recursion via read timeout */
+  cutthrough.nrcpt = 0;			/* permit re-cutthrough on subsequent message */
 
-  #ifdef SUPPORT_TLS
-  tls_close(FALSE, TRUE);
-  #endif
-  (void)close(cutthrough.fd);
-  cutthrough.fd = -1;
-  HDEBUG(D_acl) debug_printf("----------- cutthrough shutdown (%s) ------------\n", why);
+  /* Wait a short time for response, and discard it */
+  cutthrough_response(&tmp_ctx, '2', NULL, 1);
+
+#ifdef SUPPORT_TLS
+  if (cutthrough.is_tls)
+    {
+    tls_close(cutthrough.cctx.tls_ctx, TLS_SHUTDOWN_NOWAIT);
+    cutthrough.cctx.tls_ctx = NULL;
+    cutthrough.is_tls = FALSE;
+    }
+#endif
+  HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SMTP(close)>>\n");
+  (void)close(fd);
+  HDEBUG(D_acl) debug_printf_indent("----------- cutthrough shutdown (%s) ------------\n", why);
   }
-ctblock.ptr = ctbuffer;
+ctctx.outblock.ptr = ctbuffer;
 }
 
 void
-cancel_cutthrough_connection(const char * why)
+cancel_cutthrough_connection(BOOL close_noncutthrough_verifies, const uschar * why)
 {
-close_cutthrough_connection(why);
-cutthrough.delivery = FALSE;
+if (cutthrough.delivery || close_noncutthrough_verifies)
+  close_cutthrough_connection(why);
+cutthrough.delivery = cutthrough.callout_hold_only = FALSE;
+}
+
+
+void
+release_cutthrough_connection(const uschar * why)
+{
+if (cutthrough.cctx.sock < 0) return;
+HDEBUG(D_acl) debug_printf_indent("release cutthrough conn: %s\n", why);
+cutthrough.cctx.sock = -1;
+cutthrough.cctx.tls_ctx = NULL;
+cutthrough.delivery = cutthrough.callout_hold_only = FALSE;
 }
 
 
@@ -1648,7 +1477,7 @@ cutthrough_finaldot(void)
 {
 uschar res;
 address_item * addr;
-HDEBUG(D_transport|D_acl|D_v) debug_printf("  SMTP>> .\n");
+HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SMTP>> .\n");
 
 /* Assume data finshed with new-line */
 if(  !cutthrough_puts(US".", 1)
@@ -1657,7 +1486,8 @@ if(  !cutthrough_puts(US".", 1)
   )
   return cutthrough.addr.message;
 
-res = cutthrough_response('2', &cutthrough.addr.message);
+res = cutthrough_response(&cutthrough.cctx, '2', &cutthrough.addr.message,
+	CUTTHROUGH_DATA_TIMEOUT);
 for (addr = &cutthrough.addr; addr; addr = addr->next)
   {
   addr->message = cutthrough.addr.message;
@@ -1665,7 +1495,7 @@ for (addr = &cutthrough.addr; addr; addr = addr->next)
     {
     case '2':
       delivery_log(LOG_MAIN, addr, (int)'>', NULL);
-      close_cutthrough_connection("delivered");
+      close_cutthrough_connection(US"delivered");
       break;
 
     case '4':
@@ -1750,7 +1580,7 @@ va_list ap;
 
 va_start(ap, format);
 if (smtp_out && (f == smtp_out))
-  smtp_vprintf(format, ap);
+  smtp_vprintf(format, FALSE, ap);
 else
   vfprintf(f, format, ap);
 va_end(ap);
@@ -1809,27 +1639,26 @@ Returns:           OK      address verified
 */
 
 int
-verify_address(address_item *vaddr, FILE *f, int options, int callout,
-  int callout_overall, int callout_connect, uschar *se_mailfrom,
+verify_address(address_item * vaddr, FILE * fp, int options, int callout,
+  int callout_overall, int callout_connect, uschar * se_mailfrom,
   uschar *pm_mailfrom, BOOL *routed)
 {
 BOOL allok = TRUE;
-BOOL full_info = (f == NULL)? FALSE : (debug_selector != 0);
-BOOL is_recipient = (options & vopt_is_recipient) != 0;
+BOOL full_info = fp ? debug_selector != 0 : FALSE;
 BOOL expn         = (options & vopt_expn) != 0;
 BOOL success_on_redirect = (options & vopt_success_on_redirect) != 0;
 int i;
 int yield = OK;
 int verify_type = expn? v_expn :
-     address_test_mode? v_none :
-          is_recipient? v_recipient : v_sender;
+   f.address_test_mode? v_none :
+          options & vopt_is_recipient? v_recipient : v_sender;
 address_item *addr_list;
 address_item *addr_new = NULL;
 address_item *addr_remote = NULL;
 address_item *addr_local = NULL;
 address_item *addr_succeed = NULL;
-uschar **failure_ptr = is_recipient?
-  &recipient_verify_failure : &sender_verify_failure;
+uschar **failure_ptr = options & vopt_is_recipient
+  ? &recipient_verify_failure : &sender_verify_failure;
 uschar *ko_prefix, *cr;
 uschar *address = vaddr->address;
 uschar *save_sender;
@@ -1854,54 +1683,54 @@ else ko_prefix = cr = US"";
 
 if (parse_find_at(address) == NULL)
   {
-  if ((options & vopt_qualify) == 0)
+  if (!(options & vopt_qualify))
     {
-    if (f != NULL)
-      respond_printf(f, "%sA domain is required for \"%s\"%s\n",
+    if (fp)
+      respond_printf(fp, "%sA domain is required for \"%s\"%s\n",
         ko_prefix, address, cr);
     *failure_ptr = US"qualify";
     return FAIL;
     }
-  address = rewrite_address_qualify(address, is_recipient);
+  address = rewrite_address_qualify(address, options & vopt_is_recipient);
   }
 
 DEBUG(D_verify)
   {
   debug_printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
-  debug_printf("%s %s\n", address_test_mode? "Testing" : "Verifying", address);
+  debug_printf("%s %s\n", f.address_test_mode? "Testing" : "Verifying", address);
   }
 
 /* Rewrite and report on it. Clear the domain and local part caches - these
 may have been set by domains and local part tests during an ACL. */
 
-if (global_rewrite_rules != NULL)
+if (global_rewrite_rules)
   {
   uschar *old = address;
-  address = rewrite_address(address, is_recipient, FALSE,
+  address = rewrite_address(address, options & vopt_is_recipient, FALSE,
     global_rewrite_rules, rewrite_existflags);
   if (address != old)
     {
     for (i = 0; i < (MAX_NAMED_LIST * 2)/32; i++) vaddr->localpart_cache[i] = 0;
     for (i = 0; i < (MAX_NAMED_LIST * 2)/32; i++) vaddr->domain_cache[i] = 0;
-    if (f != NULL && !expn) fprintf(f, "Address rewritten as: %s\n", address);
+    if (fp && !expn) fprintf(fp, "Address rewritten as: %s\n", address);
     }
   }
 
 /* If this is the real sender address, we must update sender_address at
 this point, because it may be referred to in the routers. */
 
-if ((options & (vopt_fake_sender|vopt_is_recipient)) == 0)
+if (!(options & (vopt_fake_sender|vopt_is_recipient)))
   sender_address = address;
 
 /* If the address was rewritten to <> no verification can be done, and we have
 to return OK. This rewriting is permitted only for sender addresses; for other
 addresses, such rewriting fails. */
 
-if (address[0] == 0) return OK;
+if (!address[0]) return OK;
 
 /* Flip the legacy TLS-related variables over to the outbound set in case
 they're used in the context of a transport used by verification. Reset them
-at exit from this routine. */
+at exit from this routine (so no returns allowed from here on). */
 
 tls_modify_variables(&tls_out);
 
@@ -1909,6 +1738,10 @@ tls_modify_variables(&tls_out);
 while verifying a sender address (a nice bit of self-reference there). */
 
 save_sender = sender_address;
+
+/* Observability variable for router/transport use */
+
+verify_mode = options & vopt_is_recipient ? US"R" : US"S";
 
 /* Update the address structure with the possibly qualified and rewritten
 address. Set it up as the starting address on the chain of new addresses. */
@@ -1925,7 +1758,7 @@ If an address generates more than one child, the loop is used only when
 full_info is set, and this can only be set locally. Remote enquiries just get
 information about the top level address, not anything that it generated. */
 
-while (addr_new != NULL)
+while (addr_new)
   {
   int rc;
   address_item *addr = addr_new;
@@ -1945,47 +1778,47 @@ while (addr_new != NULL)
   if (testflag(addr, af_pfr))
     {
     allok = FALSE;
-    if (f != NULL)
+    if (fp)
       {
       BOOL allow;
 
       if (addr->address[0] == '>')
         {
         allow = testflag(addr, af_allow_reply);
-        fprintf(f, "%s -> mail %s", addr->parent->address, addr->address + 1);
+        fprintf(fp, "%s -> mail %s", addr->parent->address, addr->address + 1);
         }
       else
         {
-        allow = (addr->address[0] == '|')?
-          testflag(addr, af_allow_pipe) : testflag(addr, af_allow_file);
-        fprintf(f, "%s -> %s", addr->parent->address, addr->address);
+        allow = addr->address[0] == '|'
+          ? testflag(addr, af_allow_pipe) : testflag(addr, af_allow_file);
+        fprintf(fp, "%s -> %s", addr->parent->address, addr->address);
         }
 
       if (addr->basic_errno == ERRNO_BADTRANSPORT)
-        fprintf(f, "\n*** Error in setting up pipe, file, or autoreply:\n"
+        fprintf(fp, "\n*** Error in setting up pipe, file, or autoreply:\n"
           "%s\n", addr->message);
       else if (allow)
-        fprintf(f, "\n  transport = %s\n", addr->transport->name);
+        fprintf(fp, "\n  transport = %s\n", addr->transport->name);
       else
-        fprintf(f, " *** forbidden ***\n");
+        fprintf(fp, " *** forbidden ***\n");
       }
     continue;
     }
 
   /* Just in case some router parameter refers to it. */
 
-  return_path = (addr->prop.errors_address != NULL)?
-    addr->prop.errors_address : sender_address;
+  return_path = addr->prop.errors_address
+    ? addr->prop.errors_address : sender_address;
 
   /* Split the address into domain and local part, handling the %-hack if
   necessary, and then route it. While routing a sender address, set
   $sender_address to <> because that is what it will be if we were trying to
   send a bounce to the sender. */
 
-  if (routed != NULL) *routed = FALSE;
+  if (routed) *routed = FALSE;
   if ((rc = deliver_split_address(addr)) == OK)
     {
-    if (!is_recipient) sender_address = null_sender;
+    if (!(options & vopt_is_recipient)) sender_address = null_sender;
     rc = route_address(addr, &addr_local, &addr_remote, &addr_new,
       &addr_succeed, verify_type);
     sender_address = save_sender;     /* Put back the real sender */
@@ -1999,26 +1832,26 @@ while (addr_new != NULL)
 
   if (rc == OK)
     {
-    if (routed != NULL) *routed = TRUE;
+    if (routed) *routed = TRUE;
     if (callout > 0)
       {
-      host_item *host_list = addr->host_list;
       transport_instance * tp;
+      host_item * host_list = addr->host_list;
 
       /* Make up some data for use in the case where there is no remote
       transport. */
 
       transport_feedback tf = {
-        NULL,                       /* interface (=> any) */
-        US"smtp",                   /* port */
-        US"smtp",                   /* protocol */
-        NULL,                       /* hosts */
-        US"$smtp_active_hostname",  /* helo_data */
-        FALSE,                      /* hosts_override */
-        FALSE,                      /* hosts_randomize */
-        FALSE,                      /* gethostbyname */
-        TRUE,                       /* qualify_single */
-        FALSE                       /* search_parents */
+        .interface =		NULL,                       /* interface (=> any) */
+        .port =			US"smtp",
+        .protocol =		US"smtp",
+        .hosts =		NULL,
+        .helo_data =		US"$smtp_active_hostname",
+        .hosts_override =	FALSE,
+        .hosts_randomize =	FALSE,
+        .gethostbyname =	FALSE,
+        .qualify_single =	TRUE,
+        .search_parents =	FALSE
         };
 
       /* If verification yielded a remote transport, we want to use that
@@ -2033,7 +1866,7 @@ while (addr_new != NULL)
         transport is configured to override the router's hosts, we must build a
         host list of the transport's hosts, and find the IP addresses */
 
-        if (tf.hosts != NULL && (host_list == NULL || tf.hosts_override))
+        if (tf.hosts && (!host_list || tf.hosts_override))
           {
           uschar *s;
           const uschar *save_deliver_domain = deliver_domain;
@@ -2047,7 +1880,7 @@ while (addr_new != NULL)
           deliver_domain = save_deliver_domain;
           deliver_localpart = save_deliver_localpart;
 
-          if (s == NULL)
+          if (!s)
             {
             log_write(0, LOG_MAIN|LOG_PANIC, "failed to expand list of hosts "
               "\"%s\" in %s transport for callout: %s", tf.hosts,
@@ -2065,11 +1898,11 @@ while (addr_new != NULL)
             additional host items being inserted into the chain. Hence we must
             save the next host first. */
 
-            flags = HOST_FIND_BY_A;
+            flags = HOST_FIND_BY_A | HOST_FIND_BY_AAAA;
             if (tf.qualify_single) flags |= HOST_FIND_QUALIFY_SINGLE;
             if (tf.search_parents) flags |= HOST_FIND_SEARCH_PARENTS;
 
-            for (host = host_list; host != NULL; host = nexthost)
+            for (host = host_list; host; host = nexthost)
               {
               nexthost = host->next;
               if (tf.gethostbyname ||
@@ -2077,16 +1910,16 @@ while (addr_new != NULL)
                 (void)host_find_byname(host, NULL, flags, NULL, TRUE);
               else
 		{
-		dnssec_domains * dnssec_domains = NULL;
+		const dnssec_domains * dsp = NULL;
 		if (Ustrcmp(tp->driver_name, "smtp") == 0)
 		  {
 		  smtp_transport_options_block * ob =
 		      (smtp_transport_options_block *) tp->options_block;
-		  dnssec_domains = &ob->dnssec;
+		  dsp = &ob->dnssec;
 		  }
 
-                (void)host_find_bydns(host, NULL, flags, NULL, NULL, NULL,
-		  dnssec_domains, NULL, NULL);
+                (void) host_find_bydns(host, NULL, flags, NULL, NULL, NULL,
+		  dsp, NULL, NULL);
 		}
               }
             }
@@ -2096,10 +1929,10 @@ while (addr_new != NULL)
       /* Can only do a callout if we have at least one host! If the callout
       fails, it will have set ${sender,recipient}_verify_failure. */
 
-      if (host_list != NULL)
+      if (host_list)
         {
         HDEBUG(D_verify) debug_printf("Attempting full verification using callout\n");
-        if (host_checking && !host_checking_callout)
+        if (host_checking && !f.host_checking_callout)
           {
           HDEBUG(D_verify)
             debug_printf("... callout omitted by default when host testing\n"
@@ -2110,16 +1943,17 @@ while (addr_new != NULL)
 #ifdef SUPPORT_TLS
 	  deliver_set_expansions(addr);
 #endif
-	  verify_mode = is_recipient ? US"R" : US"S";
           rc = do_callout(addr, host_list, &tf, callout, callout_overall,
             callout_connect, options, se_mailfrom, pm_mailfrom);
-	  verify_mode = NULL;
+#ifdef SUPPORT_TLS
+	  deliver_set_expansions(NULL);
+#endif
           }
         }
       else
         {
         HDEBUG(D_verify) debug_printf("Cannot do callout: neither router nor "
-          "transport provided a host list\n");
+          "transport provided a host list, or transport is not smtp\n");
         }
       }
     }
@@ -2139,38 +1973,38 @@ while (addr_new != NULL)
   if (rc == FAIL)
     {
     allok = FALSE;
-    if (f != NULL)
+    if (fp)
       {
       address_item *p = addr->parent;
 
-      respond_printf(f, "%s%s %s", ko_prefix,
-        full_info? addr->address : address,
-        address_test_mode? "is undeliverable" : "failed to verify");
-      if (!expn && admin_user)
+      respond_printf(fp, "%s%s %s", ko_prefix,
+        full_info ? addr->address : address,
+        f.address_test_mode ? "is undeliverable" : "failed to verify");
+      if (!expn && f.admin_user)
         {
         if (addr->basic_errno > 0)
-          respond_printf(f, ": %s", strerror(addr->basic_errno));
-        if (addr->message != NULL)
-          respond_printf(f, ": %s", addr->message);
+          respond_printf(fp, ": %s", strerror(addr->basic_errno));
+        if (addr->message)
+          respond_printf(fp, ": %s", addr->message);
         }
 
       /* Show parents iff doing full info */
 
-      if (full_info) while (p != NULL)
+      if (full_info) while (p)
         {
-        respond_printf(f, "%s\n    <-- %s", cr, p->address);
+        respond_printf(fp, "%s\n    <-- %s", cr, p->address);
         p = p->parent;
         }
-      respond_printf(f, "%s\n", cr);
+      respond_printf(fp, "%s\n", cr);
       }
-    cancel_cutthrough_connection("routing hard fail");
+    cancel_cutthrough_connection(TRUE, US"routing hard fail");
 
     if (!full_info)
-    {
+      {
       yield = copy_error(vaddr, addr, FAIL);
       goto out;
-    }
-    else yield = FAIL;
+      }
+    yield = FAIL;
     }
 
   /* Soft failure */
@@ -2178,38 +2012,38 @@ while (addr_new != NULL)
   else if (rc == DEFER)
     {
     allok = FALSE;
-    if (f != NULL)
+    if (fp)
       {
       address_item *p = addr->parent;
-      respond_printf(f, "%s%s cannot be resolved at this time", ko_prefix,
+      respond_printf(fp, "%s%s cannot be resolved at this time", ko_prefix,
         full_info? addr->address : address);
-      if (!expn && admin_user)
+      if (!expn && f.admin_user)
         {
         if (addr->basic_errno > 0)
-          respond_printf(f, ": %s", strerror(addr->basic_errno));
-        if (addr->message != NULL)
-          respond_printf(f, ": %s", addr->message);
+          respond_printf(fp, ": %s", strerror(addr->basic_errno));
+        if (addr->message)
+          respond_printf(fp, ": %s", addr->message);
         else if (addr->basic_errno <= 0)
-          respond_printf(f, ": unknown error");
+          respond_printf(fp, ": unknown error");
         }
 
       /* Show parents iff doing full info */
 
-      if (full_info) while (p != NULL)
+      if (full_info) while (p)
         {
-        respond_printf(f, "%s\n    <-- %s", cr, p->address);
+        respond_printf(fp, "%s\n    <-- %s", cr, p->address);
         p = p->parent;
         }
-      respond_printf(f, "%s\n", cr);
+      respond_printf(fp, "%s\n", cr);
       }
-    cancel_cutthrough_connection("routing soft fail");
+    cancel_cutthrough_connection(TRUE, US"routing soft fail");
 
     if (!full_info)
       {
       yield = copy_error(vaddr, addr, DEFER);
       goto out;
       }
-    else if (yield == OK) yield = DEFER;
+    if (yield == OK) yield = DEFER;
     }
 
   /* If we are handling EXPN, we do not want to continue to route beyond
@@ -2218,20 +2052,20 @@ while (addr_new != NULL)
   else if (expn)
     {
     uschar *ok_prefix = US"250-";
-    if (addr_new == NULL)
-      {
-      if (addr_local == NULL && addr_remote == NULL)
-        respond_printf(f, "250 mail to <%s> is discarded\r\n", address);
+
+    if (!addr_new)
+      if (!addr_local && !addr_remote)
+        respond_printf(fp, "250 mail to <%s> is discarded\r\n", address);
       else
-        respond_printf(f, "250 <%s>\r\n", address);
-      }
-    else while (addr_new != NULL)
+        respond_printf(fp, "250 <%s>\r\n", address);
+
+    else do
       {
       address_item *addr2 = addr_new;
       addr_new = addr2->next;
-      if (addr_new == NULL) ok_prefix = US"250 ";
-      respond_printf(f, "%s<%s>\r\n", ok_prefix, addr2->address);
-      }
+      if (!addr_new) ok_prefix = US"250 ";
+      respond_printf(fp, "%s<%s>\r\n", ok_prefix, addr2->address);
+      } while (addr_new);
     yield = OK;
     goto out;
     }
@@ -2253,21 +2087,30 @@ while (addr_new != NULL)
     just a single new address as a special case, and continues on to verify the
     generated address. */
 
-    if (!full_info &&                    /* Stop if short info wanted AND */
-         (((addr_new == NULL ||          /* No new address OR */
-           addr_new->next != NULL ||     /* More than one new address OR */
-           testflag(addr_new, af_pfr)))  /* New address is pfr */
-         ||                              /* OR */
-         (addr_new != NULL &&            /* At least one new address AND */
-          success_on_redirect)))         /* success_on_redirect is set */
+    if (  !full_info			/* Stop if short info wanted AND */
+       && (  (  !addr_new		/* No new address OR */
+             || addr_new->next		/* More than one new address OR */
+	     || testflag(addr_new, af_pfr)	/* New address is pfr */
+	     )
+          ||				/* OR */
+             (  addr_new		/* At least one new address AND */
+             && success_on_redirect	/* success_on_redirect is set */
+	  )  )
+       )
       {
-      if (f != NULL) fprintf(f, "%s %s\n", address,
-        address_test_mode? "is deliverable" : "verified");
+      if (fp) fprintf(fp, "%s %s\n",
+        address, f.address_test_mode ? "is deliverable" : "verified");
 
       /* If we have carried on to verify a child address, we want the value
       of $address_data to be that of the child */
 
       vaddr->prop.address_data = addr->prop.address_data;
+
+      /* If stopped because more than one new address, cannot cutthrough */
+
+      if (addr_new && addr_new->next)
+	cancel_cutthrough_connection(TRUE, US"multiple addresses from routing");
+
       yield = OK;
       goto out;
       }
@@ -2275,7 +2118,7 @@ while (addr_new != NULL)
   }     /* Loop for generated addresses */
 
 /* Display the full results of the successful routing, including any generated
-addresses. Control gets here only when full_info is set, which requires f not
+addresses. Control gets here only when full_info is set, which requires fp not
 to be NULL, and this occurs only when a top-level verify is called with the
 debugging switch on.
 
@@ -2283,9 +2126,9 @@ If there are no local and no remote addresses, and there were no pipes, files,
 or autoreplies, and there were no errors or deferments, the message is to be
 discarded, usually because of the use of :blackhole: in an alias file. */
 
-if (allok && addr_local == NULL && addr_remote == NULL)
+if (allok && !addr_local && !addr_remote)
   {
-  fprintf(f, "mail to %s is discarded\n", address);
+  fprintf(fp, "mail to %s is discarded\n", address);
   goto out;
   }
 
@@ -2298,10 +2141,10 @@ for (addr_list = addr_local, i = 0; i < 2; addr_list = addr_remote, i++)
 
     addr_list = addr->next;
 
-    fprintf(f, "%s", CS addr->address);
+    fprintf(fp, "%s", CS addr->address);
 #ifdef EXPERIMENTAL_SRS
     if(addr->prop.srs_sender)
-      fprintf(f, "    [srs = %s]", addr->prop.srs_sender);
+      fprintf(fp, "    [srs = %s]", addr->prop.srs_sender);
 #endif
 
     /* If the address is a duplicate, show something about it. */
@@ -2310,19 +2153,19 @@ for (addr_list = addr_local, i = 0; i < 2; addr_list = addr_remote, i++)
       {
       tree_node *tnode;
       if ((tnode = tree_search(tree_duplicates, addr->unique)))
-        fprintf(f, "   [duplicate, would not be delivered]");
+        fprintf(fp, "   [duplicate, would not be delivered]");
       else tree_add_duplicate(addr->unique, addr);
       }
 
     /* Now show its parents */
 
     for (p = addr->parent; p; p = p->parent)
-      fprintf(f, "\n    <-- %s", p->address);
-    fprintf(f, "\n  ");
+      fprintf(fp, "\n    <-- %s", p->address);
+    fprintf(fp, "\n  ");
 
     /* Show router, and transport */
 
-    fprintf(f, "router = %s, transport = %s\n",
+    fprintf(fp, "router = %s, transport = %s\n",
       addr->router->name, tp ? tp->name : US"unset");
 
     /* Show any hosts that are set up by a router unless the transport
@@ -2342,20 +2185,20 @@ for (addr_list = addr_local, i = 0; i < 2; addr_list = addr_remote, i++)
         }
       for (h = addr->host_list; h; h = h->next)
 	{
-	fprintf(f, "  host %-*s ", maxlen, h->name);
+	fprintf(fp, "  host %-*s ", maxlen, h->name);
 
 	if (h->address)
-	  fprintf(f, "[%s%-*c", h->address, maxaddlen+1 - Ustrlen(h->address), ']');
+	  fprintf(fp, "[%s%-*c", h->address, maxaddlen+1 - Ustrlen(h->address), ']');
 	else if (tp->info->local)
-	  fprintf(f, " %-*s ", maxaddlen, "");  /* Omit [unknown] for local */
+	  fprintf(fp, " %-*s ", maxaddlen, "");  /* Omit [unknown] for local */
 	else
-	  fprintf(f, "[%s%-*c", "unknown", maxaddlen+1 - 7, ']');
+	  fprintf(fp, "[%s%-*c", "unknown", maxaddlen+1 - 7, ']');
 
-        if (h->mx >= 0) fprintf(f, " MX=%d", h->mx);
-        if (h->port != PORT_NONE) fprintf(f, " port=%d", h->port);
-        if (running_in_test_harness  &&  h->dnssec == DS_YES) fputs(" AD", f);
-        if (h->status == hstatus_unusable) fputs(" ** unusable **", f);
-	fputc('\n', f);
+        if (h->mx >= 0) fprintf(fp, " MX=%d", h->mx);
+        if (h->port != PORT_NONE) fprintf(fp, " port=%d", h->port);
+        if (f.running_in_test_harness  &&  h->dnssec == DS_YES) fputs(" AD", fp);
+        if (h->status == hstatus_unusable) fputs(" ** unusable **", fp);
+	fputc('\n', fp);
         }
       }
     }
@@ -2364,6 +2207,7 @@ for (addr_list = addr_local, i = 0; i < 2; addr_list = addr_remote, i++)
 the -bv or -bt case). */
 
 out:
+verify_mode = NULL;
 tls_modify_variables(&tls_in);
 
 return yield;
@@ -2377,7 +2221,7 @@ return yield;
 *************************************************/
 
 /* This function checks those header lines that contain addresses, and verifies
-that all the addresses therein are syntactially correct.
+that all the addresses therein are 5322-syntactially correct.
 
 Arguments:
   msgptr     where to put an error message
@@ -2393,7 +2237,7 @@ header_line *h;
 uschar *colon, *s;
 int yield = OK;
 
-for (h = header_list; h != NULL && yield == OK; h = h->next)
+for (h = header_list; h && yield == OK; h = h->next)
   {
   if (h->type != htype_from &&
       h->type != htype_reply_to &&
@@ -2410,9 +2254,9 @@ for (h = header_list; h != NULL && yield == OK; h = h->next)
   /* Loop for multiple addresses in the header, enabling group syntax. Note
   that we have to reset this after the header has been scanned. */
 
-  parse_allow_group = TRUE;
+  f.parse_allow_group = TRUE;
 
-  while (*s != 0)
+  while (*s)
     {
     uschar *ss = parse_find_address_end(s, FALSE);
     uschar *recipient, *errmess;
@@ -2429,15 +2273,15 @@ for (h = header_list; h != NULL && yield == OK; h = h->next)
     /* Permit an unqualified address only if the message is local, or if the
     sending host is configured to be permitted to send them. */
 
-    if (recipient != NULL && domain == 0)
+    if (recipient && !domain)
       {
       if (h->type == htype_from || h->type == htype_sender)
         {
-        if (!allow_unqualified_sender) recipient = NULL;
+        if (!f.allow_unqualified_sender) recipient = NULL;
         }
       else
         {
-        if (!allow_unqualified_recipient) recipient = NULL;
+        if (!f.allow_unqualified_recipient) recipient = NULL;
         }
       if (recipient == NULL) errmess = US"unqualified address not permitted";
       }
@@ -2445,7 +2289,7 @@ for (h = header_list; h != NULL && yield == OK; h = h->next)
     /* It's an error if no address could be extracted, except for the special
     case of an empty address. */
 
-    if (recipient == NULL && Ustrcmp(errmess, "empty address") != 0)
+    if (!recipient && Ustrcmp(errmess, "empty address") != 0)
       {
       uschar *verb = US"is";
       uschar *t = ss;
@@ -2475,7 +2319,7 @@ for (h = header_list; h != NULL && yield == OK; h = h->next)
       /* deconst cast ok as we're passing a non-const to string_printing() */
       *msgptr = US string_printing(
         string_sprintf("%s: failing address in \"%.*s:\" header %s: %.*s",
-          errmess, tt - h->text, h->text, verb, len, s));
+          errmess, (int)(tt - h->text), h->text, verb, len, s));
 
       yield = FAIL;
       break;          /* Out of address loop */
@@ -2483,12 +2327,12 @@ for (h = header_list; h != NULL && yield == OK; h = h->next)
 
     /* Advance to the next address */
 
-    s = ss + (terminator? 1:0);
+    s = ss + (terminator ? 1 : 0);
     while (isspace(*s)) s++;
     }   /* Next address */
 
-  parse_allow_group = FALSE;
-  parse_found_group = FALSE;
+  f.parse_allow_group = FALSE;
+  f.parse_found_group = FALSE;
   }     /* Next header unless yield has been set FALSE */
 
 return yield;
@@ -2499,7 +2343,7 @@ return yield;
 *      Check header names for 8-bit characters   *
 *************************************************/
 
-/* This function checks for invalid charcters in header names. See
+/* This function checks for invalid characters in header names. See
 RFC 5322, 2.2. and RFC 6532, 3.
 
 Arguments:
@@ -2515,18 +2359,16 @@ verify_check_header_names_ascii(uschar **msgptr)
 header_line *h;
 uschar *colon, *s;
 
-for (h = header_list; h != NULL; h = h->next)
+for (h = header_list; h; h = h->next)
   {
-   colon = Ustrchr(h->text, ':');
-   for(s = h->text; s < colon; s++)
-     {
-        if ((*s < 33) || (*s > 126))
-        {
-                *msgptr = string_sprintf("Invalid character in header \"%.*s\" found",
-                                         colon - h->text, h->text);
-                return FAIL;
-        }
-     }
+  colon = Ustrchr(h->text, ':');
+  for(s = h->text; s < colon; s++)
+    if ((*s < 33) || (*s > 126))
+      {
+      *msgptr = string_sprintf("Invalid character in header \"%.*s\" found",
+			     colon - h->text, h->text);
+      return FAIL;
+      }
   }
 return OK;
 }
@@ -2572,7 +2414,7 @@ for (i = 0; i < recipients_count; i++)
     /* Loop for multiple addresses in the header, enabling group syntax. Note
     that we have to reset this after the header has been scanned. */
 
-    parse_allow_group = TRUE;
+    f.parse_allow_group = TRUE;
 
     while (*s != 0)
       {
@@ -2607,8 +2449,8 @@ for (i = 0; i < recipients_count; i++)
       while (isspace(*s)) s++;
       }   /* Next address */
 
-    parse_allow_group = FALSE;
-    parse_found_group = FALSE;
+    f.parse_allow_group = FALSE;
+    f.parse_found_group = FALSE;
     }     /* Next header (if found is false) */
 
   if (!found) return FAIL;
@@ -2709,7 +2551,7 @@ for (i = 0; i < 3 && !done; i++)
     /* Scan the addresses in the header, enabling group syntax. Note that we
     have to reset this after the header has been scanned. */
 
-    parse_allow_group = TRUE;
+    f.parse_allow_group = TRUE;
 
     while (*s != 0)
       {
@@ -2778,7 +2620,7 @@ for (i = 0; i < 3 && !done; i++)
           while (ss > s && isspace(ss[-1])) ss--;
           *log_msgptr = string_sprintf("syntax error in '%.*s' header when "
             "scanning for sender: %s in \"%.*s\"",
-            endname - h->text, h->text, *log_msgptr, ss - s, s);
+            (int)(endname - h->text), h->text, *log_msgptr, (int)(ss - s), s);
           yield = FAIL;
           done = TRUE;
           break;
@@ -2806,11 +2648,9 @@ for (i = 0; i < 3 && !done; i++)
         {
         *verrno = vaddr->basic_errno;
         if (smtp_return_error_details)
-          {
           *user_msgptr = string_sprintf("Rejected after DATA: "
             "could not verify \"%.*s\" header address\n%s: %s",
-            endname - h->text, h->text, vaddr->address, vaddr->message);
-          }
+            (int)(endname - h->text), h->text, vaddr->address, vaddr->message);
         }
 
       /* Success or defer */
@@ -2829,8 +2669,8 @@ for (i = 0; i < 3 && !done; i++)
       s = ss;
       }     /* Next address */
 
-    parse_allow_group = FALSE;
-    parse_found_group = FALSE;
+    f.parse_allow_group = FALSE;
+    f.parse_found_group = FALSE;
     }       /* Next header, unless done */
   }         /* Next header type unless done */
 
@@ -2868,9 +2708,11 @@ Side effect: any received ident value is put in sender_ident (NULL otherwise)
 void
 verify_get_ident(int port)
 {
-int sock, host_af, qlen;
+client_conn_ctx ident_conn_ctx = {0};
+int host_af, qlen;
 int received_sender_port, received_interface_port, n;
 uschar *p;
+blob early_data;
 uschar buffer[2048];
 
 /* Default is no ident. Check whether we want to do an ident check for this
@@ -2886,40 +2728,33 @@ DEBUG(D_ident) debug_printf("doing ident callback\n");
 to the incoming interface address. If the sender host address is an IPv6
 address, the incoming interface address will also be IPv6. */
 
-host_af = (Ustrchr(sender_host_address, ':') == NULL)? AF_INET : AF_INET6;
-sock = ip_socket(SOCK_STREAM, host_af);
-if (sock < 0) return;
+host_af = Ustrchr(sender_host_address, ':') == NULL ? AF_INET : AF_INET6;
+if ((ident_conn_ctx.sock = ip_socket(SOCK_STREAM, host_af)) < 0) return;
 
-if (ip_bind(sock, host_af, interface_address, 0) < 0)
+if (ip_bind(ident_conn_ctx.sock, host_af, interface_address, 0) < 0)
   {
   DEBUG(D_ident) debug_printf("bind socket for ident failed: %s\n",
     strerror(errno));
   goto END_OFF;
   }
 
-if (ip_connect(sock, host_af, sender_host_address, port, rfc1413_query_timeout)
-     < 0)
-  {
-  if (errno == ETIMEDOUT && LOGGING(ident_timeout))
-    {
-    log_write(0, LOG_MAIN, "ident connection to %s timed out",
-      sender_host_address);
-    }
-  else
-    {
-    DEBUG(D_ident) debug_printf("ident connection to %s failed: %s\n",
-      sender_host_address, strerror(errno));
-    }
-  goto END_OFF;
-  }
-
 /* Construct and send the query. */
 
-sprintf(CS buffer, "%d , %d\r\n", sender_host_port, interface_port);
-qlen = Ustrlen(buffer);
-if (send(sock, buffer, qlen, 0) < 0)
+qlen = snprintf(CS buffer, sizeof(buffer), "%d , %d\r\n",
+  sender_host_port, interface_port);
+early_data.data = buffer;
+early_data.len = qlen;
+
+/*XXX we trust that the query is idempotent */
+if (ip_connect(ident_conn_ctx.sock, host_af, sender_host_address, port,
+		rfc1413_query_timeout, &early_data) < 0)
   {
-  DEBUG(D_ident) debug_printf("ident send failed: %s\n", strerror(errno));
+  if (errno == ETIMEDOUT && LOGGING(ident_timeout))
+    log_write(0, LOG_MAIN, "ident connection to %s timed out",
+      sender_host_address);
+  else
+    DEBUG(D_ident) debug_printf("ident connection to %s failed: %s\n",
+      sender_host_address, strerror(errno));
   goto END_OFF;
   }
 
@@ -2935,7 +2770,7 @@ for (;;)
   int size = sizeof(buffer) - (p - buffer);
 
   if (size <= 0) goto END_OFF;   /* Buffer filled without seeing \n. */
-  count = ip_recv(sock, p, size, rfc1413_query_timeout);
+  count = ip_recv(&ident_conn_ctx, p, size, rfc1413_query_timeout);
   if (count <= 0) goto END_OFF;  /* Read error or EOF */
 
   /* Scan what we just read, to see if we have reached the terminating \r\n. Be
@@ -3000,7 +2835,7 @@ sender_ident = US string_printing(string_copyn(p, 127));
 DEBUG(D_ident) debug_printf("sender_ident = %s\n", sender_ident);
 
 END_OFF:
-(void)close(sock);
+(void)close(ident_conn_ctx.sock);
 return;
 }
 
@@ -3085,7 +2920,7 @@ if (*ss == '@')
   }
 
 /* If the pattern is an IP address, optionally followed by a bitmask count, do
-a (possibly masked) comparision with the current IP address. */
+a (possibly masked) comparison with the current IP address. */
 
 if (string_is_ip_address(ss, &maskoffset) != 0)
   return (host_is_in_net(cb->host_address, ss, maskoffset)? OK : FAIL);
@@ -3190,12 +3025,12 @@ if (iplookup)
   /* Now do the actual lookup; note that there is no search_close() because
   of the caching arrangements. */
 
-  handle = search_open(filename, search_type, 0, NULL, NULL);
-  if (handle == NULL) log_write(0, LOG_MAIN|LOG_PANIC_DIE, "%s",
-    search_error_message);
+  if (!(handle = search_open(filename, search_type, 0, NULL, NULL)))
+    log_write(0, LOG_MAIN|LOG_PANIC_DIE, "%s", search_error_message);
+
   result = search_find(handle, filename, key, -1, NULL, 0, 0, NULL);
-  if (valueptr != NULL) *valueptr = result;
-  return (result != NULL)? OK : search_find_defer? DEFER: FAIL;
+  if (valueptr) *valueptr = result;
+  return result ? OK : f.search_find_defer ? DEFER: FAIL;
   }
 
 /* The pattern is not an IP address or network reference of any kind. That is,
@@ -3295,7 +3130,7 @@ if (isquery)
 /* Not a query-style lookup; must ensure the host name is present, and then we
 do a check on the name and all its aliases. */
 
-if (sender_host_name == NULL)
+if (!sender_host_name)
   {
   HDEBUG(D_host_lookup)
     debug_printf("sender host name required, to match against %s\n", ss);
@@ -3310,8 +3145,7 @@ if (sender_host_name == NULL)
 
 /* Match on the sender host name, using the general matching function */
 
-switch(match_check_string(sender_host_name, ss, -1, TRUE, TRUE, TRUE,
-       valueptr))
+switch(match_check_string(sender_host_name, ss, -1, TRUE, TRUE, TRUE, valueptr))
   {
   case OK:    return OK;
   case DEFER: return DEFER;
@@ -3320,14 +3154,12 @@ switch(match_check_string(sender_host_name, ss, -1, TRUE, TRUE, TRUE,
 /* If there are aliases, try matching on them. */
 
 aliases = sender_host_aliases;
-while (*aliases != NULL)
-  {
+while (*aliases)
   switch(match_check_string(*aliases++, ss, -1, TRUE, TRUE, TRUE, valueptr))
     {
     case OK:    return OK;
     case DEFER: return DEFER;
     }
-  }
 return FAIL;
 }
 
@@ -3373,18 +3205,16 @@ verify_check_this_host(const uschar **listptr, unsigned int *cache_bits,
 int rc;
 unsigned int *local_cache_bits = cache_bits;
 const uschar *save_host_address = deliver_host_address;
-check_host_block cb;
-cb.host_name = host_name;
-cb.host_address = host_address;
+check_host_block cb = { .host_name = host_name, .host_address = host_address };
 
-if (valueptr != NULL) *valueptr = NULL;
+if (valueptr) *valueptr = NULL;
 
 /* If the host address starts off ::ffff: it is an IPv6 address in
 IPv4-compatible mode. Find the IPv4 part for checking against IPv4
 addresses. */
 
-cb.host_ipv4 = (Ustrncmp(host_address, "::ffff:", 7) == 0)?
-  host_address + 7 : host_address;
+cb.host_ipv4 = Ustrncmp(host_address, "::ffff:", 7) == 0
+  ? host_address + 7 : host_address;
 
 /* During the running of the check, put the IP address into $host_address. In
 the case of calls from the smtp transport, it will already be there. However,
@@ -3415,9 +3245,9 @@ return rc;
 *      Check the given host item matches a list  *
 *************************************************/
 int
-verify_check_given_host(uschar **listptr, host_item *host)
+verify_check_given_host(const uschar **listptr, const host_item *host)
 {
-return verify_check_this_host(CUSS listptr, NULL, host->name, host->address, NULL);
+return verify_check_this_host(listptr, NULL, host->name, host->address, NULL);
 }
 
 /*************************************************
@@ -3600,7 +3430,7 @@ else
     (void)tree_insertnode(&dnsbl_cache, t);
     }
 
-  /* Do the DNS loopup . */
+  /* Do the DNS lookup . */
 
   HDEBUG(D_dnsbl) debug_printf("new DNS lookup for %s\n", query);
   cb->rc = dns_basic_lookup(&dnsa, query, T_A);
@@ -3610,9 +3440,8 @@ else
 
   /* If the lookup succeeded, cache the RHS address. The code allows for
   more than one address - this was for complete generality and the possible
-  use of A6 records. However, A6 records have been reduced to experimental
-  status (August 2001) and may die out. So they may never get used at all,
-  let alone in dnsbl records. However, leave the code here, just in case.
+  use of A6 records. However, A6 records are no longer supported. Leave the code
+  here, just in case.
 
   Quite apart from one A6 RR generating multiple addresses, there are DNS
   lists that return more than one A record, so we must handle multiple
@@ -3628,25 +3457,23 @@ else
     for (rr = dns_next_rr(&dnsa, &dnss, RESET_ANSWERS);
          rr;
          rr = dns_next_rr(&dnsa, &dnss, RESET_NEXT))
-      {
       if (rr->type == T_A)
         {
         dns_address *da = dns_address_from_rr(&dnsa, rr);
         if (da)
           {
           *addrp = da;
-          while (da->next != NULL) da = da->next;
-          addrp = &(da->next);
+          while (da->next) da = da->next;
+          addrp = &da->next;
 	  if (ttl > rr->ttl) ttl = rr->ttl;
           }
         }
-      }
 
     /* If we didn't find any A records, change the return code. This can
     happen when there is a CNAME record but there are no A records for what
     it points to. */
 
-    if (cb->rhs == NULL) cb->rc = DNS_NODATA;
+    if (!cb->rhs) cb->rc = DNS_NODATA;
     }
 
   cb->expiry = time(NULL)+ttl;
@@ -3668,7 +3495,7 @@ if (cb->rc == DNS_SUCCEED)
   records. For A6 records (currently not expected to be used) there may be
   multiple addresses from a single record. */
 
-  for (da = cb->rhs->next; da != NULL; da = da->next)
+  for (da = cb->rhs->next; da; da = da->next)
     addlist = string_sprintf("%s, %s", addlist, da->address);
 
   HDEBUG(D_dnsbl) debug_printf("DNS lookup for %s succeeded (yielding %s)\n",
@@ -3677,9 +3504,9 @@ if (cb->rc == DNS_SUCCEED)
   /* Address list check; this can be either for equality, or via a bitmask.
   In the latter case, all the bits must match. */
 
-  if (iplist != NULL)
+  if (iplist)
     {
-    for (da = cb->rhs; da != NULL; da = da->next)
+    for (da = cb->rhs; da; da = da->next)
       {
       int ipsep = ',';
       uschar ip[46];
@@ -3689,12 +3516,11 @@ if (cb->rc == DNS_SUCCEED)
       /* Handle exact matching */
 
       if (!bitmask)
-        {
-        while ((res = string_nextinlist(&ptr, &ipsep, ip, sizeof(ip))) != NULL)
-          {
-          if (Ustrcmp(CS da->address, ip) == 0) break;
-          }
-        }
+	{
+        while ((res = string_nextinlist(&ptr, &ipsep, ip, sizeof(ip))))
+          if (Ustrcmp(CS da->address, ip) == 0)
+	    break;
+	}
 
       /* Handle bitmask matching */
 
@@ -3714,7 +3540,7 @@ if (cb->rc == DNS_SUCCEED)
 
         /* Scan the returned addresses, skipping any that are IPv6 */
 
-        while ((res = string_nextinlist(&ptr, &ipsep, ip, sizeof(ip))) != NULL)
+        while ((res = string_nextinlist(&ptr, &ipsep, ip, sizeof(ip))))
           {
           if (host_aton(ip, address) != 1) continue;
           if ((address[0] & mask) == address[0]) break;
@@ -3747,17 +3573,13 @@ if (cb->rc == DNS_SUCCEED)
         switch(match_type)
           {
           case 0:
-          res = US"was no match";
-          break;
+	    res = US"was no match"; break;
           case MT_NOT:
-          res = US"was an exclude match";
-          break;
+	    res = US"was an exclude match"; break;
           case MT_ALL:
-          res = US"was an IP address that did not match";
-          break;
+	    res = US"was an IP address that did not match"; break;
           case MT_NOT|MT_ALL:
-          res = US"were no IP addresses that did not match";
-          break;
+	    res = US"were no IP addresses that did not match"; break;
           }
         debug_printf("=> but we are not accepting this block class because\n");
         debug_printf("=> there %s for %s%c%s\n",
@@ -3789,15 +3611,15 @@ if (cb->rc == DNS_SUCCEED)
       {
       dns_record *rr;
       for (rr = dns_next_rr(&dnsa, &dnss, RESET_ANSWERS);
-           rr != NULL;
+           rr;
            rr = dns_next_rr(&dnsa, &dnss, RESET_NEXT))
         if (rr->type == T_TXT) break;
-      if (rr != NULL)
+      if (rr)
         {
         int len = (rr->data)[0];
         if (len > 511) len = 127;
         store_pool = POOL_PERM;
-        cb->text = string_sprintf("%.*s", len, (const uschar *)(rr->data+1));
+        cb->text = string_sprintf("%.*s", len, CUS (rr->data+1));
         store_pool = old_pool;
         }
       }

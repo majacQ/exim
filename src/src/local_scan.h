@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* This file is the header that is the only Exim header to be included in the
@@ -115,7 +115,7 @@ typedef struct header_line {
 /* Entries in lists options are in this form. */
 
 typedef struct {
-  const char   *name;
+  const char   *name; /* should have been uschar but too late now */
   int           type;
   void         *value;
 } optionlist;
@@ -186,8 +186,8 @@ extern void    receive_add_recipient(uschar *, int);
 extern BOOL    receive_remove_recipient(uschar *);
 extern uschar *rfc2047_decode(uschar *, BOOL, uschar *, int, int *, uschar **);
 extern int     smtp_fflush(void);
-extern void    smtp_printf(const char *, ...) PRINTF_FUNCTION(1,2);
-extern void    smtp_vprintf(const char *, va_list);
+extern void    smtp_printf(const char *, BOOL, ...) PRINTF_FUNCTION(1,3);
+extern void    smtp_vprintf(const char *, BOOL, va_list);
 extern uschar *string_copy(const uschar *);
 extern uschar *string_copyn(const uschar *, int);
 extern uschar *string_sprintf(const char *, ...) ALMOST_PRINTF(1,2);

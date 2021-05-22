@@ -12,9 +12,9 @@
 #ifdef EXPERIMENTAL_DMARC
 
 # include "opendmarc/dmarc.h"
-# ifdef EXPERIMENTAL_SPF
+# ifdef SUPPORT_SPF
 #  include "spf2/spf.h"
-# endif /* EXPERIMENTAL_SPF */
+# endif /* SUPPORT_SPF */
 
 /* prototypes */
 int dmarc_init();
@@ -23,8 +23,7 @@ int dmarc_process();
 uschar *dmarc_exim_expand_query(int);
 uschar *dmarc_exim_expand_defaults(int);
 uschar *dmarc_auth_results_header(header_line *,uschar *);
-int dmarc_write_history_file();
-void dmarc_send_forensic_report(u_char **);
+static int dmarc_write_history_file();
 
 #define DMARC_AR_HEADER        US"Authentication-Results:"
 #define DMARC_VERIFY_STATUS    1

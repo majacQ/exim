@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -29,6 +29,17 @@ value is present to keep some compilers happy. */
 
 ipliteral_router_options_block ipliteral_router_option_defaults = { 0 };
 
+
+#ifdef MACRO_PREDEF
+
+/* Dummy entries */
+void ipliteral_router_init(router_instance *rblock) {}
+int ipliteral_router_entry(router_instance *rblock, address_item *addr,
+  struct passwd *pw, int verify, address_item **addr_local,
+  address_item **addr_remote, address_item **addr_new,
+  address_item **addr_succeed) {return 0;}
+
+#else   /*!MACRO_PREDEF*/
 
 
 /*************************************************
@@ -168,7 +179,7 @@ addr->host_list = h;
 rc = rf_get_errors_address(addr, rblock, verify, &addr->prop.errors_address);
 if (rc != OK) return rc;
 
-/* Set up the additional and removeable headers for this address. */
+/* Set up the additional and removable headers for this address. */
 
 rc = rf_get_munge_headers(addr, rblock, &addr->prop.extra_headers,
   &addr->prop.remove_headers);
@@ -190,4 +201,5 @@ return rf_queue_add(addr, addr_local, addr_remote, rblock, pw)?
   OK : DEFER;
 }
 
+#endif   /*!MACRO_PREDEF*/
 /* End of routers/ipliteral.c */

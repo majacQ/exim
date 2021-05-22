@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions for sending messages to sender or to mailmaster. */
@@ -29,7 +29,7 @@ void
 moan_write_from(FILE *f)
 {
 uschar *s = expand_string(dsn_from);
-if (s == NULL)
+if (!s)
   {
   log_write(0, LOG_MAIN|LOG_PANIC,
     "Failed to expand dsn_from (using default): %s", expand_string_message);
@@ -61,7 +61,7 @@ Arguments:
 Returns:         TRUE if message successfully sent
 */
 
-static BOOL
+BOOL
 moan_send_message(uschar *recipient, int ident, error_block *eblock,
   header_line *headers, FILE *message_file, uschar *firstline)
 {
@@ -70,10 +70,32 @@ int fd;
 int status;
 int count = 0;
 int size_limit = bounce_return_size_limit;
-FILE *f;
-int pid = child_open_exim(&fd);
+FILE * fp;
+int pid;
 
-/* Creation of child failed */
+#ifdef EXPERIMENTAL_DMARC
+uschar * s, * s2;
+
+/* For DMARC if there is a specific sender set, expand the variable for the
+header From: and grab the address from that for the envelope FROM. */
+
+if (  ident == ERRMESS_DMARC_FORENSIC
+   && dmarc_forensic_sender
+   && (s = expand_string(dmarc_forensic_sender))
+   && *s
+   && (s2 = expand_string(string_sprintf("${address:%s}", s)))
+   && *s2
+   )
+  pid = child_open_exim2(&fd, s2, bounce_sender_authentication);
+else
+  {
+  s = NULL;
+  pid = child_open_exim(&fd);
+  }
+
+#else
+pid = child_open_exim(&fd);
+#endif
 
 if (pid < 0)
   {
@@ -85,48 +107,55 @@ else DEBUG(D_any) debug_printf("Child process %d for sending message\n", pid);
 
 /* Creation of child succeeded */
 
-f = fdopen(fd, "wb");
-if (errors_reply_to) fprintf(f, "Reply-To: %s\n", errors_reply_to);
-fprintf(f, "Auto-Submitted: auto-replied\n");
-moan_write_from(f);
-fprintf(f, "To: %s\n", recipient);
+fp = fdopen(fd, "wb");
+if (errors_reply_to) fprintf(fp, "Reply-To: %s\n", errors_reply_to);
+fprintf(fp, "Auto-Submitted: auto-replied\n");
+
+#ifdef EXPERIMENTAL_DMARC
+if (s)
+  fprintf(fp, "From: %s\n", s);
+else
+#endif
+  moan_write_from(fp);
+
+fprintf(fp, "To: %s\n", recipient);
 
 switch(ident)
   {
   case ERRMESS_BADARGADDRESS:
-    fprintf(f,
+    fprintf(fp,
       "Subject: Mail failure - malformed recipient address\n\n");
-    fprintf(f,
+    fprintf(fp,
       "A message that you sent contained a recipient address that was incorrectly\n"
       "constructed:\n\n");
-    fprintf(f, "  %s  %s\n", eblock->text1, eblock->text2);
+    fprintf(fp, "  %s  %s\n", eblock->text1, eblock->text2);
     count = Ustrlen(eblock->text1);
     if (count > 0 && eblock->text1[count-1] == '.')
-      fprintf(f,
+      fprintf(fp,
 	"\nRecipient addresses must not end with a '.' character.\n");
-    fprintf(f,
+    fprintf(fp,
       "\nThe message has not been delivered to any recipients.\n");
     break;
 
   case ERRMESS_BADNOADDRESS:
   case ERRMESS_BADADDRESS:
-    fprintf(f,
+    fprintf(fp,
       "Subject: Mail failure - malformed recipient address\n\n");
-    fprintf(f,
+    fprintf(fp,
       "A message that you sent contained one or more recipient addresses that were\n"
       "incorrectly constructed:\n\n");
 
     while (eblock != NULL)
       {
-      fprintf(f, "  %s: %s\n", eblock->text1, eblock->text2);
+      fprintf(fp, "  %s: %s\n", eblock->text1, eblock->text2);
       count++;
       eblock = eblock->next;
       }
 
-    fprintf(f, (count == 1)? "\nThis address has been ignored. " :
+    fprintf(fp, (count == 1)? "\nThis address has been ignored. " :
       "\nThese addresses have been ignored. ");
 
-    fprintf(f, (ident == ERRMESS_BADADDRESS)?
+    fprintf(fp, (ident == ERRMESS_BADADDRESS)?
       "The other addresses in the message were\n"
       "syntactically valid and have been passed on for an attempt at delivery.\n" :
 
@@ -135,8 +164,8 @@ switch(ident)
     break;
 
   case ERRMESS_IGADDRESS:
-    fprintf(f, "Subject: Mail failure - no recipient addresses\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - no recipient addresses\n\n");
+    fprintf(fp,
       "A message that you sent using the -t command line option contained no\n"
       "addresses that were not also on the command line, and were therefore\n"
       "suppressed. This left no recipient addresses, and so no delivery could\n"
@@ -144,75 +173,74 @@ switch(ident)
     break;
 
   case ERRMESS_NOADDRESS:
-    fprintf(f, "Subject: Mail failure - no recipient addresses\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - no recipient addresses\n\n");
+    fprintf(fp,
       "A message that you sent contained no recipient addresses, and therefore no\n"
       "delivery could be attempted.\n");
     break;
 
   case ERRMESS_IOERR:
-    fprintf(f, "Subject: Mail failure - system failure\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - system failure\n\n");
+    fprintf(fp,
       "A system failure was encountered while processing a message that you sent,\n"
       "so it has not been possible to deliver it. The error was:\n\n%s\n",
       eblock->text1);
     break;
 
   case ERRMESS_VLONGHEADER:
-    fprintf(f, "Subject: Mail failure - overlong header section\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - overlong header section\n\n");
+    fprintf(fp,
       "A message that you sent contained a header section that was excessively\n"
       "long and could not be handled by the mail transmission software. The\n"
       "message has not been delivered to any recipients.\n");
     break;
 
   case ERRMESS_VLONGHDRLINE:
-    fprintf(f, "Subject: Mail failure - overlong header line\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - overlong header line\n\n");
+    fprintf(fp,
       "A message that you sent contained a header line that was excessively\n"
       "long and could not be handled by the mail transmission software. The\n"
       "message has not been delivered to any recipients.\n");
     break;
 
   case ERRMESS_TOOBIG:
-    fprintf(f, "Subject: Mail failure - message too big\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - message too big\n\n");
+    fprintf(fp,
       "A message that you sent was longer than the maximum size allowed on this\n"
       "system. It was not delivered to any recipients.\n");
     break;
 
   case ERRMESS_TOOMANYRECIP:
-    fprintf(f, "Subject: Mail failure - too many recipients\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - too many recipients\n\n");
+    fprintf(fp,
       "A message that you sent contained more recipients than allowed on this\n"
       "system. It was not delivered to any recipients.\n");
     break;
 
   case ERRMESS_LOCAL_SCAN:
   case ERRMESS_LOCAL_ACL:
-    fprintf(f, "Subject: Mail failure - rejected by local scanning code\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure - rejected by local scanning code\n\n");
+    fprintf(fp,
       "A message that you sent was rejected by the local scanning code that\n"
       "checks incoming messages on this system.");
       if (eblock->text1)
-	fprintf(f, " The following error was given:\n\n  %s", eblock->text1);
-  fprintf(f, "\n");
+	fprintf(fp, " The following error was given:\n\n  %s", eblock->text1);
+  fprintf(fp, "\n");
   break;
 
 #ifdef EXPERIMENTAL_DMARC
   case ERRMESS_DMARC_FORENSIC:
     bounce_return_message = TRUE;
     bounce_return_body    = FALSE;
-    fprintf(f,
-          "Subject: DMARC Forensic Report for %s from IP %s\n\n",
-	  ((eblock == NULL) ? US"Unknown" : eblock->text2),
+    fprintf(fp, "Subject: DMARC Forensic Report for %s from IP %s\n\n",
+	  eblock ? eblock->text2 : US"Unknown",
           sender_host_address);
-    fprintf(f,
+    fprintf(fp,
       "A message claiming to be from you has failed the published DMARC\n"
       "policy for your domain.\n\n");
-    while (eblock != NULL)
+    while (eblock)
       {
-      fprintf(f, "  %s: %s\n", eblock->text1, eblock->text2);
+      fprintf(fp, "  %s: %s\n", eblock->text1, eblock->text2);
       count++;
       eblock = eblock->next;
       }
@@ -220,8 +248,8 @@ switch(ident)
 #endif
 
   default:
-    fprintf(f, "Subject: Mail failure\n\n");
-    fprintf(f,
+    fprintf(fp, "Subject: Mail failure\n\n");
+    fprintf(fp,
       "A message that you sent has caused the error routine to be entered with\n"
       "an unknown error number (%d).\n", ident);
     break;
@@ -235,7 +263,7 @@ if (bounce_return_message)
   {
   if (bounce_return_body)
     {
-    fprintf(f, "\n"
+    fprintf(fp, "\n"
       "------ This is a copy of your message, including all the headers.");
     if (size_limit == 0 || size_limit > thismessage_size_limit)
       size_limit = thismessage_size_limit;
@@ -248,15 +276,15 @@ if (bounce_return_message)
         k = US"K";
         x >>= 10;
         }
-      fprintf(f, "\n"
+      fprintf(fp, "\n"
         "------ No more than %d%s characters of the body are included.\n\n",
           x, k);
       }
-    else fprintf(f, " ------\n\n");
+    else fprintf(fp, " ------\n\n");
     }
   else
     {
-    fprintf(f, "\n"
+    fprintf(fp, "\n"
       "------ This is a copy of the headers that were received before the "
       "error\n       was detected.\n\n");
     }
@@ -266,12 +294,12 @@ if (bounce_return_message)
 
   while (headers)
     {
-    if (headers->text != NULL) fprintf(f, "%s", CS headers->text);
+    if (headers->text != NULL) fprintf(fp, "%s", CS headers->text);
     headers = headers->next;
     }
 
   if (ident != ERRMESS_VLONGHEADER && ident != ERRMESS_VLONGHDRLINE)
-    fputc('\n', f);
+    fputc('\n', fp);
 
   /* After early detection of an error, the message file may be STDIN,
   in which case we might have to terminate on a line containing just "."
@@ -279,20 +307,18 @@ if (bounce_return_message)
 
   if (bounce_return_body && message_file)
     {
-    int ch;
-    enum {midline, beginline, haddot} state = beginline;
-    BOOL enddot = dot_ends && message_file == stdin;
+    BOOL enddot = f.dot_ends && message_file == stdin;
     uschar * buf = store_get(bounce_return_linesize_limit+2);
 
-    if (firstline) fprintf(f, "%s", CS firstline);
+    if (firstline) fprintf(fp, "%s", CS firstline);
 
-    while (fgets(buf, bounce_return_linesize_limit+2, message_file))
+    while (fgets(CS buf, bounce_return_linesize_limit+2, message_file))
       {
       int len;
 
       if (enddot && *buf == '.' && buf[1] == '\n')
 	{
-	fputc('.', f);
+	fputc('.', fp);
 	break;
 	}
 
@@ -306,11 +332,11 @@ if (bounce_return_message)
       if (size_limit > 0 && len > size_limit - written)
 	{
 	buf[size_limit - written] = '\0';
-	fputs(buf, f);
+	fputs(CS buf, fp);
 	break;
 	}
 
-      fputs(buf, f);
+      fputs(CS buf, fp);
       }
     }
 #ifdef EXPERIMENTAL_DMARC
@@ -320,14 +346,14 @@ if (bounce_return_message)
     /*XXX limit line length here? */
     /* This doesn't print newlines, disable until can parse and fix
      * output to be legible.  */
-    fprintf(f, "%s", expand_string(US"$message_body"));
+    fprintf(fp, "%s", expand_string(US"$message_body"));
     }
 #endif
   }
 /* Close the file, which should send an EOF to the child process
 that is receiving the message. Wait for it to finish, without a timeout. */
 
-(void)fclose(f);
+(void)fclose(fp);
 status = child_close(pid, 0);  /* Waits for child to close */
 if (status != 0)
   {
@@ -384,7 +410,7 @@ if (message_reference)
 
 /* Find the sender from a From line if permitted and possible */
 
-if (check_sender && message_file && trusted_caller &&
+if (check_sender && message_file && f.trusted_caller &&
     Ufgets(big_buffer, BIG_BUFFER_SIZE, message_file) != NULL)
   {
   uschar *new_sender = NULL;
@@ -396,7 +422,7 @@ if (check_sender && message_file && trusted_caller &&
 
 /* If viable sender address, send a message */
 
-if (sender_address && sender_address[0] && !local_error_message)
+if (sender_address && sender_address[0] && !f.local_error_message)
   return moan_send_message(sender_address, ident, eblock, headers,
     message_file, firstline);
 
@@ -589,7 +615,7 @@ fprintf(stderr, "%d previous message%s successfully processed.\n",
 
 fprintf(stderr, "The rest of the batch was abandoned.\n");
 
-exim_exit(yield);
+exim_exit(yield, US"batch");
 }
 
 

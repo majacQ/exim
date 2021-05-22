@@ -12,7 +12,7 @@
 
 #include "exim.h"
 #ifdef EXPERIMENTAL_DMARC
-# if !defined EXPERIMENTAL_SPF
+# if !defined SUPPORT_SPF
 #  error SPF must also be enabled for DMARC
 # elif defined DISABLE_DKIM
 #  error DKIM must also be enabled for DMARC
@@ -28,7 +28,6 @@ OPENDMARC_STATUS_T  libdm_status, action, dmarc_policy;
 OPENDMARC_STATUS_T  da, sa, action;
 BOOL dmarc_abort  = FALSE;
 uschar *dmarc_pass_fail = US"skipped";
-extern pdkim_signature  *dkim_signatures;
 header_line *from_header   = NULL;
 extern SPF_response_t   *spf_response;
 int dmarc_spf_ares_result  = 0;
@@ -44,6 +43,7 @@ typedef struct dmarc_exim_p {
 } dmarc_exim_p;
 
 static dmarc_exim_p dmarc_policy_description[] = {
+  /* name		value */
   { US"",           DMARC_RECORD_P_UNSPECIFIED },
   { US"none",       DMARC_RECORD_P_NONE },
   { US"quarantine", DMARC_RECORD_P_QUARANTINE },
@@ -57,7 +57,7 @@ static dmarc_exim_p dmarc_policy_description[] = {
 static error_block *
 add_to_eblock(error_block *eblock, uschar *t1, uschar *t2)
 {
-error_block *eb = malloc(sizeof(error_block));
+error_block *eb = store_malloc(sizeof(error_block));
 if (eblock == NULL)
   eblock = eb;
 else
@@ -78,13 +78,11 @@ return eblock;
    messages on the same SMTP connection (that come from the
    same host with the same HELO string) */
 
-int dmarc_init()
+int
+dmarc_init()
 {
 int *netmask   = NULL;   /* Ignored */
 int is_ipv6    = 0;
-char *tld_file = (dmarc_tld_file == NULL) ?
-		 "/etc/exim/opendmarc.tlds" :
-		 (char *)dmarc_tld_file;
 
 /* Set some sane defaults.  Also clears previous results when
  * multiple messages in one connection. */
@@ -93,14 +91,13 @@ dmarc_status       = US"none";
 dmarc_abort        = FALSE;
 dmarc_pass_fail    = US"skipped";
 dmarc_used_domain  = US"";
-dmarc_ar_header    = NULL;
-dmarc_has_been_checked = FALSE;
+f.dmarc_has_been_checked = FALSE;
 header_from_sender = NULL;
 spf_sender_domain  = NULL;
 spf_human_readable = NULL;
 
 /* ACLs have "control=dmarc_disable_verify" */
-if (dmarc_disable_verify == TRUE)
+if (f.dmarc_disable_verify == TRUE)
   return OK;
 
 (void) memset(&dmarc_ctx, '\0', sizeof dmarc_ctx);
@@ -112,22 +109,27 @@ if (libdm_status != DMARC_PARSE_OKAY)
 		       opendmarc_policy_status_to_str(libdm_status));
   dmarc_abort = TRUE;
   }
-if (dmarc_tld_file == NULL)
-  dmarc_abort = TRUE;
-else if (opendmarc_tld_read_file(tld_file, NULL, NULL, NULL))
+if (!dmarc_tld_file)
   {
-  log_write(0, LOG_MAIN|LOG_PANIC, "DMARC failure to load tld list %s: %d",
-		       tld_file, errno);
+  DEBUG(D_receive) debug_printf("DMARC: no dmarc_tld_file\n");
   dmarc_abort = TRUE;
   }
-if (sender_host_address == NULL)
+else if (opendmarc_tld_read_file(CS dmarc_tld_file, NULL, NULL, NULL))
+  {
+  log_write(0, LOG_MAIN|LOG_PANIC, "DMARC failure to load tld list %s: %d",
+		       dmarc_tld_file, errno);
   dmarc_abort = TRUE;
+  }
+if (!sender_host_address)
+  {
+  DEBUG(D_receive) debug_printf("DMARC: no sender_host_address\n");
+  dmarc_abort = TRUE;
+  }
 /* This catches locally originated email and startup errors above. */
 if (!dmarc_abort)
   {
   is_ipv6 = string_is_ip_address(sender_host_address, netmask) == 6;
-  dmarc_pctx = opendmarc_policy_connect_init(sender_host_address, is_ipv6);
-  if (dmarc_pctx == NULL)
+  if (!(dmarc_pctx = opendmarc_policy_connect_init(sender_host_address, is_ipv6)))
     {
     log_write(0, LOG_MAIN|LOG_PANIC,
       "DMARC failure creating policy context: ip=%s", sender_host_address);
@@ -140,19 +142,71 @@ return OK;
 
 
 /* dmarc_store_data stores the header data so that subsequent
- * dmarc_process can access the data */
+dmarc_process can access the data */
 
-int dmarc_store_data(header_line *hdr) {
-  /* No debug output because would change every test debug output */
-  if (dmarc_disable_verify != TRUE)
-    from_header = hdr;
-  return OK;
+int
+dmarc_store_data(header_line *hdr)
+{
+/* No debug output because would change every test debug output */
+if (!f.dmarc_disable_verify)
+  from_header = hdr;
+return OK;
 }
 
 
+static void
+dmarc_send_forensic_report(u_char **ruf)
+{
+int   c;
+uschar *recipient, *save_sender;
+BOOL  send_status = FALSE;
+error_block *eblock = NULL;
+FILE *message_file = NULL;
+
+/* Earlier ACL does not have *required* control=dmarc_enable_forensic */
+if (!f.dmarc_enable_forensic)
+  return;
+
+if (  dmarc_policy == DMARC_POLICY_REJECT     && action == DMARC_RESULT_REJECT
+   || dmarc_policy == DMARC_POLICY_QUARANTINE && action == DMARC_RESULT_QUARANTINE
+   || dmarc_policy == DMARC_POLICY_NONE       && action == DMARC_RESULT_REJECT
+   || dmarc_policy == DMARC_POLICY_NONE       && action == DMARC_RESULT_QUARANTINE
+   )
+  if (ruf)
+    {
+    eblock = add_to_eblock(eblock, US"Sender Domain", dmarc_used_domain);
+    eblock = add_to_eblock(eblock, US"Sender IP Address", sender_host_address);
+    eblock = add_to_eblock(eblock, US"Received Date", tod_stamp(tod_full));
+    eblock = add_to_eblock(eblock, US"SPF Alignment",
+		     sa == DMARC_POLICY_SPF_ALIGNMENT_PASS ? US"yes" : US"no");
+    eblock = add_to_eblock(eblock, US"DKIM Alignment",
+		     da == DMARC_POLICY_DKIM_ALIGNMENT_PASS ? US"yes" : US"no");
+    eblock = add_to_eblock(eblock, US"DMARC Results", dmarc_status_text);
+
+    for (c = 0; ruf[c]; c++)
+      {
+      recipient = string_copylc(ruf[c]);
+      if (Ustrncmp(recipient, "mailto:",7))
+	continue;
+      /* Move to first character past the colon */
+      recipient += 7;
+      DEBUG(D_receive)
+	debug_printf("DMARC forensic report to %s%s\n", recipient,
+	     (host_checking || f.running_in_test_harness) ? " (not really)" : "");
+      if (host_checking || f.running_in_test_harness)
+	continue;
+
+      if (!moan_send_message(recipient, ERRMESS_DMARC_FORENSIC, eblock,
+			    header_list, message_file, NULL))
+	log_write(0, LOG_MAIN|LOG_PANIC,
+	  "failure to send DMARC forensic report to %s", recipient);
+      }
+    }
+}
+
 /* dmarc_process adds the envelope sender address to the existing
-   context (if any), retrieves the result, sets up expansion
-   strings and evaluates the condition outcome. */
+context (if any), retrieves the result, sets up expansion
+strings and evaluates the condition outcome. */
 
 int
 dmarc_process()
@@ -160,16 +214,13 @@ dmarc_process()
 int sr, origin;             /* used in SPF section */
 int dmarc_spf_result  = 0;  /* stores spf into dmarc conn ctx */
 int tmp_ans, c;
-pdkim_signature *sig  = NULL;
+pdkim_signature * sig = dkim_signatures;
 BOOL has_dmarc_record = TRUE;
 u_char **ruf; /* forensic report addressees, if called for */
 
 /* ACLs have "control=dmarc_disable_verify" */
-if (dmarc_disable_verify)
-  {
-  dmarc_ar_header = dmarc_auth_results_header(from_header, NULL);
+if (f.dmarc_disable_verify)
   return OK;
-  }
 
 /* Store the header From: sender domain for this part of DMARC.
  * If there is no from_header struct, then it's likely this message
@@ -177,31 +228,34 @@ if (dmarc_disable_verify)
  * the entire DMARC system if we can't find a From: header....or if
  * there was a previous error.
  */
-if (!from_header || dmarc_abort)
-  dmarc_abort = TRUE;
-else
+if (!from_header)
   {
-    uschar * errormsg;
-    int dummy, domain;
-    uschar * p;
-    uschar saveend;
+  DEBUG(D_receive) debug_printf("DMARC: no From: header\n");
+  dmarc_abort = TRUE;
+  }
+else if (!dmarc_abort)
+  {
+  uschar * errormsg;
+  int dummy, domain;
+  uschar * p;
+  uschar saveend;
 
-    parse_allow_group = TRUE;
-    p = parse_find_address_end(from_header->text, FALSE);
-    saveend = *p; *p = '\0';
-    if ((header_from_sender = parse_extract_address(from_header->text, &errormsg,
-                                &dummy, &dummy, &domain, FALSE)))
-      header_from_sender += domain;
-    *p = saveend;
+  f.parse_allow_group = TRUE;
+  p = parse_find_address_end(from_header->text, FALSE);
+  saveend = *p; *p = '\0';
+  if ((header_from_sender = parse_extract_address(from_header->text, &errormsg,
+			      &dummy, &dummy, &domain, FALSE)))
+    header_from_sender += domain;
+  *p = saveend;
 
-    /* The opendmarc library extracts the domain from the email address, but
-     * only try to store it if it's not empty.  Otherwise, skip out of DMARC. */
-    if (!header_from_sender || (strcmp( CCS header_from_sender, "") == 0))
-      dmarc_abort = TRUE;
-    libdm_status = dmarc_abort ?
-      DMARC_PARSE_OKAY :
-      opendmarc_policy_store_from_domain(dmarc_pctx, header_from_sender);
-    if (libdm_status != DMARC_PARSE_OKAY)
+  /* The opendmarc library extracts the domain from the email address, but
+   * only try to store it if it's not empty.  Otherwise, skip out of DMARC. */
+  if (!header_from_sender || (strcmp( CCS header_from_sender, "") == 0))
+    dmarc_abort = TRUE;
+  libdm_status = dmarc_abort
+    ? DMARC_PARSE_OKAY
+    : opendmarc_policy_store_from_domain(dmarc_pctx, header_from_sender);
+  if (libdm_status != DMARC_PARSE_OKAY)
     {
     log_write(0, LOG_MAIN|LOG_PANIC,
 	      "failure to store header From: in DMARC: %s, header was '%s'",
@@ -214,6 +268,8 @@ else
  * instead do this in the ACLs.  */
 if (!dmarc_abort && !sender_host_authenticated)
   {
+  uschar * dmarc_domain;
+
   /* Use the envelope sender domain for this part of DMARC */
   spf_sender_domain = expand_string(US"$sender_address_domain");
   if (!spf_response)
@@ -251,7 +307,7 @@ if (!dmarc_abort && !sender_host_authenticated)
 			    sr == SPF_RESULT_PERMERROR ? ARES_RESULT_PERMERROR :
 			    ARES_RESULT_UNKNOWN;
     origin = DMARC_POLICY_SPF_ORIGIN_MAILFROM;
-    spf_human_readable = (uschar *)spf_response->header_comment;
+    spf_human_readable = US spf_response->header_comment;
     DEBUG(D_receive)
       debug_printf("DMARC using SPF sender domain = %s\n", spf_sender_domain);
     }
@@ -268,18 +324,18 @@ if (!dmarc_abort && !sender_host_authenticated)
 
   /* Now we cycle through the dkim signature results and put into
    * the opendmarc context, further building the DMARC reply.  */
-  sig = dkim_signatures;
   dkim_history_buffer = US"";
   while (sig)
     {
     int dkim_result, dkim_ares_result, vs, ves;
-    vs  = sig->verify_status;
+
+    vs  = sig->verify_status & ~PDKIM_VERIFY_POLICY;
     ves = sig->verify_ext_status;
     dkim_result = vs == PDKIM_VERIFY_PASS ? DMARC_POLICY_DKIM_OUTCOME_PASS :
 		  vs == PDKIM_VERIFY_FAIL ? DMARC_POLICY_DKIM_OUTCOME_FAIL :
 		  vs == PDKIM_VERIFY_INVALID ? DMARC_POLICY_DKIM_OUTCOME_TMPFAIL :
 		  DMARC_POLICY_DKIM_OUTCOME_NONE;
-    libdm_status = opendmarc_policy_store_dkim(dmarc_pctx, (uschar *)sig->domain,
+    libdm_status = opendmarc_policy_store_dkim(dmarc_pctx, US sig->domain,
 					       dkim_result, US"");
     DEBUG(D_receive)
       debug_printf("DMARC adding DKIM sender domain = %s\n", sig->domain);
@@ -341,9 +397,9 @@ if (!dmarc_abort && !sender_host_authenticated)
       }
 
   /* Can't use exim's string manipulation functions so allocate memory
-   * for libopendmarc using its max hostname length definition. */
+  for libopendmarc using its max hostname length definition. */
 
-  uschar *dmarc_domain = (uschar *)calloc(DMARC_MAXHOSTNAMELEN, sizeof(uschar));
+  dmarc_domain = US calloc(DMARC_MAXHOSTNAMELEN, sizeof(uschar));
   libdm_status = opendmarc_policy_fetch_utilized_domain(dmarc_pctx,
     dmarc_domain, DMARC_MAXHOSTNAMELEN-1);
   dmarc_used_domain = string_copy(dmarc_domain);
@@ -354,8 +410,7 @@ if (!dmarc_abort && !sender_host_authenticated)
       "failure to read domainname used for DMARC lookup: %s",
       opendmarc_policy_status_to_str(libdm_status));
 
-  libdm_status = opendmarc_get_policy_to_enforce(dmarc_pctx);
-  dmarc_policy = libdm_status;
+  dmarc_policy = libdm_status = opendmarc_get_policy_to_enforce(dmarc_pctx);
   switch(libdm_status)
     {
     case DMARC_POLICY_ABSENT:     /* No DMARC record found */
@@ -407,13 +462,13 @@ if (!dmarc_abort && !sender_host_authenticated)
     log_write(0, LOG_MAIN|LOG_PANIC, "failure to read DMARC alignment: %s",
 			     opendmarc_policy_status_to_str(libdm_status));
 
-  if (has_dmarc_record == TRUE)
+  if (has_dmarc_record)
     {
     log_write(0, LOG_MAIN, "DMARC results: spf_domain=%s dmarc_domain=%s "
 			   "spf_align=%s dkim_align=%s enforcement='%s'",
 			   spf_sender_domain, dmarc_used_domain,
-			   (sa==DMARC_POLICY_SPF_ALIGNMENT_PASS) ?"yes":"no",
-			   (da==DMARC_POLICY_DKIM_ALIGNMENT_PASS)?"yes":"no",
+			   sa==DMARC_POLICY_SPF_ALIGNMENT_PASS  ?"yes":"no",
+			   da==DMARC_POLICY_DKIM_ALIGNMENT_PASS ?"yes":"no",
 			   dmarc_status_text);
     history_file_status = dmarc_write_history_file();
     /* Now get the forensic reporting addresses, if any */
@@ -422,19 +477,16 @@ if (!dmarc_abort && !sender_host_authenticated)
     }
   }
 
-/* set some global variables here */
-dmarc_ar_header = dmarc_auth_results_header(from_header, NULL);
-
 /* shut down libopendmarc */
-if ( dmarc_pctx != NULL )
+if (dmarc_pctx)
   (void) opendmarc_policy_connect_shutdown(dmarc_pctx);
-if ( dmarc_disable_verify == FALSE )
+if (!f.dmarc_disable_verify)
   (void) opendmarc_policy_library_shutdown(&dmarc_ctx);
 
 return OK;
 }
 
-int
+static int
 dmarc_write_history_file()
 {
 int history_file_fd;
@@ -444,15 +496,18 @@ u_char **rua; /* aggregate report addressees */
 uschar *history_buffer = NULL;
 
 if (!dmarc_history_file)
+  {
+  DEBUG(D_receive) debug_printf("DMARC history file not set\n");
   return DMARC_HIST_DISABLED;
+  }
 history_file_fd = log_create(dmarc_history_file);
 
 if (history_file_fd < 0)
-{
+  {
   log_write(0, LOG_MAIN|LOG_PANIC, "failure to create DMARC history file: %s",
 			   dmarc_history_file);
   return DMARC_HIST_FILE_ERR;
-}
+  }
 
 /* Generate the contents of the history file */
 history_buffer = string_sprintf(
@@ -496,8 +551,8 @@ history_buffer = string_sprintf(
 /* Write the contents to the history file */
 DEBUG(D_receive)
   debug_printf("DMARC logging history data for opendmarc reporting%s\n",
-	     (host_checking || running_in_test_harness) ? " (not really)" : "");
-if (host_checking || running_in_test_harness)
+	     (host_checking || f.running_in_test_harness) ? " (not really)" : "");
+if (host_checking || f.running_in_test_harness)
   {
   DEBUG(D_receive)
     debug_printf("DMARC history data for debugging:\n%s", history_buffer);
@@ -518,125 +573,40 @@ else
 return DMARC_HIST_OK;
 }
 
-void
-dmarc_send_forensic_report(u_char **ruf)
-{
-int   c;
-uschar *recipient, *save_sender;
-BOOL  send_status = FALSE;
-error_block *eblock = NULL;
-FILE *message_file = NULL;
-
-/* Earlier ACL does not have *required* control=dmarc_enable_forensic */
-if (!dmarc_enable_forensic)
-  return;
-
-if ((dmarc_policy == DMARC_POLICY_REJECT     && action == DMARC_RESULT_REJECT) ||
-    (dmarc_policy == DMARC_POLICY_QUARANTINE && action == DMARC_RESULT_QUARANTINE) )
-  if (ruf)
-    {
-    eblock = add_to_eblock(eblock, US"Sender Domain", dmarc_used_domain);
-    eblock = add_to_eblock(eblock, US"Sender IP Address", sender_host_address);
-    eblock = add_to_eblock(eblock, US"Received Date", tod_stamp(tod_full));
-    eblock = add_to_eblock(eblock, US"SPF Alignment",
-			   (sa==DMARC_POLICY_SPF_ALIGNMENT_PASS) ?US"yes":US"no");
-    eblock = add_to_eblock(eblock, US"DKIM Alignment",
-			   (da==DMARC_POLICY_DKIM_ALIGNMENT_PASS)?US"yes":US"no");
-    eblock = add_to_eblock(eblock, US"DMARC Results", dmarc_status_text);
-    /* Set a sane default envelope sender */
-    dsn_from = dmarc_forensic_sender ? dmarc_forensic_sender :
-	       dsn_from ? dsn_from :
-	       string_sprintf("do-not-reply@%s",primary_hostname);
-    for (c = 0; ruf[c]; c++)
-      {
-      recipient = string_copylc(ruf[c]);
-      if (Ustrncmp(recipient, "mailto:",7))
-	continue;
-      /* Move to first character past the colon */
-      recipient += 7;
-      DEBUG(D_receive)
-	debug_printf("DMARC forensic report to %s%s\n", recipient,
-	     (host_checking || running_in_test_harness) ? " (not really)" : "");
-      if (host_checking || running_in_test_harness)
-	continue;
-
-      save_sender = sender_address;
-      sender_address = recipient;
-      send_status = moan_to_sender(ERRMESS_DMARC_FORENSIC, eblock,
-				   header_list, message_file, FALSE);
-      sender_address = save_sender;
-      if (!send_status)
-	log_write(0, LOG_MAIN|LOG_PANIC,
-	  "failure to send DMARC forensic report to %s", recipient);
-      }
-    }
-}
 
 uschar *
 dmarc_exim_expand_query(int what)
 {
-if (dmarc_disable_verify || !dmarc_pctx)
+if (f.dmarc_disable_verify || !dmarc_pctx)
   return dmarc_exim_expand_defaults(what);
 
-switch(what)
-  {
-  case DMARC_VERIFY_STATUS:
-    return(dmarc_status);
-  default:
-    return US"";
-  }
+if (what == DMARC_VERIFY_STATUS)
+  return dmarc_status;
+return US"";
 }
 
 uschar *
 dmarc_exim_expand_defaults(int what)
 {
-switch(what)
-  {
-  case DMARC_VERIFY_STATUS:
-    return dmarc_disable_verify ?  US"off" : US"none";
-  default:
-    return US"";
-  }
+if (what == DMARC_VERIFY_STATUS)
+  return f.dmarc_disable_verify ?  US"off" : US"none";
+return US"";
 }
 
-uschar *
-dmarc_auth_results_header(header_line *from_header, uschar *hostname)
+
+gstring *
+authres_dmarc(gstring * g)
 {
-uschar *hdr_tmp    = US"";
-
-/* Allow a server hostname to be passed to this function, but is
- * currently unused */
-if (!hostname)
-  hostname = primary_hostname;
-hdr_tmp = string_sprintf("%s %s;", DMARC_AR_HEADER, hostname);
-
-#if 0
-/* I don't think this belongs here, but left it here commented out
- * because it was a lot of work to get working right. */
-if (spf_response != NULL) {
-  uschar *dmarc_ar_spf = US"";
-  int sr               = 0;
-  sr = spf_response->result;
-  dmarc_ar_spf = (sr == SPF_RESULT_NEUTRAL)  ? US"neutral" :
-		 (sr == SPF_RESULT_PASS)     ? US"pass" :
-		 (sr == SPF_RESULT_FAIL)     ? US"fail" :
-		 (sr == SPF_RESULT_SOFTFAIL) ? US"softfail" :
-		 US"none";
-  hdr_tmp = string_sprintf("%s spf=%s (%s) smtp.mail=%s;",
-			   hdr_tmp, dmarc_ar_spf_result,
-			   spf_response->header_comment,
-			   expand_string(US"$sender_address") );
-}
-#endif
-
-hdr_tmp = string_sprintf("%s dmarc=%s", hdr_tmp, dmarc_pass_fail);
-if (header_from_sender)
-  hdr_tmp = string_sprintf("%s header.from=%s",
-			   hdr_tmp, header_from_sender);
-return hdr_tmp;
+if (f.dmarc_has_been_checked)
+  {
+  g = string_append(g, 2, US";\n\tdmarc=", dmarc_pass_fail);
+  if (header_from_sender)
+    g = string_append(g, 2, US" header.from=", header_from_sender);
+  }
+return g;
 }
 
-# endif /* EXPERIMENTAL_SPF */
+# endif /* SUPPORT_SPF */
 #endif /* EXPERIMENTAL_DMARC */
 /* vi: aw ai sw=2
  */

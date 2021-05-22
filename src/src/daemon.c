@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions concerned with running Exim as a daemon */
@@ -19,9 +19,9 @@ typedef struct smtp_slot {
 } smtp_slot;
 
 /* An empty slot for initializing (Standard C does not allow constructor
-expressions in assigments except as initializers in declarations). */
+expressions in assignments except as initializers in declarations). */
 
-static smtp_slot empty_smtp_slot = { 0, NULL };
+static smtp_slot empty_smtp_slot = { .pid = 0, .host_address = NULL };
 
 
 
@@ -106,10 +106,10 @@ Returns:         nothing
 static void
 never_error(uschar *log_msg, uschar *smtp_msg, int was_errno)
 {
-uschar *emsg = (was_errno <= 0)? US"" :
-  string_sprintf(": %s", strerror(was_errno));
+uschar *emsg = was_errno <= 0
+  ? US"" : string_sprintf(": %s", strerror(was_errno));
 log_write(0, LOG_MAIN|LOG_PANIC, "%s%s", log_msg, emsg);
-if (smtp_out != NULL) smtp_printf("421 %s\r\n", smtp_msg);
+if (smtp_out) smtp_printf("421 %s\r\n", FALSE, smtp_msg);
 }
 
 
@@ -143,10 +143,8 @@ union sockaddr_46 interface_sockaddr;
 EXIM_SOCKLEN_T ifsize = sizeof(interface_sockaddr);
 int dup_accept_socket = -1;
 int max_for_this_host = 0;
-int wfsize = 0;
-int wfptr = 0;
 int save_log_selector = *log_selector;
-uschar *whofrom = NULL;
+gstring * whofrom;
 
 void *reset_point = store_get(0);
 
@@ -161,23 +159,20 @@ DEBUG(D_any) debug_printf("Connection request from %s port %d\n",
 input stream. These operations fail only the exceptional circumstances. Note
 that never_error() won't use smtp_out if it is NULL. */
 
-smtp_out = fdopen(accept_socket, "wb");
-if (smtp_out == NULL)
+if (!(smtp_out = fdopen(accept_socket, "wb")))
   {
   never_error(US"daemon: fdopen() for smtp_out failed", US"", errno);
   goto ERROR_RETURN;
   }
 
-dup_accept_socket = dup(accept_socket);
-if (dup_accept_socket < 0)
+if ((dup_accept_socket = dup(accept_socket)) < 0)
   {
   never_error(US"daemon: couldn't dup socket descriptor",
     US"Connection setup failed", errno);
   goto ERROR_RETURN;
   }
 
-smtp_in = fdopen(dup_accept_socket, "rb");
-if (smtp_in == NULL)
+if (!(smtp_in = fdopen(dup_accept_socket, "rb")))
   {
   never_error(US"daemon: fdopen() for smtp_in failed",
     US"Connection setup failed", errno);
@@ -192,7 +187,7 @@ if (getsockname(accept_socket, (struct sockaddr *)(&interface_sockaddr),
   {
   log_write(0, LOG_MAIN | ((errno == ECONNRESET)? 0 : LOG_PANIC),
     "getsockname() failed: %s", strerror(errno));
-  smtp_printf("421 Local problem: getsockname() failed; please try again later\r\n");
+  smtp_printf("421 Local problem: getsockname() failed; please try again later\r\n", FALSE);
   goto ERROR_RETURN;
   }
 
@@ -204,17 +199,16 @@ DEBUG(D_interface) debug_printf("interface address=%s port=%d\n",
 the local interface data. This is for logging; at the end of this function the
 memory is reclaimed. */
 
-whofrom = string_append(whofrom, &wfsize, &wfptr, 3, "[", sender_host_address, "]");
+whofrom = string_append(NULL, 3, "[", sender_host_address, "]");
 
 if (LOGGING(incoming_port))
-  whofrom = string_append(whofrom, &wfsize, &wfptr, 2, ":", string_sprintf("%d",
-    sender_host_port));
+  whofrom = string_fmt_append(whofrom, ":%d", sender_host_port);
 
 if (LOGGING(incoming_interface))
-  whofrom = string_append(whofrom, &wfsize, &wfptr, 4, " I=[",
-    interface_address, "]:", string_sprintf("%d", interface_port));
+  whofrom = string_fmt_append(whofrom, " I=[%s]:%d",
+    interface_address, interface_port);
 
-whofrom[wfptr] = 0;    /* Terminate the newly-built string */
+(void) string_from_gstring(whofrom);    /* Terminate the newly-built string */
 
 /* Check maximum number of connections. We do not check for reserved
 connections or unacceptable hosts here. That is done in the subprocess because
@@ -225,10 +219,10 @@ if (smtp_accept_max > 0 && smtp_accept_count >= smtp_accept_max)
   DEBUG(D_any) debug_printf("rejecting SMTP connection: count=%d max=%d\n",
     smtp_accept_count, smtp_accept_max);
   smtp_printf("421 Too many concurrent SMTP connections; "
-    "please try again later.\r\n");
+    "please try again later.\r\n", FALSE);
   log_write(L_connection_reject,
             LOG_MAIN, "Connection from %s refused: too many connections",
-    whofrom);
+    whofrom->s);
   goto ERROR_RETURN;
   }
 
@@ -244,10 +238,10 @@ if (smtp_load_reserve >= 0)
     {
     DEBUG(D_any) debug_printf("rejecting SMTP connection: load average = %.2f\n",
       (double)load_average/1000.0);
-    smtp_printf("421 Too much load; please try again later.\r\n");
+    smtp_printf("421 Too much load; please try again later.\r\n", FALSE);
     log_write(L_connection_reject,
               LOG_MAIN, "Connection from %s refused: load average = %.2f",
-      whofrom, (double)load_average/1000.0);
+      whofrom->s, (double)load_average/1000.0);
     goto ERROR_RETURN;
     }
   }
@@ -265,9 +259,9 @@ if (smtp_accept_max_per_host != NULL)
   uschar *expanded = expand_string(smtp_accept_max_per_host);
   if (expanded == NULL)
     {
-    if (!expand_string_forcedfail)
+    if (!f.expand_string_forcedfail)
       log_write(0, LOG_MAIN|LOG_PANIC, "expansion of smtp_accept_max_per_host "
-        "failed for %s: %s", whofrom, expand_string_message);
+        "failed for %s: %s", whofrom->s, expand_string_message);
     }
   /* For speed, interpret a decimal number inline here */
   else
@@ -277,7 +271,7 @@ if (smtp_accept_max_per_host != NULL)
       max_for_this_host = max_for_this_host * 10 + *s++ - '0';
     if (*s != 0)
       log_write(0, LOG_MAIN|LOG_PANIC, "expansion of smtp_accept_max_per_host "
-        "for %s contains non-digit: %s", whofrom, expanded);
+        "for %s contains non-digit: %s", whofrom->s, expanded);
     }
   }
 
@@ -293,8 +287,7 @@ if ((max_for_this_host > 0) &&
   int other_host_count = 0;    /* keep a count of non matches to optimise */
 
   for (i = 0; i < smtp_accept_max; ++i)
-    {
-    if (smtp_slots[i].host_address != NULL)
+    if (smtp_slots[i].host_address)
       {
       if (Ustrcmp(sender_host_address, smtp_slots[i].host_address) == 0)
        host_accept_count++;
@@ -309,7 +302,6 @@ if ((max_for_this_host > 0) &&
          ((smtp_accept_count - other_host_count) < max_for_this_host))
        break;
       }
-    }
 
   if (host_accept_count >= max_for_this_host)
     {
@@ -317,10 +309,10 @@ if ((max_for_this_host > 0) &&
       "IP address: count=%d max=%d\n",
       host_accept_count, max_for_this_host);
     smtp_printf("421 Too many concurrent SMTP connections "
-      "from this IP address; please try again later.\r\n");
+      "from this IP address; please try again later.\r\n", FALSE);
     log_write(L_connection_reject,
               LOG_MAIN, "Connection from %s refused: too many connections "
-      "from that IP address", whofrom);
+      "from that IP address", whofrom->s);
     goto ERROR_RETURN;
     }
   }
@@ -346,7 +338,7 @@ if (LOGGING(smtp_connection))
     save_log_selector &= ~L_smtp_connection;
   else
     log_write(L_smtp_connection, LOG_MAIN, "SMTP connection from %s "
-      "(TCP/IP connection count = %d)", whofrom, smtp_accept_count + 1);
+      "(TCP/IP connection count = %d)", whofrom->s, smtp_accept_count + 1);
   }
 
 /* Now we can fork the accepting process; do a lookup tidy, just in case any
@@ -390,24 +382,24 @@ if (pid == 0)
   likely what it depends on.) */
 
   smtp_active_hostname = primary_hostname;
-  if (raw_active_hostname != NULL)
+  if (raw_active_hostname)
     {
-    uschar *nah = expand_string(raw_active_hostname);
-    if (nah == NULL)
+    uschar * nah = expand_string(raw_active_hostname);
+    if (!nah)
       {
-      if (!expand_string_forcedfail)
+      if (!f.expand_string_forcedfail)
         {
         log_write(0, LOG_MAIN|LOG_PANIC, "failed to expand \"%s\" "
           "(smtp_active_hostname): %s", raw_active_hostname,
           expand_string_message);
         smtp_printf("421 Local configuration error; "
-          "please try again later.\r\n");
+          "please try again later.\r\n", FALSE);
         mac_smtp_fflush();
         search_tidyup();
         _exit(EXIT_FAILURE);
         }
       }
-    else if (nah[0] != 0) smtp_active_hostname = nah;
+    else if (*nah) smtp_active_hostname = nah;
     }
 
   /* Initialize the queueing flags */
@@ -449,7 +441,7 @@ if (pid == 0)
   finding the id, but turn it on again afterwards so that information about the
   incoming connection is output. */
 
-  if (debug_daemon) debug_selector = 0;
+  if (f.debug_daemon) debug_selector = 0;
   verify_get_ident(IDENT_PORT);
   host_build_sender_fullhost();
   debug_selector = save_debug_selector;
@@ -461,7 +453,7 @@ if (pid == 0)
   /* Now disable debugging permanently if it's required only for the daemon
   process. */
 
-  if (debug_daemon) debug_selector = 0;
+  if (f.debug_daemon) debug_selector = 0;
 
   /* If there are too many child processes for immediate delivery,
   set the session_local_queue_only flag, which is initialized from the
@@ -515,6 +507,7 @@ if (pid == 0)
       search_tidyup();                    /* Close cached databases */
       if (!ok)                            /* Connection was dropped */
         {
+	cancel_cutthrough_connection(TRUE, US"receive dropped");
         mac_smtp_fflush();
         smtp_log_no_mail();               /* Log no mail if configured */
         _exit(EXIT_SUCCESS);
@@ -523,10 +516,24 @@ if (pid == 0)
       }
     else
       {
-      mac_smtp_fflush();
+      if (smtp_out)
+	{
+	int i, fd = fileno(smtp_in);
+	uschar buf[128];
+
+	mac_smtp_fflush();
+	/* drain socket, for clean TCP FINs */
+	if (fcntl(fd, F_SETFL, O_NONBLOCK) == 0)
+	  for(i = 16; read(fd, buf, sizeof(buf)) > 0 && i > 0; ) i--;
+	}
+      cancel_cutthrough_connection(TRUE, US"message setup dropped");
       search_tidyup();
       smtp_log_no_mail();                 /* Log no mail if configured */
-      _exit((rc == 0)? EXIT_SUCCESS : EXIT_FAILURE);
+
+      /*XXX should we pause briefly, hoping that the client will be the
+      active TCP closer hence get the TCP_WAIT endpoint? */
+      DEBUG(D_receive) debug_printf("SMTP>>(close on process exit)\n");
+      _exit(rc ? EXIT_FAILURE : EXIT_SUCCESS);
       }
 
     /* Show the recipients when debugging */
@@ -534,9 +541,9 @@ if (pid == 0)
     DEBUG(D_receive)
       {
       int i;
-      if (sender_address != NULL)
+      if (sender_address)
         debug_printf("Sender: %s\n", sender_address);
-      if (recipients_list != NULL)
+      if (recipients_list)
         {
         debug_printf("Recipients:\n");
         for (i = 0; i < recipients_count; i++)
@@ -556,7 +563,13 @@ if (pid == 0)
 
     /* Reclaim up the store used in accepting this message */
 
-    store_reset(reset_point);
+      {
+      int r = receive_messagecount;
+      BOOL q = f.queue_only_policy;
+      smtp_reset(reset_point);
+      f.queue_only_policy = q;
+      receive_messagecount = r;
+      }
 
     /* If queue_only is set or if there are too many incoming connections in
     existence, session_local_queue_only will be TRUE. If it is not, check
@@ -582,15 +595,13 @@ if (pid == 0)
     very long-lived connections from scanning appliances where this is not the
     best strategy. In such cases, queue_only_load_latch should be set false. */
 
-    local_queue_only = session_local_queue_only;
-    if (!local_queue_only && queue_only_load >= 0)
+    if (  !(local_queue_only = session_local_queue_only)
+       && queue_only_load >= 0
+       && (local_queue_only = (load_average = OS_GETLOADAVG()) > queue_only_load)
+       )
       {
-      local_queue_only = (load_average = OS_GETLOADAVG()) > queue_only_load;
-      if (local_queue_only)
-        {
-        queue_only_reason = 3;
-        if (queue_only_load_latch) session_local_queue_only = TRUE;
-        }
+      queue_only_reason = 3;
+      if (queue_only_load_latch) session_local_queue_only = TRUE;
       }
 
     /* Log the queueing here, when it will get a message id attached, but
@@ -598,30 +609,27 @@ if (pid == 0)
 
     if (local_queue_only) switch(queue_only_reason)
       {
-      case 1:
-      log_write(L_delay_delivery,
+      case 1: log_write(L_delay_delivery,
                 LOG_MAIN, "no immediate delivery: too many connections "
                 "(%d, max %d)", smtp_accept_count, smtp_accept_queue);
-      break;
+	      break;
 
-      case 2:
-      log_write(L_delay_delivery,
+      case 2: log_write(L_delay_delivery,
                 LOG_MAIN, "no immediate delivery: more than %d messages "
                 "received in one connection", smtp_accept_queue_per_connection);
-      break;
+	      break;
 
-      case 3:
-      log_write(L_delay_delivery,
+      case 3: log_write(L_delay_delivery,
                 LOG_MAIN, "no immediate delivery: load average %.2f",
                 (double)load_average/1000.0);
-      break;
+	      break;
       }
 
     /* If a delivery attempt is required, spin off a new process to handle it.
     If we are not root, we have to re-exec exim unless deliveries are being
     done unprivileged. */
 
-    else if (!queue_only_policy && !deliver_freeze)
+    else if (!f.queue_only_policy && !f.deliver_freeze)
       {
       pid_t dpid;
 
@@ -639,9 +647,9 @@ if (pid == 0)
         /* Don't ever molest the parent's SSL connection, but do clean up
         the data structures if necessary. */
 
-        #ifdef SUPPORT_TLS
-        tls_close(TRUE, FALSE);
-        #endif
+#ifdef SUPPORT_TLS
+        tls_close(NULL, TLS_NO_SHUTDOWN);
+#endif
 
         /* Reset SIGHUP and SIGCHLD in the child in both cases. */
 
@@ -651,27 +659,28 @@ if (pid == 0)
         if (geteuid() != root_uid && !deliver_drop_privilege)
           {
           signal(SIGALRM, SIG_DFL);
-          (void)child_exec_exim(CEE_EXEC_PANIC, FALSE, NULL, FALSE, 2, US"-Mc",
-            message_id);
+	  delivery_re_exec(CEE_EXEC_PANIC);
           /* Control does not return here. */
           }
 
         /* No need to re-exec; SIGALRM remains set to the default handler */
 
-        (void)deliver_message(message_id, FALSE, FALSE);
+        (void) deliver_message(message_id, FALSE, FALSE);
         search_tidyup();
         _exit(EXIT_SUCCESS);
         }
 
       if (dpid > 0)
         {
+	release_cutthrough_connection(US"passed for delivery");
         DEBUG(D_any) debug_printf("forked delivery process %d\n", (int)dpid);
         }
       else
-        {
+	{
+	cancel_cutthrough_connection(TRUE, US"delivery fork failed");
         log_write(0, LOG_MAIN|LOG_PANIC, "daemon: delivery process fork "
           "failed: %s", strerror(errno));
-        }
+	}
       }
     }
   }
@@ -682,14 +691,11 @@ failed. Otherwise, keep count of the number of accepting processes and
 remember the pid for ticking off when the child completes. */
 
 if (pid < 0)
-  {
   never_error(US"daemon: accept process fork failed", US"Fork failed", errno);
-  }
 else
   {
   int i;
   for (i = 0; i < smtp_accept_max; ++i)
-    {
     if (smtp_slots[i].pid <= 0)
       {
       smtp_slots[i].pid = pid;
@@ -698,7 +704,6 @@ else
       smtp_accept_count++;
       break;
       }
-    }
   DEBUG(D_any) debug_printf("%d SMTP accept process%s running\n",
     smtp_accept_count, (smtp_accept_count == 1)? "" : "es");
   }
@@ -715,7 +720,7 @@ manifest itself as a broken pipe, so drop that one too. If the streams don't
 exist, something went wrong while setting things up. Make sure the socket
 descriptors are closed, in order to drop the connection. */
 
-if (smtp_out != NULL)
+if (smtp_out)
   {
   if (fclose(smtp_out) != 0 && errno != ECONNRESET && errno != EPIPE)
     log_write(0, LOG_MAIN|LOG_PANIC, "daemon: fclose(smtp_out) failed: %s",
@@ -724,7 +729,7 @@ if (smtp_out != NULL)
   }
 else (void)close(accept_socket);
 
-if (smtp_in != NULL)
+if (smtp_in)
   {
   if (fclose(smtp_in) != 0 && errno != ECONNRESET && errno != EPIPE)
     log_write(0, LOG_MAIN|LOG_PANIC, "daemon: fclose(smtp_in) failed: %s",
@@ -737,6 +742,8 @@ else (void)close(dup_accept_socket);
 the incoming host address and an expanded active_hostname. */
 
 log_close_all();
+interface_address =
+sender_host_address = NULL;
 store_reset(reset_point);
 sender_host_address = NULL;
 }
@@ -845,13 +852,12 @@ while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
   /* If it's a listening daemon for which we are keeping track of individual
   subprocesses, deal with an accepting process that has terminated. */
 
-  if (smtp_slots != NULL)
+  if (smtp_slots)
     {
     for (i = 0; i < smtp_accept_max; i++)
-      {
       if (smtp_slots[i].pid == pid)
         {
-        if (smtp_slots[i].host_address != NULL)
+        if (smtp_slots[i].host_address)
           store_free(smtp_slots[i].host_address);
         smtp_slots[i] = empty_smtp_slot;
         if (--smtp_accept_count < 0) smtp_accept_count = 0;
@@ -859,17 +865,16 @@ while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
           smtp_accept_count, (smtp_accept_count == 1)? "" : "es");
         break;
         }
-      }
     if (i < smtp_accept_max) continue;  /* Found an accepting process */
     }
 
   /* If it wasn't an accepting process, see if it was a queue-runner
   process that we are tracking. */
 
-  if (queue_pid_slots != NULL)
+  if (queue_pid_slots)
     {
-    for (i = 0; i < queue_run_max; i++)
-      {
+    int max = atoi(CS expand_string(queue_run_max));
+    for (i = 0; i < max; i++)
       if (queue_pid_slots[i] == pid)
         {
         queue_pid_slots[i] = 0;
@@ -878,7 +883,6 @@ while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
           queue_run_count, (queue_run_count == 1)? "" : "es");
         break;
         }
-      }
     }
   }
 }
@@ -916,24 +920,22 @@ int *listen_sockets = NULL;
 int listen_socket_count = 0;
 ip_address_item *addresses = NULL;
 time_t last_connection_time = (time_t)0;
+int local_queue_run_max = atoi(CS expand_string(queue_run_max));
 
 /* If any debugging options are set, turn on the D_pid bit so that all
 debugging lines get the pid added. */
 
 DEBUG(D_any|D_v) debug_selector |= D_pid;
 
-if (inetd_wait_mode)
+if (f.inetd_wait_mode)
   {
-  int on = 1;
-
   listen_socket_count = 1;
-  listen_sockets = store_get(sizeof(int *));
+  listen_sockets = store_get(sizeof(int));
   (void) close(3);
   if (dup2(0, 3) == -1)
-    {
     log_write(0, LOG_MAIN|LOG_PANIC_DIE,
         "failed to dup inetd socket safely away: %s", strerror(errno));
-    }
+
   listen_sockets[0] = 3;
   (void) close(0);
   (void) close(1);
@@ -957,12 +959,14 @@ if (inetd_wait_mode)
   /* As per below, when creating sockets ourselves, we handle tcp_nodelay for
   our own buffering; we assume though that inetd set the socket REUSEADDR. */
 
-  if (tcp_nodelay) setsockopt(3, IPPROTO_TCP, TCP_NODELAY,
-    (uschar *)(&on), sizeof(on));
+  if (tcp_nodelay)
+    if (setsockopt(3, IPPROTO_TCP, TCP_NODELAY, US &on, sizeof(on)))
+      log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to set socket NODELAY: %s",
+	strerror(errno));
   }
 
 
-if (inetd_wait_mode || daemon_listen)
+if (f.inetd_wait_mode || f.daemon_listen)
   {
   /* If any option requiring a load average to be available during the
   reception of a message is set, call os_getloadavg() while we are root
@@ -1044,7 +1048,7 @@ The preparation code decodes options and sets up the relevant data. We do this
 first, so that we can return non-zero if there are any syntax errors, and also
 write to stderr. */
 
-if (daemon_listen && !inetd_wait_mode)
+if (f.daemon_listen && !f.inetd_wait_mode)
   {
   int *default_smtp_port;
   int sep;
@@ -1060,14 +1064,10 @@ if (daemon_listen && !inetd_wait_mode)
   that contain neither a dot nor a colon are used to override daemon_smtp_port.
   Any other items are used to override local_interfaces. */
 
-  if (override_local_interfaces != NULL)
+  if (override_local_interfaces)
     {
-    uschar *new_smtp_port = NULL;
-    uschar *new_local_interfaces = NULL;
-    int portsize = 0;
-    int portptr = 0;
-    int ifacesize = 0;
-    int ifaceptr = 0;
+    gstring * new_smtp_port = NULL;
+    gstring * new_local_interfaces = NULL;
 
     if (override_pid_file_path == NULL) write_pid = FALSE;
 
@@ -1076,46 +1076,34 @@ if (daemon_listen && !inetd_wait_mode)
     while ((s = string_nextinlist(&list, &sep, big_buffer, big_buffer_size)))
       {
       uschar joinstr[4];
-      uschar **ptr;
-      int *sizeptr;
-      int *ptrptr;
+      gstring ** gp;
 
       if (Ustrpbrk(s, ".:") == NULL)
-        {
-        ptr = &new_smtp_port;
-        sizeptr = &portsize;
-        ptrptr = &portptr;
-        }
+        gp = &new_smtp_port;
       else
-        {
-        ptr = &new_local_interfaces;
-        sizeptr = &ifacesize;
-        ptrptr = &ifaceptr;
-        }
+        gp = &new_local_interfaces;
 
-      if (*ptr == NULL)
+      if (!*gp)
         {
         joinstr[0] = sep;
         joinstr[1] = ' ';
-        *ptr = string_cat(*ptr, sizeptr, ptrptr, US"<", 1);
+        *gp = string_catn(*gp, US"<", 1);
         }
 
-      *ptr = string_cat(*ptr, sizeptr, ptrptr, joinstr, 2);
-      *ptr = string_cat(*ptr, sizeptr, ptrptr, s, Ustrlen(s));
+      *gp = string_catn(*gp, joinstr, 2);
+      *gp = string_cat (*gp, s);
       }
 
-    if (new_smtp_port != NULL)
+    if (new_smtp_port)
       {
-      new_smtp_port[portptr] = 0;
-      daemon_smtp_port = new_smtp_port;
+      daemon_smtp_port = string_from_gstring(new_smtp_port);
       DEBUG(D_any) debug_printf("daemon_smtp_port overridden by -oX:\n  %s\n",
         daemon_smtp_port);
       }
 
-    if (new_local_interfaces != NULL)
+    if (new_local_interfaces)
       {
-      new_local_interfaces[ifaceptr] = 0;
-      local_interfaces = new_local_interfaces;
+      local_interfaces = string_from_gstring(new_local_interfaces);
       local_iface_source = US"-oX data";
       DEBUG(D_any) debug_printf("local_interfaces overridden by -oX:\n  %s\n",
         local_interfaces);
@@ -1123,7 +1111,7 @@ if (daemon_listen && !inetd_wait_mode)
     }
 
   /* Create a list of default SMTP ports, to be used if local_interfaces
-  contains entries without explict ports. First count the number of ports, then
+  contains entries without explicit ports. First count the number of ports, then
   build a translated list in a vector. */
 
   list = daemon_smtp_port;
@@ -1161,6 +1149,8 @@ if (daemon_listen && !inetd_wait_mode)
   while ((s = string_nextinlist(&list, &sep, big_buffer, big_buffer_size)))
     if (!isdigit(*s))
       {
+      gstring * g = NULL;
+
       list = tls_in.on_connect_ports;
       tls_in.on_connect_ports = NULL;
       sep = 0;
@@ -1168,14 +1158,15 @@ if (daemon_listen && !inetd_wait_mode)
 	{
         if (!isdigit(*s))
 	  {
-	  struct servent *smtp_service = getservbyname(CS s, "tcp");
+	  struct servent * smtp_service = getservbyname(CS s, "tcp");
 	  if (!smtp_service)
 	    log_write(0, LOG_PANIC_DIE|LOG_CONFIG, "TCP port \"%s\" not found", s);
-	  s= string_sprintf("%d", (int)ntohs(smtp_service->s_port));
+	  s = string_sprintf("%d", (int)ntohs(smtp_service->s_port));
 	  }
-	tls_in.on_connect_ports = string_append_listele(tls_in.on_connect_ports,
-	    ':', s);
+	g = string_append_listele(g, ':', s);
 	}
+      if (g)
+	tls_in.on_connect_ports = g->s;
       break;
       }
 
@@ -1194,11 +1185,12 @@ if (daemon_listen && !inetd_wait_mode)
   In the same scan, fill in missing port numbers from the default list. When
   there is more than one item in the list, extra items are created. */
 
-  for (ipa = addresses; ipa != NULL; ipa = ipa->next)
+  for (ipa = addresses; ipa; ipa = ipa->next)
     {
     int i;
 
-    if (Ustrcmp(ipa->address, "0.0.0.0") == 0) ipa->address[0] = 0;
+    if (Ustrcmp(ipa->address, "0.0.0.0") == 0)
+      ipa->address[0] = 0;
     else if (Ustrcmp(ipa->address, "::0") == 0)
       {
       ipa->address[0] = ':';
@@ -1210,12 +1202,14 @@ if (daemon_listen && !inetd_wait_mode)
     if (daemon_smtp_port[0] <= 0)
       log_write(0, LOG_MAIN|LOG_PANIC_DIE, "no port specified for interface "
         "%s and daemon_smtp_port is unset; cannot start daemon",
-        (ipa->address[0] == 0)? US"\"all IPv4\"" :
-        (ipa->address[1] == 0)? US"\"all IPv6\"" : ipa->address);
+        ipa->address[0] == 0 ? US"\"all IPv4\"" :
+        ipa->address[1] == 0 ? US"\"all IPv6\"" : ipa->address);
+
     ipa->port = default_smtp_port[0];
     for (i = 1; default_smtp_port[i] > 0; i++)
       {
       ip_address_item *new = store_get(sizeof(ip_address_item));
+
       memcpy(new->address, ipa->address, Ustrlen(ipa->address) + 1);
       new->port = default_smtp_port[i];
       new->next = ipa->next;
@@ -1230,15 +1224,14 @@ if (daemon_listen && !inetd_wait_mode)
   also simplifies the construction of the "daemon started" log line. */
 
   pipa = &addresses;
-  for (ipa = addresses; ipa != NULL; pipa = &(ipa->next), ipa = ipa->next)
+  for (ipa = addresses; ipa; pipa = &ipa->next, ipa = ipa->next)
     {
     ip_address_item *ipa2;
 
     /* Handle an IPv4 wildcard */
 
     if (ipa->address[0] == 0)
-      {
-      for (ipa2 = ipa; ipa2->next != NULL; ipa2 = ipa2->next)
+      for (ipa2 = ipa; ipa2->next; ipa2 = ipa2->next)
         {
         ip_address_item *ipa3 = ipa2->next;
         if (ipa3->address[0] == ':' &&
@@ -1251,13 +1244,11 @@ if (daemon_listen && !inetd_wait_mode)
           break;
           }
         }
-      }
 
     /* Handle an IPv6 wildcard. */
 
     else if (ipa->address[0] == ':' && ipa->address[1] == 0)
-      {
-      for (ipa2 = ipa; ipa2->next != NULL; ipa2 = ipa2->next)
+      for (ipa2 = ipa; ipa2->next; ipa2 = ipa2->next)
         {
         ip_address_item *ipa3 = ipa2->next;
         if (ipa3->address[0] == 0 && ipa3->port == ipa->port)
@@ -1269,18 +1260,17 @@ if (daemon_listen && !inetd_wait_mode)
           break;
           }
         }
-      }
     }
 
   /* Get a vector to remember all the sockets in */
 
-  for (ipa = addresses; ipa != NULL; ipa = ipa->next)
+  for (ipa = addresses; ipa; ipa = ipa->next)
     listen_socket_count++;
-  listen_sockets = store_get(sizeof(int *) * listen_socket_count);
+  listen_sockets = store_get(sizeof(int) * listen_socket_count);
 
   } /* daemon_listen but not inetd_wait_mode */
 
-if (daemon_listen)
+if (f.daemon_listen)
   {
 
   /* Do a sanity check on the max connects value just to save us from getting
@@ -1320,7 +1310,7 @@ Then disconnect from the controlling terminal, Most modern Unixes seem to have
 setsid() for getting rid of the controlling terminal. For any OS that doesn't,
 setsid() can be #defined as a no-op, or as something else. */
 
-if (background_daemon || inetd_wait_mode)
+if (f.background_daemon || f.inetd_wait_mode)
   {
   log_close_all();    /* Just in case anything was logged earlier */
   search_tidyup();    /* Just in case any were used in reading the config. */
@@ -1331,7 +1321,7 @@ if (background_daemon || inetd_wait_mode)
   log_stderr = NULL;  /* So no attempt to copy paniclog output */
   }
 
-if (background_daemon)
+if (f.background_daemon)
   {
   /* If the parent process of this one has pid == 1, we are re-initializing the
   daemon as the result of a SIGHUP. In this case, there is no need to do
@@ -1352,10 +1342,9 @@ if (background_daemon)
 /* We are now in the disconnected, daemon process (unless debugging). Set up
 the listening sockets if required. */
 
-if (daemon_listen && !inetd_wait_mode)
+if (f.daemon_listen && !f.inetd_wait_mode)
   {
   int sk;
-  int on = 1;
   ip_address_item *ipa;
 
   /* For each IP address, create a socket, bind it to the appropriate port, and
@@ -1381,8 +1370,7 @@ if (daemon_listen && !inetd_wait_mode)
       wildcard = ipa->address[0] == 0;
       }
 
-    listen_sockets[sk] = ip_socket(SOCK_STREAM, af);
-    if (listen_sockets[sk] < 0)
+    if ((listen_sockets[sk] = ip_socket(SOCK_STREAM, af)) < 0)
       {
       if (check_special_case(0, addresses, ipa, FALSE))
         {
@@ -1398,20 +1386,20 @@ if (daemon_listen && !inetd_wait_mode)
     available. Just log failure (can get protocol not available, just like
     socket creation can). */
 
-    #ifdef IPV6_V6ONLY
+#ifdef IPV6_V6ONLY
     if (af == AF_INET6 && wildcard &&
-        setsockopt(listen_sockets[sk], IPPROTO_IPV6, IPV6_V6ONLY, (char *)(&on),
+        setsockopt(listen_sockets[sk], IPPROTO_IPV6, IPV6_V6ONLY, CS (&on),
           sizeof(on)) < 0)
       log_write(0, LOG_MAIN, "Setting IPV6_V6ONLY on daemon's IPv6 wildcard "
         "socket failed (%s): carrying on without it", strerror(errno));
-    #endif  /* IPV6_V6ONLY */
+#endif  /* IPV6_V6ONLY */
 
     /* Set SO_REUSEADDR so that the daemon can be restarted while a connection
     is being handled.  Without this, a connection will prevent reuse of the
     smtp port for listening. */
 
     if (setsockopt(listen_sockets[sk], SOL_SOCKET, SO_REUSEADDR,
-                   (uschar *)(&on), sizeof(on)) < 0)
+                   US (&on), sizeof(on)) < 0)
       log_write(0, LOG_MAIN|LOG_PANIC_DIE, "setting SO_REUSEADDR on socket "
         "failed when starting daemon: %s", strerror(errno));
 
@@ -1419,7 +1407,7 @@ if (daemon_listen && !inetd_wait_mode)
     disable this because it breaks some broken clients. */
 
     if (tcp_nodelay) setsockopt(listen_sockets[sk], IPPROTO_TCP, TCP_NODELAY,
-      (uschar *)(&on), sizeof(on));
+      US (&on), sizeof(on));
 
     /* Now bind the socket to the required port; if Exim is being restarted
     it may not always be possible to bind immediately, even with SO_REUSEADDR
@@ -1431,6 +1419,9 @@ if (daemon_listen && !inetd_wait_mode)
     necessary for (some release of) USAGI Linux; other IP stacks fail at the
     listen() stage instead. */
 
+#ifdef TCP_FASTOPEN
+    f.tcp_fastopen_ok = TRUE;
+#endif
     for(;;)
       {
       uschar *msg, *addr;
@@ -1443,8 +1434,11 @@ if (daemon_listen && !inetd_wait_mode)
         goto SKIP_SOCKET;
         }
       msg = US strerror(errno);
-      addr = wildcard? ((af == AF_INET6)? US"(any IPv6)" : US"(any IPv4)") :
-        ipa->address;
+      addr = wildcard
+        ? af == AF_INET6
+	? US"(any IPv6)"
+	: US"(any IPv4)"
+	: ipa->address;
       if (daemon_startup_retries <= 0)
         log_write(0, LOG_MAIN|LOG_PANIC_DIE,
           "socket bind() to port %d for address %s failed: %s: "
@@ -1458,18 +1452,38 @@ if (daemon_listen && !inetd_wait_mode)
       }
 
     DEBUG(D_any)
-      {
       if (wildcard)
         debug_printf("listening on all interfaces (IPv%c) port %d\n",
-          (af == AF_INET6)? '6' : '4', ipa->port);
+          af == AF_INET6 ? '6' : '4', ipa->port);
       else
         debug_printf("listening on %s port %d\n", ipa->address, ipa->port);
+
+#if defined(TCP_FASTOPEN) && !defined(__APPLE__)
+    if (  f.tcp_fastopen_ok
+       && setsockopt(listen_sockets[sk], IPPROTO_TCP, TCP_FASTOPEN,
+		    &smtp_connect_backlog, sizeof(smtp_connect_backlog)))
+      {
+      DEBUG(D_any) debug_printf("setsockopt FASTOPEN: %s\n", strerror(errno));
+      f.tcp_fastopen_ok = FALSE;
       }
+#endif
 
     /* Start listening on the bound socket, establishing the maximum backlog of
     connections that is allowed. On success, continue to the next address. */
 
-    if (listen(listen_sockets[sk], smtp_connect_backlog) >= 0) continue;
+    if (listen(listen_sockets[sk], smtp_connect_backlog) >= 0)
+      {
+#if defined(TCP_FASTOPEN) && defined(__APPLE__)
+      if (  f.tcp_fastopen_ok
+	 && setsockopt(listen_sockets[sk], IPPROTO_TCP, TCP_FASTOPEN,
+		      &on, sizeof(on)))
+	{
+	DEBUG(D_any) debug_printf("setsockopt FASTOPEN: %s\n", strerror(errno));
+	f.tcp_fastopen_ok = FALSE;
+	}
+#endif
+      continue;
+      }
 
     /* Listening has failed. In an IPv6 environment, as for bind(), if listen()
     fails with the error EADDRINUSE and we are doing IPv4 wildcard listening
@@ -1479,8 +1493,8 @@ if (daemon_listen && !inetd_wait_mode)
 
     if (!check_special_case(errno, addresses, ipa, TRUE))
       log_write(0, LOG_PANIC_DIE, "listen() failed on interface %s: %s",
-        wildcard? ((af == AF_INET6)? US"(any IPv6)" : US"(any IPv4)") :
-        ipa->address,
+        wildcard
+	? af == AF_INET6 ? US"(any IPv6)" : US"(any IPv4)" : ipa->address,
         strerror(errno));
 
     DEBUG(D_any) debug_printf("wildcard IPv4 listen() failed after IPv6 "
@@ -1491,7 +1505,7 @@ if (daemon_listen && !inetd_wait_mode)
     are going to ignore. We remove the address from the chain, and back up the
     counts. */
 
-    SKIP_SOCKET:
+  SKIP_SOCKET:
     sk--;                          /* Back up the count */
     listen_socket_count--;         /* Reduce the total */
     if (ipa == addresses) addresses = ipa->next; else
@@ -1507,7 +1521,8 @@ if (daemon_listen && !inetd_wait_mode)
 /* If we are not listening, we want to write a pid file only if -oP was
 explicitly given. */
 
-else if (override_pid_file_path == NULL) write_pid = FALSE;
+else if (!override_pid_file_path)
+  write_pid = FALSE;
 
 /* Write the pid to a known file for assistance in identification, if required.
 We do this before giving up root privilege, because on some systems it is
@@ -1523,29 +1538,26 @@ automatically. Consequently, Exim 4 writes a pid file only
 
 The variable daemon_write_pid is used to control this. */
 
-if (running_in_test_harness || write_pid)
+if (f.running_in_test_harness || write_pid)
   {
   FILE *f;
 
-  if (override_pid_file_path != NULL)
+  if (override_pid_file_path)
     pid_file_path = override_pid_file_path;
 
   if (pid_file_path[0] == 0)
     pid_file_path = string_sprintf("%s/exim-daemon.pid", spool_directory);
 
-  f = modefopen(pid_file_path, "wb", 0644);
-  if (f != NULL)
+  if ((f = modefopen(pid_file_path, "wb", 0644)))
     {
     (void)fprintf(f, "%d\n", (int)getpid());
     (void)fclose(f);
     DEBUG(D_any) debug_printf("pid written to %s\n", pid_file_path);
     }
   else
-    {
     DEBUG(D_any)
       debug_printf("%s\n", string_open_failed(errno, "pid file %s",
         pid_file_path));
-    }
   }
 
 /* Set up the handler for SIGHUP, which causes a restart of the daemon. */
@@ -1572,11 +1584,11 @@ originator_login = ((pw = getpwuid(exim_uid)) != NULL)?
 /* Get somewhere to keep the list of queue-runner pids if we are keeping track
 of them (and also if we are doing queue runs). */
 
-if (queue_interval > 0 && queue_run_max > 0)
+if (queue_interval > 0 && local_queue_run_max > 0)
   {
   int i;
-  queue_pid_slots = store_get(queue_run_max * sizeof(pid_t));
-  for (i = 0; i < queue_run_max; i++) queue_pid_slots[i] = 0;
+  queue_pid_slots = store_get(local_queue_run_max * sizeof(pid_t));
+  for (i = 0; i < local_queue_run_max; i++) queue_pid_slots[i] = 0;
   }
 
 /* Set up the handler for termination of child processes. */
@@ -1592,7 +1604,7 @@ sigalrm_seen = (queue_interval > 0);
 /* Log the start up of a daemon - at least one of listening or queue running
 must be set up. */
 
-if (inetd_wait_mode)
+if (f.inetd_wait_mode)
   {
   uschar *p = big_buffer;
 
@@ -1610,17 +1622,16 @@ if (inetd_wait_mode)
   sigalrm_seen = 1;
   }
 
-else if (daemon_listen)
+else if (f.daemon_listen)
   {
   int i, j;
   int smtp_ports = 0;
   int smtps_ports = 0;
-  ip_address_item *ipa;
-  uschar *p = big_buffer;
-  uschar *qinfo = (queue_interval > 0)?
-    string_sprintf("-q%s", readconf_printtime(queue_interval))
-    :
-    US"no queue runs";
+  ip_address_item * ipa;
+  uschar * p;
+  uschar * qinfo = queue_interval > 0
+    ? string_sprintf("-q%s", readconf_printtime(queue_interval))
+    : US"no queue runs";
 
   /* Build a list of listening addresses in big_buffer, but limit it to 10
   items. The style is for backwards compatibility.
@@ -1629,83 +1640,111 @@ else if (daemon_listen)
   deprecated protocol that starts TLS without using STARTTLS), and others
   listening for standard SMTP. Keep their listings separate. */
 
-  for (j = 0; j < 2; j++)
+  for (int j = 0, i; j < 2; j++)
     {
-    for (i = 0, ipa = addresses; i < 10 && ipa != NULL; i++, ipa = ipa->next)
-       {
-       /* First time round, look for SMTP ports; second time round, look for
-       SMTPS ports. For the first one of each, insert leading text. */
-
-       if (host_is_tls_on_connect_port(ipa->port) == (j > 0))
-         {
-         if (j == 0)
-           {
-           if (smtp_ports++ == 0)
-             {
-             memcpy(p, "SMTP on", 8);
-             p += 7;
-             }
-           }
-         else
-           {
-           if (smtps_ports++ == 0)
-             {
-             (void)sprintf(CS p, "%sSMTPS on",
-               (smtp_ports == 0)? "":" and for ");
-             while (*p != 0) p++;
-             }
-           }
-
-         /* Now the information about the port (and sometimes interface) */
-
-         if (ipa->address[0] == ':' && ipa->address[1] == 0)
-           {
-           if (ipa->next != NULL && ipa->next->address[0] == 0 &&
-               ipa->next->port == ipa->port)
-             {
-             (void)sprintf(CS p, " port %d (IPv6 and IPv4)", ipa->port);
-             ipa = ipa->next;
-             }
-           else if (ipa->v6_include_v4)
-             (void)sprintf(CS p, " port %d (IPv6 with IPv4)", ipa->port);
-           else
-             (void)sprintf(CS p, " port %d (IPv6)", ipa->port);
-           }
-         else if (ipa->address[0] == 0)
-           (void)sprintf(CS p, " port %d (IPv4)", ipa->port);
-         else
-           (void)sprintf(CS p, " [%s]:%d", ipa->address, ipa->port);
-         while (*p != 0) p++;
-         }
-       }
-
-    if (ipa != NULL)
+    for (i = 0, ipa = addresses; i < 10 && ipa; i++, ipa = ipa->next)
       {
-      memcpy(p, " ...", 5);
-      p += 4;
+      /* First time round, look for SMTP ports; second time round, look for
+      SMTPS ports. Build IP+port strings. */
+
+      if (host_is_tls_on_connect_port(ipa->port) == (j > 0))
+	{
+	if (j == 0)
+	  smtp_ports++;
+	else
+	  smtps_ports++;
+
+	/* Now the information about the port (and sometimes interface) */
+
+	if (ipa->address[0] == ':' && ipa->address[1] == 0)
+	  {						/* v6 wildcard */
+	  if (ipa->next && ipa->next->address[0] == 0 &&
+	      ipa->next->port == ipa->port)
+	    {
+	    ipa->log = string_sprintf(" port %d (IPv6 and IPv4)", ipa->port);
+	    (ipa = ipa->next)->log = NULL;
+	    }
+	  else if (ipa->v6_include_v4)
+	    ipa->log = string_sprintf(" port %d (IPv6 with IPv4)", ipa->port);
+	  else
+	    ipa->log = string_sprintf(" port %d (IPv6)", ipa->port);
+	  }
+	else if (ipa->address[0] == 0)			/* v4 wildcard */
+	  ipa->log = string_sprintf(" port %d (IPv4)", ipa->port);
+	else				/* check for previously-seen IP */
+	  {
+	  ip_address_item * i2;
+	  for (i2 = addresses; i2 != ipa; i2 = i2->next)
+	    if (  host_is_tls_on_connect_port(i2->port) == (j > 0)
+	       && Ustrcmp(ipa->address, i2->address) == 0
+	       )
+	      {				/* found; append port to list */
+	      for (p = i2->log; *p; ) p++;	/* end of existing string */
+	      if (*--p == '}') *p = '\0';	/* drop EOL */
+	      while (isdigit(*--p)) ;		/* char before port */
+
+	      i2->log = *p == ':'		/* no list yet? */
+		? string_sprintf("%.*s{%s,%d}",
+		  (int)(p - i2->log + 1), i2->log, p+1, ipa->port)
+		: string_sprintf("%s,%d}", i2->log, ipa->port);
+	      ipa->log = NULL;
+	      break;
+	      }
+	  if (i2 == ipa)		/* first-time IP */
+	    ipa->log = string_sprintf(" [%s]:%d", ipa->address, ipa->port);
+	  }
+	}
       }
+    }
+
+  p = big_buffer;
+  for (int j = 0, i; j < 2; j++)
+    {
+    /* First time round, look for SMTP ports; second time round, look for
+    SMTPS ports. For the first one of each, insert leading text. */
+
+    if (j == 0)
+      {
+      if (smtp_ports > 0)
+	p += sprintf(CS p, "SMTP on");
+      }
+    else
+      if (smtps_ports > 0)
+	p += sprintf(CS p, "%sSMTPS on",
+	  smtp_ports == 0 ? "" : " and for ");
+
+    /* Now the information about the port (and sometimes interface) */
+
+    for (i = 0, ipa = addresses; i < 10 && ipa; i++, ipa = ipa->next)
+      if (host_is_tls_on_connect_port(ipa->port) == (j > 0))
+	if (ipa->log)
+	  p += sprintf(CS p, "%s",  ipa->log);
+
+    if (ipa)
+      p += sprintf(CS p, " ...");
     }
 
   log_write(0, LOG_MAIN,
     "exim %s daemon started: pid=%d, %s, listening for %s",
     version_string, getpid(), qinfo, big_buffer);
-  set_process_info("daemon(%s): %s, listening for %s", version_string, qinfo, big_buffer);
+  set_process_info("daemon(%s): %s, listening for %s",
+    version_string, qinfo, big_buffer);
   }
 
 else
   {
+  uschar * s = *queue_name
+    ? string_sprintf("-qG%s/%s", queue_name, readconf_printtime(queue_interval))
+    : string_sprintf("-q%s", readconf_printtime(queue_interval));
   log_write(0, LOG_MAIN,
-    "exim %s daemon started: pid=%d, -q%s, not listening for SMTP",
-    version_string, getpid(), readconf_printtime(queue_interval));
-  set_process_info("daemon(%s): -q%s, not listening",
-    version_string,
-    readconf_printtime(queue_interval));
+    "exim %s daemon started: pid=%d, %s, not listening for SMTP",
+    version_string, getpid(), s);
+  set_process_info("daemon(%s): %s, not listening", version_string, s);
   }
 
 /* Do any work it might be useful to amortize over our children
 (eg: compile regex) */
 
-deliver_init();
 dns_pattern_init();
 
 #ifdef WITH_CONTENT_SCAN
@@ -1780,7 +1819,7 @@ for (;;)
         }
 
       sigalrm_seen = FALSE;
-      alarm(resignal_interval);
+      ALARM(resignal_interval);
       }
 
     else
@@ -1792,7 +1831,7 @@ for (;;)
       re-exec is required. */
 
       if (queue_interval > 0 &&
-         (queue_run_max <= 0 || queue_run_count < queue_run_max))
+         (local_queue_run_max <= 0 || queue_run_count < local_queue_run_max))
         {
         if ((pid = fork()) == 0)
           {
@@ -1805,7 +1844,7 @@ for (;;)
           leave the above message, because it ties up with the "child ended"
           debugging messages. */
 
-          if (debug_daemon) debug_selector = 0;
+          if (f.debug_daemon) debug_selector = 0;
 
           /* Close any open listening sockets in the child */
 
@@ -1830,27 +1869,28 @@ for (;;)
             signal(SIGALRM, SIG_DFL);
             *p++ = '-';
             *p++ = 'q';
-            if (queue_2stage) *p++ = 'q';
-            if (queue_run_first_delivery) *p++ = 'i';
-            if (queue_run_force) *p++ = 'f';
-            if (deliver_force_thaw) *p++ = 'f';
-            if (queue_run_local) *p++ = 'l';
+            if (f.queue_2stage) *p++ = 'q';
+            if (f.queue_run_first_delivery) *p++ = 'i';
+            if (f.queue_run_force) *p++ = 'f';
+            if (f.deliver_force_thaw) *p++ = 'f';
+            if (f.queue_run_local) *p++ = 'l';
             *p = 0;
-            extra[0] = opt;
+	    extra[0] = queue_name
+	      ? string_sprintf("%sG%s", opt, queue_name) : opt;
 
             /* If -R or -S were on the original command line, ensure they get
             passed on. */
 
-            if (deliver_selectstring != NULL)
+            if (deliver_selectstring)
               {
-              extra[extracount++] = deliver_selectstring_regex? US"-Rr" : US"-R";
+              extra[extracount++] = f.deliver_selectstring_regex ? US"-Rr" : US"-R";
               extra[extracount++] = deliver_selectstring;
               }
 
-            if (deliver_selectstring_sender != NULL)
+            if (deliver_selectstring_sender)
               {
-              extra[extracount++] = deliver_selectstring_sender_regex?
-                US"-Sr" : US"-S";
+              extra[extracount++] = f.deliver_selectstring_sender_regex
+	        ? US"-Sr" : US"-S";
               extra[extracount++] = deliver_selectstring_sender;
               }
 
@@ -1877,15 +1917,13 @@ for (;;)
         else
           {
           int i;
-          for (i = 0; i < queue_run_max; ++i)
-            {
+          for (i = 0; i < local_queue_run_max; ++i)
             if (queue_pid_slots[i] <= 0)
               {
               queue_pid_slots[i] = pid;
               queue_run_count++;
               break;
               }
-            }
           DEBUG(D_any) debug_printf("%d queue-runner process%s running\n",
             queue_run_count, (queue_run_count == 1)? "" : "es");
           }
@@ -1894,7 +1932,7 @@ for (;;)
       /* Reset the alarm clock */
 
       sigalrm_seen = FALSE;
-      alarm(queue_interval);
+      ALARM(queue_interval);
       }
 
     } /* sigalrm_seen */
@@ -1909,7 +1947,7 @@ for (;;)
   new OS. In fact, the later addition of listening on specific interfaces only
   requires this way of working anyway. */
 
-  if (daemon_listen)
+  if (f.daemon_listen)
     {
     int sk, lcount, select_errno;
     int max_socket = 0;
@@ -1938,10 +1976,8 @@ for (;;)
       errno = EINTR;
       }
     else
-      {
       lcount = select(max_socket + 1, (SELECT_ARG2_TYPE *)&select_listen,
         NULL, NULL, NULL);
-      }
 
     if (lcount < 0)
       {
@@ -1967,10 +2003,9 @@ for (;;)
     while (lcount-- > 0)
       {
       int accept_socket = -1;
+
       if (!select_failed)
-        {
         for (sk = 0; sk < listen_socket_count; sk++)
-          {
           if (FD_ISSET(listen_sockets[sk], &select_listen))
             {
             len = sizeof(accepted);
@@ -1979,8 +2014,6 @@ for (;;)
             FD_CLR(listen_sockets[sk], &select_listen);
             break;
             }
-          }
-        }
 
       /* If select or accept has failed and this was not caused by an
       interruption, log the incident and try again. With asymmetric TCP/IP
@@ -2086,7 +2119,7 @@ for (;;)
       getpid());
     for (sk = 0; sk < listen_socket_count; sk++)
       (void)close(listen_sockets[sk]);
-    alarm(0);
+    ALARM_CLR(0);
     signal(SIGHUP, SIG_IGN);
     sighup_argv[0] = exim_path;
     exim_nullstd();

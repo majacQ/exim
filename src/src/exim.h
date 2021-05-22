@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -284,18 +284,6 @@ disabused of the notion. Luckily, since EX_OK is not used, it didn't matter.] */
 #include <arpa/nameser.h>
 
 
-/* If arpa/nameser.h defines a maximum name server packet size, use it,
-provided it is greater than 2048. Otherwise go for a default. PACKETSZ was used
-for this, but it seems that NS_PACKETSZ is coming into use. */
-
-#if defined(NS_PACKETSZ) && NS_PACKETSZ >= 2048
-  #define MAXPACKET NS_PACKETSZ
-#elif defined(PACKETSZ) && PACKETSZ >= 2048
-  #define MAXPACKET PACKETSZ
-#else
-  #define MAXPACKET 2048
-#endif
-
 /* While IPv6 is still young the definitions of T_AAAA and T_A6 may not be
 included in arpa/nameser.h. Fudge them here. */
 
@@ -492,7 +480,9 @@ config.h, mytypes.h, and store.h, so we don't need to mention them explicitly.
 #include "macros.h"
 #include "dbstuff.h"
 #include "structs.h"
+#include "blob.h"
 #include "globals.h"
+#include "hash.h"
 #include "functions.h"
 #include "dbfunctions.h"
 #include "osfunctions.h"
@@ -500,7 +490,7 @@ config.h, mytypes.h, and store.h, so we don't need to mention them explicitly.
 #ifdef EXPERIMENTAL_BRIGHTMAIL
 # include "bmi_spam.h"
 #endif
-#ifdef EXPERIMENTAL_SPF
+#ifdef SUPPORT_SPF
 # include "spf.h"
 #endif
 #ifdef EXPERIMENTAL_SRS
@@ -550,10 +540,16 @@ union sockaddr_46 {
 };
 
 /* If SUPPORT_TLS is not defined, ensure that USE_GNUTLS is also not defined
-so that if USE_GNUTLS *is* set, we can assume SUPPORT_TLS is also set. */
+so that if USE_GNUTLS *is* set, we can assume SUPPORT_TLS is also set.
+Likewise, OSCP, AUTH_TLS and CERTNAMES cannot be supported. */
 
 #ifndef SUPPORT_TLS
 # undef USE_GNUTLS
+# ifndef DISABLE_OCSP
+#  define DISABLE_OCSP
+# endif
+# undef EXPERIMENTAL_CERTNAMES
+# undef AUTH_TLS
 #endif
 
 /* If SPOOL_DIRECTORY, LOG_FILE_PATH or PID_FILE_PATH have not been defined,
@@ -584,19 +580,21 @@ default to EDQUOT if it exists, otherwise ENOSPC. */
 # endif
 #endif
 
-/* Ensure PATH_MAX is defined */
-
-#ifndef PATH_MAX
-  #ifdef MAXPATHLEN
-  # define PATH_MAX MAXPATHLEN
-  #else
-  # define PATH_MAX 1024
-  #endif
+/* DANE w/o DNSSEC is useless */
+#if defined(SUPPORT_DANE) && defined(DISABLE_DNSSEC)
+# error DANE support requires DNSSEC support
 #endif
 
-/* DANE w/o DNSSEC is useless */
-#if defined(EXPERIMENTAL_DANE) && defined(DISABLE_DNSSEC)
-  #undef DISABLE_DNSSEC
+/* Some platforms (FreeBSD, OpenBSD, Solaris) do not seem to define this */
+
+#ifndef POLLRDHUP
+# define POLLRDHUP (POLLIN | POLLHUP)
+#endif
+
+/* Some platforms (Darwin) have to define a larger limit on groups membership */
+
+#ifndef EXIM_GROUPLIST_SIZE
+# define EXIM_GROUPLIST_SIZE NGROUPS_MAX
 #endif
 
 #endif

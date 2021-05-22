@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Jeremy Harris 2014 - 2015 */
+/* Copyright (c) Jeremy Harris 2014 - 2019 */
 
 /* This module provides TLS (aka SSL) support for Exim using the OpenSSL
 library. It is #included into the tls.c file when that library is used.
@@ -17,10 +17,19 @@ library. It is #included into the tls.c file when that library is used.
 #include <openssl/rand.h>
 #include <openssl/x509v3.h>
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
-# define EXIM_HAVE_ASN1_MACROS
+#ifdef LIBRESSL_VERSION_NUMBER	/* LibreSSL */
+# if LIBRESSL_VERSION_NUMBER >= 0x2090000fL
+#  define EXIM_HAVE_ASN1_MACROS
+# endif
+#else				/* OpenSSL */
+# if OPENSSL_VERSION_NUMBER >= 0x10100000L
+#  define EXIM_HAVE_ASN1_MACROS
+# endif
 #endif
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+# define ASN1_STRING_get0_data ASN1_STRING_data
+#endif
 
 /*****************************************************
 *  Export/import a certificate, binary/printable
@@ -123,7 +132,7 @@ int len;
 if (!bp)
   return badalloc();
 len = ASN1_TIME_print(bp, asntime);
-len = len > 0 ? (int) BIO_get_mem_data(bp, &s) : 0;
+len = len > 0 ? (int) BIO_get_mem_data(bp, CSS &s) : 0;
 
 if (mod && Ustrcmp(mod, "raw") == 0)		/* native ASN */
   s = string_copyn(s, len);
@@ -141,7 +150,7 @@ else
   /*XXX %Z might be glibc-specific?  Solaris has it, at least*/
   /*XXX should we switch to POSIX locale for this? */
   tm.tm_isdst = 0;
-  if (!strptime(CCS s, "%b %e %T %Y %Z", &tm))
+  if (!len || !strptime(CCS s, "%b %e %T %Y %Z", &tm))
     expand_string_message = US"failed time conversion";
 
   else
@@ -149,11 +158,11 @@ else
     time_t t = mktime(&tm);	/* make the tm self-consistent */
 
     if (mod && Ustrcmp(mod, "int") == 0)	/* seconds since epoch */
-      s = string_sprintf("%u", t);
+      s = string_sprintf(TIME_T_FMT, t);
 
     else
       {
-      if (!timestamps_utc)	/* decoded string in local TZ */
+      if (!f.timestamps_utc)	/* decoded string in local TZ */
 	{				/* shift to local TZ */
 	restore_tz(tz);
 	mod_tz = FALSE;
@@ -300,7 +309,7 @@ return mod ? tls_field_from_dn(cp, mod) : cp;
 uschar *
 tls_cert_version(void * cert, uschar * mod)
 {
-return string_sprintf("%d", X509_get_version((X509 *)cert));
+return string_sprintf("%ld", X509_get_version((X509 *)cert));
 }
 
 uschar *
@@ -331,8 +340,7 @@ cp3 = cp2 = store_get(len*3+1);
 
 while(len)
   {
-  sprintf(CS cp2, "%.2x ", *cp1++);
-  cp2 += 3;
+  cp2 += sprintf(CS cp2, "%.2x ", *cp1++);
   len--;
   }
 cp2[-1] = '\0';
@@ -343,7 +351,7 @@ return cp3;
 uschar *
 tls_cert_subject_altname(void * cert, uschar * mod)
 {
-uschar * list = NULL;
+gstring * list = NULL;
 STACK_OF(GENERAL_NAME) * san = (STACK_OF(GENERAL_NAME) *)
   X509_get_ext_d2i((X509 *)cert, NID_subject_alt_name, NULL, NULL);
 uschar osep = '\n';
@@ -374,17 +382,17 @@ while (sk_GENERAL_NAME_num(san) > 0)
     {
     case GEN_DNS:
       tag = US"DNS";
-      ele = ASN1_STRING_data(namePart->d.dNSName);
+      ele = US ASN1_STRING_get0_data(namePart->d.dNSName);
       len = ASN1_STRING_length(namePart->d.dNSName);
       break;
     case GEN_URI:
       tag = US"URI";
-      ele = ASN1_STRING_data(namePart->d.uniformResourceIdentifier);
+      ele = US ASN1_STRING_get0_data(namePart->d.uniformResourceIdentifier);
       len = ASN1_STRING_length(namePart->d.uniformResourceIdentifier);
       break;
     case GEN_EMAIL:
       tag = US"MAIL";
-      ele = ASN1_STRING_data(namePart->d.rfc822Name);
+      ele = US ASN1_STRING_get0_data(namePart->d.rfc822Name);
       len = ASN1_STRING_length(namePart->d.rfc822Name);
       break;
     default:
@@ -399,7 +407,7 @@ while (sk_GENERAL_NAME_num(san) > 0)
   }
 
 sk_GENERAL_NAME_free(san);
-return list;
+return string_from_gstring(list);
 }
 
 uschar *
@@ -410,7 +418,7 @@ STACK_OF(ACCESS_DESCRIPTION) * ads = (STACK_OF(ACCESS_DESCRIPTION) *)
 int adsnum = sk_ACCESS_DESCRIPTION_num(ads);
 int i;
 uschar sep = '\n';
-uschar * list = NULL;
+gstring * list = NULL;
 
 if (mod)
   if (*mod == '>' && *++mod) sep = *mod++;
@@ -420,14 +428,12 @@ for (i = 0; i < adsnum; i++)
   ACCESS_DESCRIPTION * ad = sk_ACCESS_DESCRIPTION_value(ads, i);
 
   if (ad && OBJ_obj2nid(ad->method) == NID_ad_OCSP)
-    {
-    uschar * ele = ASN1_STRING_data(ad->location->d.ia5);
-    int len =  ASN1_STRING_length(ad->location->d.ia5);
-    list = string_append_listele_n(list, sep, ele, len);
-    }
+    list = string_append_listele_n(list, sep,
+      US ASN1_STRING_get0_data(ad->location->d.ia5),
+      ASN1_STRING_length(ad->location->d.ia5));
   }
 sk_ACCESS_DESCRIPTION_free(ads);
-return list;
+return string_from_gstring(list);
 }
 
 uschar *
@@ -440,7 +446,7 @@ DIST_POINT * dp;
 int dpsnum = sk_DIST_POINT_num(dps);
 int i;
 uschar sep = '\n';
-uschar * list = NULL;
+gstring * list = NULL;
 
 if (mod)
   if (*mod == '>' && *++mod) sep = *mod++;
@@ -457,14 +463,12 @@ if (dps) for (i = 0; i < dpsnum; i++)
       if (  (np = sk_GENERAL_NAME_value(names, j))
 	 && np->type == GEN_URI
 	 )
-	{
-	uschar * ele = ASN1_STRING_data(np->d.uniformResourceIdentifier);
-	int len =  ASN1_STRING_length(np->d.uniformResourceIdentifier);
-	list = string_append_listele_n(list, sep, ele, len);
-	}
+	list = string_append_listele_n(list, sep,
+	  US ASN1_STRING_get0_data(np->d.uniformResourceIdentifier),
+	  ASN1_STRING_length(np->d.uniformResourceIdentifier));
     }
 sk_DIST_POINT_free(dps);
-return list;
+return string_from_gstring(list);
 }
 
 

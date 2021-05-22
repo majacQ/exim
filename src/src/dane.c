@@ -24,7 +24,7 @@ reference itself to stop picky compilers complaining that it is unused, and put
 in a dummy argument to stop even pickier compilers complaining about infinite
 loops. */
 
-#ifndef EXPERIMENTAL_DANE
+#ifndef SUPPORT_DANE
 static void dummy(int x) { dummy(x-1); }
 #else
 
@@ -35,16 +35,14 @@ static void dummy(int x) { dummy(x-1); }
 
 /* DNSSEC support is also required */
 # ifndef RES_USE_DNSSEC
-#  error DANE support requires that the DNS reolver library supports DNSSEC
+#  error DANE support requires that the DNS resolver library supports DNSSEC
 # endif
 
-# ifdef USE_GNUTLS
-#  include "dane-gnu.c"
-# else
+# ifndef USE_GNUTLS
 #  include "dane-openssl.c"
 # endif
 
 
-#endif  /* EXPERIMENTAL_DANE */
+#endif  /* SUPPORT_DANE */
 
 /* End of dane.c */

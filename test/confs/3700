@@ -2,21 +2,18 @@
 
 SERVER=
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
-primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/tls_conf_prefix
 
+primary_hostname = myhost.test.ex
 log_selector = +received_recipients +outgoing_port
 
 # ----- Main settings -----
 
+acl_smtp_auth = log_call
 acl_smtp_mail = check_authd
 acl_smtp_rcpt = check_authd
+acl_smtp_data = ar_header
+
 queue_only
 queue_run_in_order
 trusted_users = CALLER
@@ -33,11 +30,16 @@ tls_verify_certificates = DIR/aux-fixed/cert2
 
 begin acl
 
+log_call:
+  accept   logwrite = Auth ACL called, after smtp cmd "$smtp_command"
+
 check_authd:
   deny     message = authentication required
           !authenticated = *
   accept
 
+ar_header:
+  accept  add_header = :at_start:${authresults {$primary_hostname}}
 
 # ----- Authentication -----
 
@@ -56,9 +58,14 @@ tls:
 
 begin routers
 
-r1:
-  driver = accept
-  transport = ${if eq {$local_part}{smtps} {t2}{t1}}
+server_r:
+  driver =	accept
+  condition =	${if eq {server}{SERVER}}
+  transport =	file
+
+client_r1:
+  driver =	accept
+  transport =	${if eq {$local_part}{smtps} {t2}{t1}}
 
 
 # ----- Transports -----
@@ -83,5 +90,10 @@ t2:
   tls_certificate =         DIR/aux-fixed/cert2
   tls_verify_certificates = DIR/aux-fixed/cert1
   tls_verify_cert_hostnames = :
+
+file:
+  driver = appendfile
+  file = DIR/test-mail/$local_part
+  user = CALLER
 
 # End

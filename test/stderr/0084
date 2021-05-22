@@ -1,9 +1,6 @@
 Exim version x.yz ....
 configuration file is TESTSUITE/test-config
 admin user
-DSN: smart propagating DSN
-DSN: forward propagating DSN
-DSN: localuser propagating DSN
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing yes@myhost.test.ex
 --------> smart router <--------
@@ -67,4 +64,4 @@ domain = myhost.test.ex
 routed by smart router
   envelope to: no@myhost.test.ex
   transport: <none>
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

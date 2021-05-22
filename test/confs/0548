@@ -2,14 +2,8 @@
 
 SERVER=
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
-tls_advertise_hosts =
+.include DIR/aux-var/std_conf_prefix
+
 
 # ----- Main settings -----
 
@@ -56,7 +50,7 @@ smtp:
 
 begin retry
 
-thishost.test.ex  *  F,20s,2s
-*                 *  F,1s,1s; F,1s,5s
+thishost.test.ex  *  F,40s,4s
+*                 *  F,2s,2s; F,2s,10s
 
 # End

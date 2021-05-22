@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -189,7 +189,7 @@ if (pam_error == PAM_SUCCESS)
   return OK;
   }
 
-*errptr = (uschar *)pam_strerror(pamh, pam_error);
+*errptr = US pam_strerror(pamh, pam_error);
 DEBUG(D_auth) debug_printf("PAM error: %s\n", *errptr);
 
 if (pam_error == PAM_USER_UNKNOWN ||

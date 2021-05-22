@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Jeremy Harris 2015 */
+/* Copyright (c) Jeremy Harris 2015 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* SOCKS version 5 proxy, client-mode */
@@ -74,8 +74,6 @@ sob->priority =   SOCKS_PRIORITY;
 static void
 socks_option(socks_opts * sob, const uschar * opt)
 {
-const uschar * s;
-
 if (Ustrncmp(opt, "auth=", 5) == 0)
   {
   opt += 5;
@@ -87,13 +85,13 @@ else if (Ustrncmp(opt, "name=", 5) == 0)
 else if (Ustrncmp(opt, "pass=", 5) == 0)
   sob->auth_pwd = opt + 5;
 else if (Ustrncmp(opt, "port=", 5) == 0)
-  sob->port = atoi(opt + 5);
+  sob->port = atoi(CCS opt + 5);
 else if (Ustrncmp(opt, "tmo=", 4) == 0)
-  sob->timeout = atoi(opt + 4);
+  sob->timeout = atoi(CCS opt + 4);
 else if (Ustrncmp(opt, "pri=", 4) == 0)
-  sob->priority = atoi(opt + 4);
+  sob->priority = atoi(CCS opt + 4);
 else if (Ustrncmp(opt, "weight=", 7) == 0)
-  sob->weight = atoi(opt + 7);
+  sob->weight = atoi(CCS opt + 7);
 return;
 }
 
@@ -112,7 +110,7 @@ switch(method)
   case AUTH_NONE:
     return OK;
   case AUTH_NAME:
-    HDEBUG(D_transport|D_acl|D_v) debug_printf("  socks auth NAME '%s' '%s'\n",
+    HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  socks auth NAME '%s' '%s'\n",
       sob->auth_name, sob->auth_pwd);
     i = Ustrlen(sob->auth_name);
     j = Ustrlen(sob->auth_pwd);
@@ -122,20 +120,22 @@ switch(method)
     HDEBUG(D_transport|D_acl|D_v)
       {
       int i;
-      debug_printf("  SOCKS>>");
+      debug_printf_indent("  SOCKS>>");
       for (i = 0; i<len; i++) debug_printf(" %02x", s[i]);
       debug_printf("\n");
       }
-    if (  send(fd, s, len, 0) < 0
-       || !fd_ready(fd, tmo-time(NULL))
-       || read(fd, s, 2) != 2
-       )
+    if (send(fd, s, len, 0) < 0)
+      return FAIL;
+#ifdef TCP_QUICKACK
+    (void) setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, US &off, sizeof(off));
+#endif
+    if (!fd_ready(fd, tmo-time(NULL)) || read(fd, s, 2) != 2)
       return FAIL;
     HDEBUG(D_transport|D_acl|D_v)
-      debug_printf("  SOCKS<< %02x %02x\n", s[0], s[1]);
+      debug_printf_indent("  SOCKS<< %02x %02x\n", s[0], s[1]);
     if (s[0] == AUTH_NAME_VER && s[1] == 0)
       {
-      HDEBUG(D_transport|D_acl|D_v) debug_printf("  socks auth OK\n");
+      HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  socks auth OK\n");
       return OK;
       }
 
@@ -233,6 +233,7 @@ socks_opts proxies[32];			/* max #proxies handled */
 unsigned nproxies;
 socks_opts * sob;
 unsigned size;
+blob early_data;
 
 if (!timeout) timeout = 24*60*60;	/* use 1 day for "indefinite" */
 tmo = time(NULL) + timeout;
@@ -268,6 +269,14 @@ for (nproxies = 0;
     socks_option(sob, option);
   }
 
+/* Set up the socks protocol method-selection message,
+for sending on connection */
+
+state = US"method select";
+buf[0] = 5; buf[1] = 1; buf[2] = sob->auth_type;
+early_data.data = buf;
+early_data.len = 3;
+
 /* Try proxies until a connection succeeds */
 
 for(;;)
@@ -278,18 +287,19 @@ for(;;)
 
   if ((idx = socks_get_proxy(proxies, nproxies)) < 0)
     {
-    HDEBUG(D_transport|D_acl|D_v) debug_printf("  no proxies left\n");
+    HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  no proxies left\n");
     errno = EBUSY;
     return -1;
     }
   sob = &proxies[idx];
 
   /* bodge up a host struct for the proxy */
-  proxy.address = sob->proxy_host;
+  proxy.address = proxy.name = sob->proxy_host;
   proxy_af = Ustrchr(sob->proxy_host, ':') ? AF_INET6 : AF_INET;
 
+  /*XXX we trust that the method-select command is idempotent */
   if ((fd = smtp_sock_connect(&proxy, proxy_af, sob->port,
-	      interface, tb, sob->timeout)) >= 0)
+	      interface, tb, sob->timeout, &early_data)) >= 0)
     {
     proxy_local_address = string_copy(proxy.address);
     proxy_local_port = sob->port;
@@ -301,22 +311,21 @@ for(;;)
   }
 
 /* Do the socks protocol stuff */
-/* Send method-selection */
 
-state = US"method select";
-HDEBUG(D_transport|D_acl|D_v) debug_printf("  SOCKS>> 05 01 %02x\n", sob->auth_type);
-buf[0] = 5; buf[1] = 1; buf[2] = sob->auth_type;
-if (send(fd, buf, 3, 0) < 0)
-  goto snd_err;
+HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  SOCKS>> 05 01 %02x\n", sob->auth_type);
 
 /* expect method response */
+
+#ifdef TCP_QUICKACK
+(void) setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, US &off, sizeof(off));
+#endif
 
 if (  !fd_ready(fd, tmo-time(NULL))
    || read(fd, buf, 2) != 2
    )
   goto rcv_err;
 HDEBUG(D_transport|D_acl|D_v)
-  debug_printf("  SOCKS<< %02x %02x\n", buf[0], buf[1]);
+  debug_printf_indent("  SOCKS<< %02x %02x\n", buf[0], buf[1]);
 if (  buf[0] != 5
    || socks_auth(fd, buf[1], sob, tmo) != OK
    )
@@ -351,7 +360,7 @@ state = US"connect";
 HDEBUG(D_transport|D_acl|D_v)
   {
   int i;
-  debug_printf("  SOCKS>>");
+  debug_printf_indent("  SOCKS>>");
   for (i = 0; i<size; i++) debug_printf(" %02x", buf[i]);
   debug_printf("\n");
   }
@@ -368,7 +377,7 @@ if (  !fd_ready(fd, tmo-time(NULL))
 HDEBUG(D_transport|D_acl|D_v)
   {
   int i;
-  debug_printf("  SOCKS>>");
+  debug_printf_indent("  SOCKS>>");
   for (i = 0; i<size; i++) debug_printf(" %02x", buf[i]);
   debug_printf("\n");
   }
@@ -383,12 +392,12 @@ proxy_external_port = ntohs(*((uint16_t *)(buf + (buf[3] == 4 ? 20 : 8))));
 proxy_session = TRUE;
 
 HDEBUG(D_transport|D_acl|D_v)
-  debug_printf("  proxy farside: [%s]:%d\n", proxy_external_address, proxy_external_port);
+  debug_printf_indent("  proxy farside: [%s]:%d\n", proxy_external_address, proxy_external_port);
 
 return fd;
 
 snd_err:
-  HDEBUG(D_transport|D_acl|D_v) debug_printf("  proxy snd_err %s: %s\n", state, strerror(errno));
+  HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  proxy snd_err %s: %s\n", state, strerror(errno));
   return -1;
 
 proxy_err:
@@ -396,12 +405,12 @@ proxy_err:
   struct socks_err * se =
     buf[1] > nelem(socks_errs) ? NULL : socks_errs + buf[1];
   HDEBUG(D_transport|D_acl|D_v)
-    debug_printf("  proxy %s: %s\n", state, se ? se->reason : US"unknown error code received");
+    debug_printf_indent("  proxy %s: %s\n", state, se ? se->reason : US"unknown error code received");
   errno = se ? se->errcode : EPROTO;
   }
 
 rcv_err:
-  HDEBUG(D_transport|D_acl|D_v) debug_printf("  proxy rcv_err %s: %s\n", state, strerror(errno));
+  HDEBUG(D_transport|D_acl|D_v) debug_printf_indent("  proxy rcv_err %s: %s\n", state, strerror(errno));
   if (!errno) errno = EPROTO;
   else if (errno == ENOENT) errno = ECONNABORTED;
   return -1;

@@ -2,31 +2,32 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Jeremy Harris 2016 */
+/* Copyright (c) Jeremy Harris 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
-/* RSA and SHA routine selection for PDKIM */
+/* Signing and hashing routine selection for PDKIM */
 
 #include "../exim.h"
+#include "../sha_ver.h"
 
 
 #ifdef USE_GNUTLS
 # include <gnutls/gnutls.h>
 
-# if GNUTLS_VERSION_NUMBER >= 0x30000
-#  define RSA_GNUTLS
+# if GNUTLS_VERSION_NUMBER >= 0x030000
+#  define SIGN_GNUTLS
+#  if GNUTLS_VERSION_NUMBER >= 0x030600
+#   define SIGN_HAVE_ED25519
+#  endif
 # else
-#  define RSA_GCRYPT
-# endif
-
-# if GNUTLS_VERSION_NUMBER >= 0x020a00
-#  define SHA_GNUTLS
-# else
-#  define SHA_GCRYPT
+#  define SIGN_GCRYPT
 # endif
 
 #else
-# define RSA_OPENSSL
-# define SHA_OPENSSL
+# define SIGN_OPENSSL
+#  if !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10101000L
+#   define SIGN_HAVE_ED25519
+#  endif
+
 #endif
 

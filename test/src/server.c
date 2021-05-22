@@ -26,9 +26,10 @@ on all interfaces, unless the option -noipv6 is given. */
 #include <netinet/in_systm.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <netinet/tcp.h>
 
 #ifdef HAVE_NETINET_IP_VAR_H
-#include <netinet/ip_var.h>
+# include <netinet/ip_var.h>
 #endif
 
 #include <netdb.h>
@@ -52,6 +53,7 @@ on all interfaces, unless the option -noipv6 is given. */
 
 #ifndef CS
 # define CS (char *)
+# define CCS (const char *)
 #endif
 
 
@@ -61,17 +63,22 @@ typedef struct line {
   char line[1];
 } line;
 
+typedef unsigned BOOL;
+#define FALSE 0
+#define TRUE  1
+
 
 /*************************************************
 *            SIGALRM handler - crash out         *
 *************************************************/
+int tmo_noerror = 0;
 
 static void
 sigalrm_handler(int sig)
 {
 sig = sig;    /* Keep picky compilers happy */
 printf("\nServer timed out\n");
-exit(99);
+exit(tmo_noerror ? 0 : 99);
 }
 
 
@@ -163,7 +170,7 @@ int connection_count = 1;
 int count;
 int on = 1;
 int timeout = 5;
-int initial_pause = 0;
+int initial_pause = 0, tfo = 0;
 int use_ipv4 = 1;
 int use_ipv6 = 1;
 int debug = 0;
@@ -208,6 +215,7 @@ if (argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")))
        "\n\t-noipv6  disable ipv6"
        "\n\t-oP file write PID to file"
        "\n\t-t n     n seconds timeout"
+       "\n\t-tfo     enable TCP Fast Open"
   );
   exit(0);
   }
@@ -215,7 +223,11 @@ if (argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")))
 while (na < argc && argv[na][0] == '-')
   {
   if (strcmp(argv[na], "-d") == 0) debug = 1;
-  else if (strcmp(argv[na], "-t") == 0) timeout = atoi(argv[++na]);
+  else if (strcmp(argv[na], "-tfo") == 0) tfo = 1;
+  else if (strcmp(argv[na], "-t") == 0)
+    {
+    if (tmo_noerror = ((timeout = atoi(argv[++na])) < 0)) timeout = -timeout;
+    }
   else if (strcmp(argv[na], "-i") == 0) initial_pause = atoi(argv[++na]);
   else if (strcmp(argv[na], "-noipv4") == 0) use_ipv4 = 0;
   else if (strcmp(argv[na], "-noipv6") == 0) use_ipv6 = 0;
@@ -255,7 +267,7 @@ if (na < argc) connection_count = atoi(argv[na]);
 if (initial_pause > 0)
   {
   if (debug)
-    printf("%d: Inital pause of %d seconds\n", time(NULL), initial_pause);
+    printf("%ld: Inital pause of %d seconds\n", (long)time(NULL), initial_pause);
   else
     printf("Inital pause of %d seconds\n", initial_pause);
   while (initial_pause > 0)
@@ -286,7 +298,15 @@ else
       printf("IPv6 socket creation failed: %s\n", strerror(errno));
       exit(1);
       }
-
+#if defined(TCP_FASTOPEN) && !defined(__APPLE__)
+    if (tfo)
+      {
+      int backlog = 5;
+      if (setsockopt(listen_socket[v6n], IPPROTO_TCP, TCP_FASTOPEN,
+                    &backlog, sizeof(backlog)))
+	if (debug) printf("setsockopt TCP_FASTOPEN: %s\n", strerror(errno));
+      }
+#endif
     /* If this is an IPv6 wildcard socket, set IPV6_V6ONLY if that option is
     available. */
 
@@ -310,6 +330,15 @@ else
       printf("IPv4 socket creation failed: %s\n", strerror(errno));
       exit(1);
       }
+#if defined(TCP_FASTOPEN) && !defined(__APPLE__)
+    if (tfo)
+      {
+      int backlog = 5;
+      if (setsockopt(listen_socket[v4n], IPPROTO_TCP, TCP_FASTOPEN,
+                    &backlog, sizeof(backlog)))
+	if (debug) printf("setsockopt TCP_FASTOPEN: %s\n", strerror(errno));
+      }
+#endif
     }
   }
 
@@ -372,7 +401,7 @@ else
       sin6.sin6_addr = anyaddr6;
       if (bind(listen_socket[i], (struct sockaddr *)&sin6, sizeof(sin6)) < 0)
         {
-        printf("IPv6 socket bind() failed: %s\n", strerror(errno));
+        printf("IPv6 socket bind(port %d) failed: %s\n", port, strerror(errno));
         exit(1);
         }
       }
@@ -389,10 +418,9 @@ else
       sin4.sin_addr.s_addr = (S_ADDR_TYPE)INADDR_ANY;
       sin4.sin_port = htons(port);
       if (bind(listen_socket[i], (struct sockaddr *)&sin4, sizeof(sin4)) < 0)
-        {
         if (listen_socket[v6n] < 0 || errno != EADDRINUSE)
           {
-          printf("IPv4 socket bind() failed: %s\n", strerror(errno));
+          printf("IPv4 socket bind(port %d) failed: %s\n", port, strerror(errno));
           exit(1);
           }
         else
@@ -400,7 +428,6 @@ else
           close(listen_socket[i]);
           listen_socket[i] = -1;
           }
-        }
       }
     }
   }
@@ -411,16 +438,21 @@ error because it means that the IPv6 socket will handle IPv4 connections. Don't
 output anything, because it will mess up the test output, which will be
 different for systems that do this and those that don't. */
 
-for (i = 0; i <= skn; i++)
+for (i = 0; i <= skn; i++) if (listen_socket[i] >= 0)
   {
-  if (listen_socket[i] >= 0 && listen(listen_socket[i], 5) < 0)
-    {
+  if (listen(listen_socket[i], 5) < 0)
     if (i != v4n || listen_socket[v6n] < 0 || errno != EADDRINUSE)
       {
       printf("listen() failed: %s\n", strerror(errno));
       exit(1);
       }
-    }
+
+#if defined(TCP_FASTOPEN) && defined(__APPLE__)
+  if (  tfo
+     && setsockopt(listen_socket[v4n], IPPROTO_TCP, TCP_FASTOPEN, &on, sizeof(on))
+     && debug)
+      printf("setsockopt TCP_FASTOPEN: %s\n", strerror(errno));
+#endif
   }
 
 
@@ -492,6 +524,11 @@ s = script;
 
 for (count = 0; count < connection_count; count++)
   {
+  struct {
+    int left;
+    BOOL in_use;
+  } content_length = { 0, FALSE };
+
   alarm(timeout);
   if (port <= 0)
     {
@@ -517,8 +554,7 @@ for (count = 0; count < connection_count; count++)
       if (listen_socket[i] > max_socket) max_socket = listen_socket[i];
       }
 
-    lcount = select(max_socket + 1, &select_listen, NULL, NULL, NULL);
-    if (lcount < 0)
+    if ((lcount = select(max_socket + 1, &select_listen, NULL, NULL, NULL)) < 0)
       {
       printf("Select failed\n");
       fflush(stdout);
@@ -527,7 +563,6 @@ for (count = 0; count < connection_count; count++)
 
     accept_socket = -1;
     for (i = 0; i < skn; i++)
-      {
       if (listen_socket[i] > 0 && FD_ISSET(listen_socket[i], &select_listen))
         {
         accept_socket = accept(listen_socket[i],
@@ -535,7 +570,6 @@ for (count = 0; count < connection_count; count++)
         FD_CLR(listen_socket[i], &select_listen);
         break;
         }
-      }
     }
   alarm(0);
 
@@ -568,6 +602,7 @@ for (count = 0; count < connection_count; count++)
               cr.pid, cr.uid, cr.gid);
     --------------*****************/
     }
+  fflush(stdout);
 
   if (dup_accept_socket < 0)
     {
@@ -586,7 +621,7 @@ for (count = 0; count < connection_count; count++)
   doesn't work for other tests (e.g. ident tests) so we have explicit '<' and
   '>' flags for input and output as well as the defaults. */
 
-  for (; s != NULL; s = s->next)
+  for (; s; s = s->next)
     {
     char *ss = s->line;
 
@@ -635,6 +670,38 @@ for (count = 0; count < connection_count; count++)
       sleep(sleepfor);
       }
 
+    /* If the script line starts with "*data " we expect a numeric argument,
+    and we expect to read (and discard) that many data bytes from the input. */
+
+    else if (strncmp(ss, "*data ", 6) == 0)
+      {
+      int dlen = atoi(ss+6);
+      int n;
+
+      alarm(timeout);
+
+      if (!linebuf)
+	while (dlen > 0)
+	  {
+	  n = dlen < sizeof(buffer) ? dlen : sizeof(buffer);
+	  if ((n = read(dup_accept_socket, CS buffer, n)) == 0)
+	    {
+	    printf("Unexpected EOF read from client\n");
+	    s = s->next;
+	    goto END_OFF;
+	    }
+	  dlen -= n;
+	  }
+      else
+	while (dlen-- > 0)
+	  if (fgetc(in) == EOF)
+	    {
+	    printf("Unexpected EOF read from client\n");
+	    s = s->next;
+	    goto END_OFF;
+	    }
+      }
+
     /* Otherwise the script line is the start of an input line we are expecting
     from the client, or "*eof" indicating we expect the client to close the
     connection. Read command line or data lines; the latter are indicated
@@ -672,6 +739,7 @@ for (count = 0; count < connection_count; count++)
 
 	alarm(timeout);
 	n = read(dup_accept_socket, CS buffer+offset, s->len - offset);
+	if (content_length.in_use) content_length.left -= n;
 	if (n == 0)
 	  {
 	  printf("%sxpected EOF read from client\n",
@@ -684,13 +752,14 @@ for (count = 0; count < connection_count; count++)
 	alarm(0);
 	n += offset;
 
-	printit(buffer, n);
+	printit(CS buffer, n);
 
 	if (data) do
 	  {
 	  n = (read(dup_accept_socket, &c, 1) == 1 && c == '.');
+	  if (content_length.in_use) content_length.left--;
 	  while (c != '\n' && read(dup_accept_socket, &c, 1) == 1)
-	    ;
+            if (content_length.in_use) content_length.left--;
 	  } while (!n);
 	else if (memcmp(ss, buffer, n) != 0)
 	  {
@@ -713,7 +782,8 @@ for (count = 0; count < connection_count; count++)
 	    goto END_OFF;
 	    }
 	  alarm(0);
-	  n = (int)strlen(CS buffer);
+	  n = strlen(CS buffer);
+	  if (content_length.in_use) content_length.left -= (n - offset);
 	  while (n > 0 && isspace(buffer[n-1])) n--;
 	  buffer[n] = 0;
 	  printf("%s\n", buffer);
@@ -727,6 +797,11 @@ for (count = 0; count < connection_count; count++)
 	  break;
 	  }
 	}
+
+	if (sscanf(CCS buffer, "<Content-length: %d", &content_length.left))
+       	  content_length.in_use = TRUE;
+	if (content_length.in_use && content_length.left <= 0)
+	  shutdown(dup_accept_socket, SHUT_RD);
       }
     }
 
@@ -737,7 +812,7 @@ for (count = 0; count < connection_count; count++)
 
 if (s == NULL) printf("End of script\n");
 
-if (sockname != NULL) unlink(sockname);
+if (sockname) unlink(sockname);
 exit(0);
 }
 

@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -253,18 +253,25 @@ dbfn_open(uschar *name, int flags, open_db *dbblock, BOOL lof)
 int rc;
 struct flock lock_data;
 BOOL read_only = flags == O_RDONLY;
-uschar buffer[256];
+uschar * dirname, * filename;
 
 /* The first thing to do is to open a separate file on which to lock. This
 ensures that Exim has exclusive use of the database before it even tries to
 open it. If there is a database, there should be a lock file in existence. */
 
-sprintf(CS buffer, "%s/db/%s.lockfile", spool_directory, name);
+#ifdef COMPILE_UTILITY
+if (  asprintf(CSS &dirname, "%s/db", spool_directory) < 0
+   || asprintf(CSS &filename, "%s/%s.lockfile", dirname, name) < 0)
+  return NULL;
+#else
+dirname = string_sprintf("%s/db", spool_directory);
+filename = string_sprintf("%s/%s.lockfile", dirname, name);
+#endif
 
-dbblock->lockfd = Uopen(buffer, flags, 0);
+dbblock->lockfd = Uopen(filename, flags, 0);
 if (dbblock->lockfd < 0)
   {
-  printf("** Failed to open database lock file %s: %s\n", buffer,
+  printf("** Failed to open database lock file %s: %s\n", filename,
     strerror(errno));
   return NULL;
   }
@@ -272,21 +279,22 @@ if (dbblock->lockfd < 0)
 /* Now we must get a lock on the opened lock file; do this with a blocking
 lock that times out. */
 
-lock_data.l_type = read_only? F_RDLCK : F_WRLCK;
+lock_data.l_type = read_only ? F_RDLCK : F_WRLCK;
 lock_data.l_whence = lock_data.l_start = lock_data.l_len = 0;
 
 sigalrm_seen = FALSE;
 os_non_restarting_signal(SIGALRM, sigalrm_handler);
-alarm(EXIMDB_LOCK_TIMEOUT);
+ALARM(EXIMDB_LOCK_TIMEOUT);
 rc = fcntl(dbblock->lockfd, F_SETLKW, &lock_data);
-alarm(0);
+ALARM_CLR(0);
 
 if (sigalrm_seen) errno = ETIMEDOUT;
 if (rc < 0)
   {
   printf("** Failed to get %s lock for %s: %s",
-    ((flags & O_RDONLY) != 0)? "read" : "write", buffer,
-    (errno == ETIMEDOUT)? "timed out" : strerror(errno));
+    flags & O_WRONLY ? "write" : "read",
+    filename,
+    errno == ETIMEDOUT ? "timed out" : strerror(errno));
   (void)close(dbblock->lockfd);
   return NULL;
   }
@@ -294,12 +302,16 @@ if (rc < 0)
 /* At this point we have an opened and locked separate lock file, that is,
 exclusive access to the database, so we can go ahead and open it. */
 
-sprintf(CS buffer, "%s/db/%s", spool_directory, name);
-EXIM_DBOPEN(buffer, flags, 0, &(dbblock->dbptr));
+#ifdef COMPILE_UTILITY
+if (asprintf(CSS &filename, "%s/%s", dirname, name) < 0) return NULL;
+#else
+filename = string_sprintf("%s/%s", dirname, name);
+#endif
+EXIM_DBOPEN(filename, dirname, flags, 0, &(dbblock->dbptr));
 
-if (dbblock->dbptr == NULL)
+if (!dbblock->dbptr)
   {
-  printf("** Failed to open DBM file %s for %s:\n   %s%s\n", buffer,
+  printf("** Failed to open DBM file %s for %s:\n   %s%s\n", filename,
     read_only? "reading" : "writing", strerror(errno),
     #ifdef USE_DB
     " (or Berkeley DB error while opening)"
@@ -515,15 +527,16 @@ uschar keybuffer[1024];
 
 dbdata_type = check_args(argc, argv, US"dumpdb", US"");
 spool_directory = argv[1];
-dbm = dbfn_open(argv[2], O_RDONLY, &dbblock, FALSE);
-if (dbm == NULL) exit(1);
+if (!(dbm = dbfn_open(argv[2], O_RDONLY, &dbblock, FALSE)))
+  exit(1);
 
 /* Scan the file, formatting the information for each entry. Note
 that data is returned in a malloc'ed block, in order that it be
 correctly aligned. */
 
-key = dbfn_scan(dbm, TRUE, &cursor);
-while (key != NULL)
+for (key = dbfn_scan(dbm, TRUE, &cursor);
+     key;
+     key = dbfn_scan(dbm, FALSE, &cursor))
   {
   dbdata_retry *retry;
   dbdata_wait *wait;
@@ -545,9 +558,8 @@ while (key != NULL)
     return 1;
     }
   Ustrcpy(keybuffer, key);
-  value = dbfn_read_with_length(dbm, keybuffer, &length);
 
-  if (value == NULL)
+  if (!(value = dbfn_read_with_length(dbm, keybuffer, &length)))
     fprintf(stderr, "**** Entry \"%s\" was in the key scan, but the record "
                     "was not found in the file - something is wrong!\n",
       CS keybuffer);
@@ -667,7 +679,6 @@ while (key != NULL)
       }
     store_reset(value);
     }
-  key = dbfn_scan(dbm, FALSE, &cursor);
   }
 
 dbfn_close(dbm);
@@ -774,8 +785,9 @@ for(;;)
     {
     int verify = 1;
     spool_directory = argv[1];
-    dbm = dbfn_open(argv[2], O_RDWR, &dbblock, FALSE);
-    if (dbm == NULL) continue;
+
+    if (!(dbm = dbfn_open(argv[2], O_RDWR, &dbblock, FALSE)))
+      continue;
 
     if (Ustrcmp(field, "d") == 0)
       {
@@ -801,13 +813,13 @@ for(;;)
         if (record == NULL) printf("not found\n"); else
           {
           time_t tt;
-          int length = 0;     /* Stops compiler warning */
+          /*int length = 0;      Stops compiler warning */
 
           switch(dbdata_type)
             {
             case type_retry:
             retry = (dbdata_retry *)record;
-            length = sizeof(dbdata_retry) + Ustrlen(retry->text);
+            /* length = sizeof(dbdata_retry) + Ustrlen(retry->text); */
 
             switch(fieldno)
               {
@@ -857,7 +869,7 @@ for(;;)
 
             case type_callout:
             callout = (dbdata_callout_cache *)record;
-            length = sizeof(dbdata_callout_cache);
+            /* length = sizeof(dbdata_callout_cache); */
             switch(fieldno)
               {
               case 0:
@@ -971,11 +983,10 @@ for(;;)
   /* Handle a read request, or verify after an update. */
 
   spool_directory = argv[1];
-  dbm = dbfn_open(argv[2], O_RDONLY, &dbblock, FALSE);
-  if (dbm == NULL) continue;
+  if (!(dbm = dbfn_open(argv[2], O_RDONLY, &dbblock, FALSE)))
+    continue;
 
-  record = dbfn_read_with_length(dbm, name, &oldlength);
-  if (record == NULL)
+  if (!(record = dbfn_read_with_length(dbm, name, &oldlength)))
     {
     printf("record %s not found\n", name);
     name[0] = 0;
@@ -1158,8 +1169,8 @@ oldest = time(NULL) - maxkeep;
 printf("Tidying Exim hints database %s/db/%s\n", argv[1], argv[2]);
 
 spool_directory = argv[1];
-dbm = dbfn_open(argv[2], O_RDWR, &dbblock, FALSE);
-if (dbm == NULL) exit(1);
+if (!(dbm = dbfn_open(argv[2], O_RDWR, &dbblock, FALSE)))
+  exit(1);
 
 /* Prepare for building file names */
 
@@ -1172,14 +1183,14 @@ to the file while scanning it. Pity the man page doesn't warn you about that.
 Therefore, we scan and build a list of all the keys. Then we use that to
 read the records and possibly update them. */
 
-key = dbfn_scan(dbm, TRUE, &cursor);
-while (key != NULL)
+for (key = dbfn_scan(dbm, TRUE, &cursor);
+     key;
+     key = dbfn_scan(dbm, FALSE, &cursor))
   {
   key_item *k = store_get(sizeof(key_item) + Ustrlen(key));
   k->next = keychain;
   keychain = k;
   Ustrcpy(k->key, key);
-  key = dbfn_scan(dbm, FALSE, &cursor);
   }
 
 /* Now scan the collected keys and operate on the records, resetting
@@ -1187,7 +1198,7 @@ the store each time round. */
 
 reset_point = store_get(0);
 
-while (keychain != NULL)
+while (keychain)
   {
   dbdata_generic *value;
 

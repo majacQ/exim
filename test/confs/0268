@@ -1,14 +1,8 @@
 # Exim test configuration 0268
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
-tls_advertise_hosts =
 
 # ----- Main settings -----
 
@@ -84,19 +78,19 @@ r9:
   domains = r9
   allow_fail
   file = DIR/test-owned-by-exim
-  owngroups = CALLER : EXIMGROUP
+  owngroups = CALLERGROUP : EXIMGROUP
 
 r10:
   driver = redirect
   domains = r10
   file = DIR/test-owned-by-exim
-  owngroups = CALLER
+  owngroups = CALLERGROUP
 
 r11:
   driver = redirect
   domains = r11
   file = DIR/test-owned-by-exim
-  owngroups = CALLER : EXIMGROUP
+  owngroups = CALLERGROUP : EXIMGROUP
   modemask = 007
 
 # End

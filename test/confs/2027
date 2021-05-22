@@ -2,14 +2,9 @@
 
 SERVER =
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
+.include DIR/aux-var/tls_conf_prefix
+
 primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/SERVER%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
 
 # ----- Main settings -----
 
@@ -52,9 +47,11 @@ local_delivery:
   user = CALLER
 
 send_to_server:
-  driver = smtp
+  driver =	smtp
   allow_localhost
-  hosts = ${if eq{$local_part}{userx}{127.0.0.1}{HOSTIPV4}}
-  port = PORT_D
+  hosts =	${if eq{$local_part}{userx}{127.0.0.1}{HOSTIPV4}}
+  port =	PORT_D
+  tls_verify_certificates =	DIR/aux-fixed/cert1
+  tls_verify_cert_hostnames =	:
 
 # End

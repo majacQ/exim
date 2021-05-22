@@ -2,7 +2,7 @@
 *                  Exim Monitor                  *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2014 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -631,7 +631,7 @@ signal(SIGCHLD, sigchld_handler);
 
 /* Get the buffer for storing the string for the log display. */
 
-log_display_buffer = (uschar *)store_malloc(log_buffer_size);
+log_display_buffer = US store_malloc(log_buffer_size);
 log_display_buffer[0] = 0;
 
 /* Initialize the data structures for the stripcharts */
@@ -669,8 +669,14 @@ if (log_file[0] != 0)
     {
     fseek(LOG, 0, SEEK_END);
     log_position = ftell(LOG);
-    fstat(fileno(LOG), &statdata);
-    log_inode = statdata.st_ino;
+    if (fstat(fileno(LOG), &statdata))
+      {
+      perror("log file fstat");
+      fclose(LOG);
+      LOG=NULL;
+      }
+    else
+      log_inode = statdata.st_ino;
     }
   }
 else

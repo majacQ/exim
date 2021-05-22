@@ -22,4 +22,24 @@ example.com.     NS      exim.example.com.
 
 server1     A       HOSTIPV4
 
+; DANE testing
+
+; a broken dane config where the name does not match in the cert, TA-mode, dane-requested
+; NOTE: the server uses the example.net cert hence the mismatch
+;
+; openssl x509 -in aux-fixed/exim-ca/example.net/CA/CA.pem -fingerprint -sha256 -noout \
+;  | awk -F= '{print $2}' | tr -d : | tr '[A-F]' '[a-f]'
+;
+;
+DNSSEC danebroken7  A       127.0.0.1
+DNSSEC _1225._tcp.danebroken7 TLSA 2 0 1 3110db5e73708d6fc3ffed8dcd1eef2bcd3c35d8da86ed048a332cb9d9538a0f
+
+; the same, EE-mode
+;
+; openssl x509 -in aux-fixed/exim-ca/example.net/server1.example.net/server1.example.net.pem -noout -pubkey \
+; | openssl pkey -pubin -outform DER | openssl dgst -sha256 | awk '{print $2}'
+;
+DNSSEC danebroken8  A       127.0.0.1
+DNSSEC _1225._tcp.danebroken8 TLSA 3 1 1 5384398f502c423736dcc42295808f7a84769eb96d009816fa077e00bebc768e
+
 ; End

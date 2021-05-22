@@ -3,9 +3,6 @@ changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
-DSN: srv propagating DSN
-DSN: useryz propagating DSN
-DSN: lookuphost propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@myhost.test.ex
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -117,8 +114,8 @@ useryz router called for usery@test.again.dns
   domain = test.again.dns
 route_item = * $domain bydns
 test.again.dns in "*"? yes (matched "*")
-original list of hosts = "$domain" options = bydns
-expanded list of hosts = "test.again.dns" options = bydns
+original list of hosts = '$domain' options = 'bydns'
+expanded list of hosts = 'test.again.dns' options = 'bydns'
 set transport smtp
 finding IP address for test.again.dns
 doing DNS lookup
@@ -148,8 +145,8 @@ useryz router called for userz@test.again.dns
   domain = test.again.dns
 route_item = * $domain bydns
 test.again.dns in "*"? yes (matched "*")
-original list of hosts = "$domain" options = bydns
-expanded list of hosts = "test.again.dns" options = bydns
+original list of hosts = '$domain' options = 'bydns'
+expanded list of hosts = 'test.again.dns' options = 'bydns'
 finding IP address for test.again.dns
 doing DNS lookup
 DNS lookup of test.again.dns-A: using cached value DNS_AGAIN
@@ -190,15 +187,12 @@ routed by lookuphost router
   transport: smtp
   host ten-1.test.ex [V4NET.0.0.1]
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=1 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=1 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
-DSN: srv propagating DSN
-DSN: useryz propagating DSN
-DSN: lookuphost propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@myhost.test.ex
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -309,8 +303,8 @@ useryz router called for usery@test.fail.dns
   domain = test.fail.dns
 route_item = * $domain bydns
 test.fail.dns in "*"? yes (matched "*")
-original list of hosts = "$domain" options = bydns
-expanded list of hosts = "test.fail.dns" options = bydns
+original list of hosts = '$domain' options = 'bydns'
+expanded list of hosts = 'test.fail.dns' options = 'bydns'
 set transport smtp
 finding IP address for test.fail.dns
 doing DNS lookup
@@ -339,8 +333,8 @@ useryz router called for userz@test.fail.dns
   domain = test.fail.dns
 route_item = * $domain bydns
 test.fail.dns in "*"? yes (matched "*")
-original list of hosts = "$domain" options = bydns
-expanded list of hosts = "test.fail.dns" options = bydns
+original list of hosts = '$domain' options = 'bydns'
+expanded list of hosts = 'test.fail.dns' options = 'bydns'
 finding IP address for test.fail.dns
 doing DNS lookup
 DNS lookup of test.fail.dns-A: using cached value DNS_FAIL
@@ -381,15 +375,12 @@ routed by lookuphost router
   transport: smtp
   host ten-1.test.ex [V4NET.0.0.1]
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=1 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=1 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
-DSN: srv propagating DSN
-DSN: useryz propagating DSN
-DSN: lookuphost propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@myhost.test.ex
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -502,8 +493,8 @@ useryz router called for usery@nonexist.test.ex
   domain = nonexist.test.ex
 route_item = * $domain bydns
 nonexist.test.ex in "*"? yes (matched "*")
-original list of hosts = "$domain" options = bydns
-expanded list of hosts = "nonexist.test.ex" options = bydns
+original list of hosts = '$domain' options = 'bydns'
+expanded list of hosts = 'nonexist.test.ex' options = 'bydns'
 set transport smtp
 finding IP address for nonexist.test.ex
 doing DNS lookup
@@ -532,8 +523,8 @@ useryz router called for userz@nonexist.test.ex
   domain = nonexist.test.ex
 route_item = * $domain bydns
 nonexist.test.ex in "*"? yes (matched "*")
-original list of hosts = "$domain" options = bydns
-expanded list of hosts = "nonexist.test.ex" options = bydns
+original list of hosts = '$domain' options = 'bydns'
+expanded list of hosts = 'nonexist.test.ex' options = 'bydns'
 finding IP address for nonexist.test.ex
 doing DNS lookup
 DNS lookup of nonexist.test.ex-A: using cached value DNS_NOMATCH
@@ -574,15 +565,12 @@ routed by lookuphost router
   transport: smtp
   host ten-1.test.ex [V4NET.0.0.1]
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=2 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=2 >>>>>>>>>>>>>>>>
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
-DSN: srv propagating DSN
-DSN: useryz propagating DSN
-DSN: lookuphost propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@myhost.test.ex
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -635,4 +623,4 @@ returning DNS_FAIL
 srv router: defer for srv@test.fail.dns
   message: host lookup did not complete
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=1 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=1 >>>>>>>>>>>>>>>>

@@ -2,7 +2,7 @@
 *                 Exim Monitor                   *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2009 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -63,7 +63,8 @@ if it is dest_remove, remove if present and return NULL. The
 address is lowercased to start with, unless it begins with
 "*", which it does for error messages. */
 
-dest_item *find_dest(queue_item *q, uschar *name, int action, BOOL caseless)
+dest_item *
+find_dest(queue_item *q, uschar *name, int action, BOOL caseless)
 {
 dest_item *dd;
 dest_item **d = &(q->destinations);
@@ -108,7 +109,8 @@ return dd;
 *            Clean up a dead queue item          *
 *************************************************/
 
-static void clean_up(queue_item *p)
+static void
+clean_up(queue_item *p)
 {
 dest_item *dd = p->destinations;
 while (dd != NULL)
@@ -149,7 +151,8 @@ return node;
 *             Set up new queue item              *
 *************************************************/
 
-static queue_item *set_up(uschar *name, int dir_char)
+static queue_item *
+set_up(uschar *name, int dir_char)
 {
 int i, rc, save_errno;
 struct stat statdata;
@@ -162,7 +165,7 @@ uschar buffer[256];
 
 q->next = q->prev = NULL;
 q->destinations = NULL;
-Ustrcpy(q->name, name);
+Ustrncpy(q->name, name, sizeof(q->name));
 q->seen = TRUE;
 q->frozen = FALSE;
 q->dir_char = dir_char;
@@ -201,7 +204,7 @@ if it's there. */
 
 else
   {
-  q->update_time = q->input_time = received_time;
+  q->update_time = q->input_time = received_time.tv_sec;
   if ((p = strstric(sender_address+1, qualify_domain, FALSE)) != NULL &&
     *(--p) == '@') *p = 0;
   }
@@ -231,7 +234,7 @@ if (rc != spool_read_OK)
     }
   else
     {
-    deliver_freeze = FALSE;
+    f.deliver_freeze = FALSE;
     sender_address = msg;
     recipients_count = 0;
     }
@@ -239,9 +242,9 @@ if (rc != spool_read_OK)
 
 /* Now set up the remaining data. */
 
-q->frozen = deliver_freeze;
+q->frozen = f.deliver_freeze;
 
-if (sender_set_untrusted)
+if (f.sender_set_untrusted)
   {
   if (sender_address[0] == 0)
     {
@@ -263,7 +266,8 @@ else
 
 sender_address = NULL;
 
-sprintf(CS buffer, "%s/input/%s/%s-D", spool_directory, message_subdir, name);
+snprintf(CS buffer, sizeof(buffer), "%s/input/%s/%s/%s-D",
+  spool_directory, queue_name, message_subdir, name);
 if (Ustat(buffer, &statdata) == 0)
   q->size = message_size + statdata.st_size - SPOOL_DATA_START_OFFSET + 1;
 
@@ -271,7 +275,6 @@ if (Ustat(buffer, &statdata) == 0)
 been delivered, and removing visible names. */
 
 if (recipients_list != NULL)
-  {
   for (i = 0; i < recipients_count; i++)
     {
     uschar *r = recipients_list[i].address;
@@ -282,7 +285,6 @@ if (recipients_list != NULL)
       (void)find_dest(q, r, dest_add, FALSE);
       }
     }
-  }
 
 /* Recover the dynamic store used by spool_read_header(). */
 
@@ -332,7 +334,8 @@ while (p != NULL)
 
 
 
-queue_item *find_queue(uschar *name, int action, int dir_char)
+queue_item *
+find_queue(uschar *name, int action, int dir_char)
 {
 int first = 0;
 int last = queue_index_size - 1;
@@ -617,11 +620,13 @@ uschar buffer[1024];
 
 message_subdir[0] = p->dir_char;
 
-sprintf(CS buffer, "%s/input/%s/%s-J", spool_directory, message_subdir, p->name);
-jread = fopen(CS buffer, "r");
-if (jread == NULL)
+snprintf(CS buffer, sizeof(buffer), "%s/input/%s/%s/%s-J",
+  spool_directory, queue_name, message_subdir, p->name);
+
+if (!(jread = fopen(CS buffer, "r")))
   {
-  sprintf(CS buffer, "%s/input/%s/%s-H", spool_directory, message_subdir, p->name);
+  snprintf(CS buffer, sizeof(buffer), "%s/input/%s/%s/%s-H",
+    spool_directory, queue_name, message_subdir, p->name);
   if (Ustat(buffer, &statdata) < 0 || p->update_time == statdata.st_mtime)
     return;
   }
@@ -655,32 +660,23 @@ if (jread != NULL)
 been delivered, and removing visible names. In the nonrecipients tree,
 domains are lower cased. */
 
-if (recipients_list != NULL)
-  {
+if (recipients_list)
   for (i = 0; i < recipients_count; i++)
     {
-    uschar *pp;
-    uschar *r = recipients_list[i].address;
-    tree_node *node = tree_search(tree_nonrecipients, r);
+    uschar * pp;
+    uschar * r = recipients_list[i].address;
+    tree_node * node;
 
-    if (node == NULL)
-      {
-      uschar temp[256];
-      uschar *rr = temp;
-      Ustrcpy(temp, r);
-      while (*rr != 0 && *rr != '@') rr++;
-      while (*rr != 0) { *rr = tolower(*rr); rr++; }
-      node = tree_search(tree_nonrecipients, temp);
-      }
+    if (!(node = tree_search(tree_nonrecipients, r)))
+      node = tree_search(tree_nonrecipients, string_copylc(r));
 
-    if ((pp = strstric(r+1, qualify_domain, FALSE)) != NULL &&
-      *(--pp) == '@') *pp = 0;
-    if (node == NULL)
+    if ((pp = strstric(r+1, qualify_domain, FALSE)) && *(--pp) == '@')
+       *pp = 0;
+    if (!node)
       (void)find_dest(p, r, dest_add, FALSE);
     else
       (void)find_dest(p, r, dest_remove, FALSE);
     }
-  }
 
 /* We also need to scan the tree of non-recipients, which might
 contain child addresses that are not in the recipients list, but

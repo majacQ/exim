@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) Jeremy Harris 2014 - 2015 */
+/* Copyright (c) Jeremy Harris 2014 - 2018 */
 
 /* This file provides TLS/SSL support for Exim using the GnuTLS library,
 one of the available supported implementations.  This file is #included into
@@ -113,7 +113,7 @@ if (mod && Ustrcmp(mod, "int") == 0)
   return string_sprintf("%u", (unsigned)t);
 
 cp = store_get(len);
-if (timestamps_utc)
+if (f.timestamps_utc)
   {
   uschar * tz = to_tz(US"GMT0");
   len = strftime(CS cp, len, "%b %e %T %Y %Z", gmtime(&t));
@@ -142,12 +142,12 @@ uschar * cp = NULL;
 int ret;
 size_t siz = 0;
 
-if ((ret = gnutls_x509_crt_get_issuer_dn(cert, cp, &siz))
+if ((ret = gnutls_x509_crt_get_issuer_dn(cert, CS cp, &siz))
     != GNUTLS_E_SHORT_MEMORY_BUFFER)
   return g_err("gi0", __FUNCTION__, ret);
 
 cp = store_get(siz);
-if ((ret = gnutls_x509_crt_get_issuer_dn(cert, cp, &siz)) < 0)
+if ((ret = gnutls_x509_crt_get_issuer_dn(cert, CS cp, &siz)) < 0)
   return g_err("gi1", __FUNCTION__, ret);
 
 return mod ? tls_field_from_dn(cp, mod) : cp;
@@ -182,8 +182,8 @@ if ((ret = gnutls_x509_crt_get_serial((gnutls_x509_crt_t)cert,
     bin, &sz)))
   return g_err("gs0", __FUNCTION__, ret);
 
-for(dp = txt, sp = bin; sz; dp += 2, sp++, sz--)
-  sprintf(dp, "%.2x", *sp);
+for(dp = txt, sp = bin; sz; sz--)
+  dp += sprintf(CS dp, "%.2x", *sp++);
 for(sp = txt; sp[0]=='0' && sp[1]; ) sp++;	/* leading zeroes */
 return string_copy(sp);
 }
@@ -197,16 +197,16 @@ uschar * cp3;
 size_t len = 0;
 int ret;
 
-if ((ret = gnutls_x509_crt_get_signature((gnutls_x509_crt_t)cert, cp1, &len))
+if ((ret = gnutls_x509_crt_get_signature((gnutls_x509_crt_t)cert, CS cp1, &len))
     != GNUTLS_E_SHORT_MEMORY_BUFFER)
   return g_err("gs0", __FUNCTION__, ret);
 
 cp1 = store_get(len*4+1);
-if (gnutls_x509_crt_get_signature((gnutls_x509_crt_t)cert, cp1, &len) != 0)
+if (gnutls_x509_crt_get_signature((gnutls_x509_crt_t)cert, CS cp1, &len) != 0)
   return g_err("gs1", __FUNCTION__, ret);
 
-for(cp3 = cp2 = cp1+len; cp1 < cp2; cp3 += 3, cp1++)
-  sprintf(cp3, "%.2x ", *cp1);
+for(cp3 = cp2 = cp1+len; cp1 < cp2; cp1++)
+  cp3 += sprintf(CS cp3, "%.2x ", *cp1);
 cp3[-1]= '\0';
 
 return cp2;
@@ -217,7 +217,7 @@ tls_cert_signature_algorithm(void * cert, uschar * mod)
 {
 gnutls_sign_algorithm_t algo =
   gnutls_x509_crt_get_signature_algorithm((gnutls_x509_crt_t)cert);
-return algo < 0 ? NULL : string_copy(gnutls_sign_get_name(algo));
+return algo < 0 ? NULL : string_copy(US gnutls_sign_get_name(algo));
 }
 
 uschar *
@@ -227,12 +227,12 @@ uschar * cp = NULL;
 int ret;
 size_t siz = 0;
 
-if ((ret = gnutls_x509_crt_get_dn(cert, cp, &siz))
+if ((ret = gnutls_x509_crt_get_dn(cert, CS cp, &siz))
     != GNUTLS_E_SHORT_MEMORY_BUFFER)
   return g_err("gs0", __FUNCTION__, ret);
 
 cp = store_get(siz);
-if ((ret = gnutls_x509_crt_get_dn(cert, cp, &siz)) < 0)
+if ((ret = gnutls_x509_crt_get_dn(cert, CS cp, &siz)) < 0)
   return g_err("gs1", __FUNCTION__, ret);
 
 return mod ? tls_field_from_dn(cp, mod) : cp;
@@ -255,22 +255,22 @@ unsigned int crit;
 int ret;
 
 ret = gnutls_x509_crt_get_extension_by_oid ((gnutls_x509_crt_t)cert,
-  oid, idx, cp1, &siz, &crit);
+  CS oid, idx, CS cp1, &siz, &crit);
 if (ret != GNUTLS_E_SHORT_MEMORY_BUFFER)
   return g_err("ge0", __FUNCTION__, ret);
 
 cp1 = store_get(siz*4 + 1);
 
 ret = gnutls_x509_crt_get_extension_by_oid ((gnutls_x509_crt_t)cert,
-  oid, idx, cp1, &siz, &crit);
+  CS oid, idx, CS cp1, &siz, &crit);
 if (ret < 0)
   return g_err("ge1", __FUNCTION__, ret);
 
 /* binary data, DER encoded */
 
 /* just dump for now */
-for(cp3 = cp2 = cp1+siz; cp1 < cp2; cp3 += 3, cp1++)
-  sprintf(cp3, "%.2x ", *cp1);
+for(cp3 = cp2 = cp1+siz; cp1 < cp2; cp1++)
+  cp3 += sprintf(CS cp3, "%.2x ", *cp1);
 cp3[-1]= '\0';
 
 return cp2;
@@ -279,7 +279,7 @@ return cp2;
 uschar *
 tls_cert_subject_altname(void * cert, uschar * mod)
 {
-uschar * list = NULL;
+gstring * list = NULL;
 int index;
 size_t siz;
 int ret;
@@ -307,7 +307,7 @@ for(index = 0;; index++)
       (gnutls_x509_crt_t)cert, index, NULL, &siz, NULL))
     {
     case GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE:
-      return list;	/* no more elements; normal exit */
+      return string_from_gstring(list);	/* no more elements; normal exit */
 
     case GNUTLS_E_SHORT_MEMORY_BUFFER:
       break;
@@ -346,7 +346,7 @@ gnutls_datum_t uri;
 int ret;
 uschar sep = '\n';
 int index;
-uschar * list = NULL;
+gstring * list = NULL;
 
 if (mod)
   if (*mod == '>' && *++mod) sep = *mod++;
@@ -357,12 +357,11 @@ for(index = 0;; index++)
 	  index, GNUTLS_IA_OCSP_URI, &uri, NULL);
 
   if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
-    return list;
+    return string_from_gstring(list);
   if (ret < 0)
     return g_err("gai", __FUNCTION__, ret);
 
-  list = string_append_listele(list, sep,
-	    string_copyn(uri.data, uri.size));
+  list = string_append_listele_n(list, sep, uri.data, uri.size);
   }
 /*NOTREACHED*/
 
@@ -383,7 +382,7 @@ int ret;
 size_t siz;
 uschar sep = '\n';
 int index;
-uschar * list = NULL;
+gstring * list = NULL;
 uschar * ele;
 
 if (mod)
@@ -396,20 +395,19 @@ for(index = 0;; index++)
     (gnutls_x509_crt_t)cert, index, NULL, &siz, NULL, NULL))
     {
     case GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE:
-      return list;
+      return string_from_gstring(list);
     case GNUTLS_E_SHORT_MEMORY_BUFFER:
       break;
     default:
       return g_err("gc0", __FUNCTION__, ret);
     }
 
-  ele = store_get(siz+1);
+  ele = store_get(siz);
   if ((ret = gnutls_x509_crt_get_crl_dist_points(
       (gnutls_x509_crt_t)cert, index, ele, &siz, NULL, NULL)) < 0)
     return g_err("gc1", __FUNCTION__, ret);
 
-  ele[siz] = '\0';
-  list = string_append_listele(list, sep, ele);
+  list = string_append_listele_n(list, sep, ele, siz);
   }
 /*NOTREACHED*/
 }
@@ -457,8 +455,8 @@ cp = store_get(siz*3+1);
 if ((ret = gnutls_x509_crt_get_fingerprint(cert, algo, cp, &siz)) < 0)
   return g_err("gf1", __FUNCTION__, ret);
 
-for (cp3 = cp2 = cp+siz; cp < cp2; cp++, cp3+=2)
-  sprintf(cp3, "%02X",*cp);
+for (cp3 = cp2 = cp+siz; cp < cp2; cp++)
+  cp3 += sprintf(CS cp3, "%02X", *cp);
 return cp2;
 }
 

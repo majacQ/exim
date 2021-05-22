@@ -1,4 +1,6 @@
-#! /usr/bin/perl -w
+#! /usr/bin/env perl
+# We use env, because in some environments of our build farm
+# the Perl 5.010 interpreter is only reachable via $PATH
 
 ###############################################################################
 # This is the controlling script for the "new" test suite for Exim. It should #
@@ -14,18 +16,34 @@
 ###############################################################################
 
 #use strict;
+use v5.10.1;
+use warnings;
+use if $^V >= v5.19.11, experimental => 'smartmatch';
+
 use Errno;
 use FileHandle;
 use Socket;
 use Time::Local;
 use Cwd;
 use File::Basename;
-use if $ENV{DEBUG} && $ENV{DEBUG} =~ /\bruntest\b/ => ('Smart::Comments' => '####');
+use Pod::Usage;
+use Getopt::Long;
+use FindBin qw'$RealBin';
+
+use lib "$RealBin/lib";
+use Exim::Runtest;
+use Exim::Utils qw(uniq numerically);
+
+use if $ENV{DEBUG} && scalar($ENV{DEBUG} =~ /\bruntest\b/) => 'Smart::Comments' => '####';
+use if $ENV{DEBUG} && scalar($ENV{DEBUG} =~ /\bruntest\b/) => 'Data::Dumper';
+
+use constant TEST_TOP => 8999;
+use constant TEST_SPECIAL_TOP => 9999;
 
 
 # Start by initializing some global variables
 
-$testversion = "4.80 (08-May-12)";
+chomp(my $testversion = `git describe --always --dirty 2>&1` || '<unknown>');
 
 # This gets embedded in the D-H params filename, and the value comes
 # from asking GnuTLS for "normal", but there appears to be no way to
@@ -33,30 +51,31 @@ $testversion = "4.80 (08-May-12)";
 # We also clamp it because of NSS interop, see addition of tls_dh_max_bits.
 # This value is correct as of GnuTLS 2.12.18 as clamped by tls_dh_max_bits.
 # normal = 2432   tls_dh_max_bits = 2236
-$gnutls_dh_bits_normal = 2236;
+my $gnutls_dh_bits_normal = 2236;
 
-$cf = "bin/cf -exact";
-$cr = "\r";
-$debug = 0;
-$flavour = 'FOO';
-$force_continue = 0;
-$force_update = 0;
-$log_failed_filename = "failed-summary.log";
-$more = "less -XF";
-$optargs = "";
-$save_output = 0;
-$server_opts = "";
-$valgrind = 0;
+my $cf = 'bin/cf -exact';
+my $cr = "\r";
+my $debug = 0;
+my $flavour = do {
+  my $f = Exim::Runtest::flavour() // '';
+  (grep { $f eq $_ } Exim::Runtest::flavours()) ? $f : 'FOO';
+};
+my $force_continue = 0;
+my $force_update = 0;
+my $log_failed_filename = 'failed-summary.log';
+my $log_summary_filename = 'run-summary.log';
+my $more = 'less -XF';
+my $optargs = '';
+my $save_output = 0;
+my $server_opts = '';
+my $slow = 0;
+my $valgrind = 0;
 
-$have_ipv4 = 1;
-$have_ipv6 = 1;
-$have_largefiles = 0;
+my $have_ipv4 = 1;
+my $have_ipv6 = 1;
+my $have_largefiles = 0;
 
-$test_start = 1;
-$test_end = $test_top = 8999;
-$test_special_top = 9999;
-@test_list = ();
-@test_dirs = ();
+my @test_list = ();
 
 
 # Networks to use for DNS tests. We need to choose some networks that will
@@ -69,26 +88,32 @@ $test_special_top = 9999;
 # are defined, so it is trivially possible to change them should that ever
 # become necessary.
 
-$parm_ipv4_test_net = "224";
-$parm_ipv6_test_net = "ff00";
+my $parm_ipv4_test_net = 224;
+my $parm_ipv6_test_net = 'ff00';
 
 # Port numbers are currently hard-wired
 
-$parm_port_n = 1223;         # Nothing listening on this port
-$parm_port_s = 1224;         # Used for the "server" command
-$parm_port_d = 1225;         # Used for the Exim daemon
-$parm_port_d2 = 1226;        # Additional for daemon
-$parm_port_d3 = 1227;        # Additional for daemon
-$parm_port_d4 = 1228;        # Additional for daemon
+my $parm_port_n = 1223;         # Nothing listening on this port
+my $parm_port_s = 1224;         # Used for the "server" command
+my $parm_port_d = 1225;         # Used for the Exim daemon
+my $parm_port_d2 = 1226;        # Additional for daemon
+my $parm_port_d3 = 1227;        # Additional for daemon
+my $parm_port_d4 = 1228;        # Additional for daemon
+my $dynamic_socket;          # allocated later for PORT_DYNAMIC
+
+# Find a suiteable group name for test (currently only 0001
+# uses a group name. A numeric group id would do
+my $parm_mailgroup = Exim::Runtest::mailgroup('mail');
 
 # Manually set locale
-$ENV{'LC_ALL'} = 'C';
+$ENV{LC_ALL} = 'C';
 
-# In some environments USER does not exists, but we
-# need it for some test(s)
-$ENV{USER} = getpwuid($>)
-  if not exists $ENV{USER};
+# In some environments USER does not exist, but we need it for some test(s)
+$ENV{USER} = getpwuid($>) if not exists $ENV{USER};
 
+my ($parm_configure_owner, $parm_configure_group);
+my ($parm_ipv4, $parm_ipv6);
+my $parm_hostname;
 
 ###############################################################################
 ###############################################################################
@@ -138,6 +163,8 @@ s?\bPORT_S\b?$parm_port_s?g;
 s?\bTESTNUM\b?$_[0]?g;
 s?(\b|_)V4NET([\._])?$1$parm_ipv4_test_net$2?g;
 s?\bV6NET:?$parm_ipv6_test_net:?g;
+s?\bPORT_DYNAMIC\b?$dynamic_socket->sockport()?eg;
+s?\bMAILGROUP\b?$parm_mailgroup?g;
 }
 
 
@@ -335,6 +362,7 @@ open(IN, "$file") || tests_exit(-1, "Failed to open $file: $!");
 my($is_log) = $file =~ /log/;
 my($is_stdout) = $file =~ /stdout/;
 my($is_stderr) = $file =~ /stderr/;
+my($is_mail) = $file =~ /mail/;
 
 # Date pattern
 
@@ -397,12 +425,6 @@ RESET_AFTER_EXTRA_LINE_READ:
   s?prvs=([^/]+)/[\da-f]{10}@?prvs=$1/xxxxxxxxxx@?g;    # Old form
   s?prvs=[\da-f]{10}=([^@]+)@?prvs=xxxxxxxxxx=$1@?g;    # New form
 
-  # Error lines on stdout from SSL contain process id values and file names.
-  # They also contain a source file name and line number, which may vary from
-  # release to release.
-  s/^\d+:error:/pppp:error:/;
-  s/:(?:\/[^\s:]+\/)?([^\/\s]+\.c):\d+:/:$1:dddd:/;
-
   # There are differences in error messages between OpenSSL versions
   s/SSL_CTX_set_cipher_list/SSL_connect/;
 
@@ -427,7 +449,7 @@ RESET_AFTER_EXTRA_LINE_READ:
 
   # File descriptor numbers may vary
   s/^writing data block fd=\d+/writing data block fd=dddd/;
-  s/running as transport filter: write=\d+ read=\d+/running as transport filter: write=dddd read=dddd/;
+  s/(running as transport filter:) fd_write=\d+ fd_read=\d+/$1 fd_write=dddd fd_read=dddd/;
 
 
   # ======== Dumpdb output ========
@@ -437,8 +459,10 @@ RESET_AFTER_EXTRA_LINE_READ:
   if (/^($date)\s+($date)\s+($date)(\s+\*)?\s*$/)
     {
     my($date1,$date2,$date3,$expired) = ($1,$2,$3,$4);
-    $expired = "" if !defined $expired;
-    my($increment) = date_seconds($date3) - date_seconds($date2);
+    $expired = '' if !defined $expired;
+
+    # Round the time-difference up to nearest even value
+    my($increment) = ((date_seconds($date3) - date_seconds($date2) + 1) >> 1) << 1;
 
     # We used to use globally unique replacement values, but timing
     # differences make this impossible. Just show the increment on the
@@ -452,6 +476,13 @@ RESET_AFTER_EXTRA_LINE_READ:
   # more_errno values in exim_dumpdb output which are times
   s/T:(\S+)\s-22\s(\S+)\s/T:$1 -22 xxxx /;
 
+  # port numbers in dumpdb output
+  s/T:([a-z.]+(:[0-9.]+)?):$parm_port_n /T:$1:PORT_N /;
+
+  # port numbers in stderr
+  s/^set_process_info: .*\]:\K$parm_port_d /PORT_D /;
+  s/^set_process_info: .*\]:\K$parm_port_s /PORT_S /;
+
 
   # ======== Dates and times ========
 
@@ -463,10 +494,22 @@ RESET_AFTER_EXTRA_LINE_READ:
   # Date/time in header lines and SMTP responses
   s/[A-Z][a-z]{2},\s\d\d?\s[A-Z][a-z]{2}\s\d\d\d\d\s\d\d\:\d\d:\d\d\s[-+]\d{4}
     /Tue, 2 Mar 1999 09:44:33 +0000/gx;
+  # and in a French locale
+  s/\S{4},\s\d\d?\s[^,]+\s\d\d\d\d\s\d\d\:\d\d:\d\d\s[-+]\d{4}
+    /dim., 10 f\xE9vr 2019 20:05:49 +0000/gx;
 
   # Date/time in logs and in one instance of a filter test
-  s/^\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d(\s[+-]\d\d\d\d)?/1999-03-02 09:44:33/gx;
+  s/^\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d(\s[+-]\d\d\d\d)?\s/1999-03-02 09:44:33 /gx;
+  s/^\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\.\d{3}(\s[+-]\d\d\d\d)?\s/2017-07-30 18:51:05.712 /gx;
   s/^Logwrite\s"\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d/Logwrite "1999-03-02 09:44:33/gx;
+  # Date/time in syslog test
+  s/^SYSLOG:\s\'\K\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\s/2017-07-30 18:51:05 /gx;
+  s/^SYSLOG:\s\'\K\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\.\d{3}\s/2017-07-30 18:51:05.712 /gx;
+  s/^SYSLOG:\s\'\K\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\s[+-]\d\d\d\d\s/2017-07-30 18:51:05 +9999 /gx;
+  s/^SYSLOG:\s\'\K\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\.\d{3}\s[+-]\d\d\d\d\s/2017-07-30 18:51:05.712 +9999 /gx;
+
+  s/((D|[RQD]T)=)\d+s/$1qqs/g;
+  s/((D|[RQD]T)=)\d\.\d{3}s/$1q.qqqs/g;
 
   # Date/time in message separators
   s/(?:[A-Z][a-z]{2}\s){2}\d\d\s\d\d:\d\d:\d\d\s\d\d\d\d
@@ -484,7 +527,7 @@ RESET_AFTER_EXTRA_LINE_READ:
     my($next) = $3 - $2;
     $_ = "  first failed=dddd last try=dddd next try=+$next $4\n";
     }
-  s/^(\s*)now=\d+ first_failed=\d+ next_try=\d+ expired=(\d)/$1now=tttt first_failed=tttt next_try=tttt expired=$2/;
+  s/^(\s*)now=\d+ first_failed=\d+ next_try=\d+ expired=(\w)/$1now=tttt first_failed=tttt next_try=tttt expired=$2/;
   s/^(\s*)received_time=\d+ diff=\d+ timeout=(\d+)/$1received_time=tttt diff=tttt timeout=$2/;
 
   # Time to retry may vary
@@ -494,9 +537,6 @@ RESET_AFTER_EXTRA_LINE_READ:
 
   # Date/time in exim -bV output
   s/\d\d-[A-Z][a-z]{2}-\d{4}\s\d\d:\d\d:\d\d/07-Mar-2000 12:21:52/g;
-
-  # Time on queue tolerance
-  s/(QT|D)=1s/$1=0s/;
 
   # Eximstats heading
   s/Exim\sstatistics\sfrom\s\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\sto\s
@@ -510,30 +550,64 @@ RESET_AFTER_EXTRA_LINE_READ:
   # Test machines might have various different TLS library versions supporting
   # different protocols; can't rely upon TLS 1.2's AES256-GCM-SHA384, so we
   # treat the standard algorithms the same.
+  #
+  # TLSversion : KeyExchange? - Authentication/Signature - C_iph_er - MAC : ???
+  #
   # So far, have seen:
   #   TLSv1:AES128-GCM-SHA256:128
   #   TLSv1:AES256-SHA:256
   #   TLSv1.1:AES256-SHA:256
   #   TLSv1.2:AES256-GCM-SHA384:256
   #   TLSv1.2:DHE-RSA-AES256-SHA:256
+  #   TLSv1.3:TLS_AES_256_GCM_SHA384:256
   #   TLS1.2:DHE_RSA_AES_128_CBC_SHA1:128
   # We also need to handle the ciphersuite without the TLS part present, for
   # client-ssl's output.  We also see some older forced ciphersuites, but
   # negotiating TLS 1.2 instead of 1.0.
   # Mail headers (...), log-lines X=..., client-ssl output ...
   # (and \b doesn't match between ' ' and '(' )
+  #
+  # Retain the authentication algorith field as we want to test that.
 
-  s/( (?: (?:\b|\s) [\(=] ) | \s )TLSv1\.[12]:/$1TLSv1:/xg;
-  s/\bAES128-GCM-SHA256:128\b/AES256-SHA:256/g;
-  s/\bAES128-GCM-SHA256\b/AES256-SHA/g;
-  s/\bAES256-GCM-SHA384\b/AES256-SHA/g;
-  s/\bDHE-RSA-AES256-SHA\b/AES256-SHA/g;
+  s/( (?: (?:\b|\s) [\(=] ) | \s )TLSv1(\.[123])?:/$1TLS1.x:/xg;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-AES(128|256)-(GCM-SHA(256|384)|SHA)(?!:)/ke-$3-AES256-SHAnnn/g;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-AES(128|256)-(GCM-SHA(256|384)|SHA):(128|256)/ke-$3-AES256-SHAnnn:xxx/g;
+
+  # OpenSSL TLSv1.3 - unsure what to do about the authentication-variant testcases now,
+  # as it seems the protocol no longer supports a user choice.  Replace the "TLS" field with "RSA".
+  # Also insert a key-exchange field for back-compat, even though 1.3 doesn't do that.
+  #
+  # TLSversion : "TLS" - C_iph_er - MAC : ???
+  #
+  s/TLS_AES(_256)?_GCM_SHA384(?!:)/ke-RSA-AES256-SHAnnn/g;
+  s/:TLS_AES(_256)?_GCM_SHA384:256/:ke-RSA-AES256-SHAnnn:xxx/g;
+
+  # LibreSSL
+  # TLSv1:AES256-GCM-SHA384:256
+  # TLSv1:ECDHE-RSA-CHACHA20-POLY1305:256
+  #
+  # ECDHE-RSA-CHACHA20-POLY1305
+  # AES256-GCM-SHA384
+
+  s/(?<!-)(AES256-GCM-SHA384)/RSA-$1/;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-(AES256|CHACHA20)-(GCM-SHA384|POLY1305)(?!:)/ke-$3-AES256-SHAnnn/g;
+  s/(?<!ke-)((EC)?DHE-)?(RSA|ECDSA)-(AES256|CHACHA20)-(GCM-SHA384|POLY1305):256/ke-$3-AES256-SHAnnn:xxx/g;
 
   # GnuTLS have seen:
+  #   TLS1.3:ECDHE_RSA_AES_256_GCM_SHA384:256
+  #   TLS1.3:ECDHE_SECP256R1__RSA_PSS_RSAE_SHA256__AES_256_GCM__AEAD:256
+  #   TLS1.3:ECDHE_X25519__RSA_PSS_RSAE_SHA256__AES_256_GCM:256
+  #   TLS1.3:ECDHE_PSK_SECP256R1__AES_256_GCM__AEAD:256
+  #
   #   TLS1.2:ECDHE_RSA_AES_256_GCM_SHA384:256
   #   TLS1.2:ECDHE_RSA_AES_128_GCM_SHA256:128
   #   TLS1.2:RSA_AES_256_CBC_SHA1:256 (canonical)
   #   TLS1.2:DHE_RSA_AES_128_CBC_SHA1:128
+  #   TLS1.2:ECDHE_SECP256R1__RSA_SHA256__AES_256_GCM:256
+  #   TLS1.2:ECDHE_SECP256R1__RSA_SHA256__AES_128_CBC__SHA256:128
+  #   TLS1.2:ECDHE_SECP256R1__ECDSA_SHA512__AES_256_GCM:256
+  #   TLS1.2:ECDHE_RSA_SECP256R1__AES_256_GCM:256 (! 3.5.18 !)
+  #   TLS1.2:RSA__CAMELLIA_256_GCM:256	(leave the cipher name)
   #
   #   X=TLS1.2:DHE_RSA_AES_256_CBC_SHA256:256
   #   X=TLS1.2:RSA_AES_256_CBC_SHA1:256
@@ -544,14 +618,25 @@ RESET_AFTER_EXTRA_LINE_READ:
   #   DHE-RSA-AES256-SHA256
   #   DHE-RSA-AES256-SHA
   # picking latter as canonical simply because regex easier that way.
-  s/\bDHE_RSA_AES_128_CBC_SHA1:128/RSA_AES_256_CBC_SHA1:256/g;
-  s/TLS1.[012]:((EC)?DHE_)?RSA_AES_(256|128)_(CBC|GCM)_SHA(1|256|384):(256|128)/TLS1.x:xxxxRSA_AES_256_CBC_SHAnnn:256/g;
-  s/\b(ECDHE-RSA-AES256-SHA|DHE-RSA-AES256-SHA256)\b/AES256-SHA/g;
+  s/\bDHE_RSA_AES_128_CBC_SHA1:128/RSA-AES256-SHA1:256/g;
+  s/TLS1.[0123]:								# TLS version
+    ((EC)?DHE(_((?<psk>PSK)_)?((?<auth>RSA|ECDSA)_)?(SECP256R1|X25519))?__?)?	# key-exchange
+    ((?<auth>RSA|ECDSA)((_PSS_RSAE)?_SHA(512|256))?__?)?			# authentication
+    AES_(256|128)_(CBC|GCM)							# cipher
+    (__?SHA(1|256|384))?:							# PRF
+    (256|128)									# cipher strength
+    /"TLS1.x:ke-"
+	. (defined($+{psk}) ? $+{psk} : "")
+	. (defined($+{auth}) ? $+{auth} : "")
+	. "-AES256-SHAnnn:xxx"/gex;
+  s/TLS1.2:RSA__CAMELLIA_256_GCM(_SHA384)?:256/TLS1.2:RSA_CAMELLIA_256_GCM-SHAnnn:256/g;
+  s/\b(ECDHE-(RSA|ECDSA)-AES256-SHA|DHE-RSA-AES256-SHA256)\b/ke-$2-AES256-SHAnnn/g;
 
   # GnuTLS library error message changes
-  s/No certificate was found/The peer did not send any certificate/g;
+  s/(No certificate was found|Certificate is required)/The peer did not send any certificate/g;
 #(dodgy test?)  s/\(certificate verification failed\): invalid/\(gnutls_handshake\): The peer did not send any certificate./g;
   s/\(gnutls_priority_set\): No or insufficient priorities were set/\(gnutls_handshake\): Could not negotiate a supported cipher suite/g;
+  s/\(gnutls_handshake\): \KNo supported cipher suites have been found.$/Could not negotiate a supported cipher suite./;
 
   # (this new one is a generic channel-read error, but the testsuite
   # only hits it in one place)
@@ -563,25 +648,6 @@ RESET_AFTER_EXTRA_LINE_READ:
 
   # signature algorithm names
   s/RSA-SHA1/RSA-SHA/;
-
-  # -d produces a list of environement variables as they are checked if they exist in the
-  # in the environment. Unfortunately this list isn't always in the same order. For now we
-  # just remove this list
-  #
-  if (/^\w+ in keep_environment/)
-    {
-    my @lines = $_;
-    while (<IN>)
-      {
-      if (/^\w+ in keep_environment/)
-        {
-        push @lines, $_;
-        next;
-        }
-      print MUNGED sort grep { !/^(SHLVL|_) / } @lines;
-      redo LINE;
-      }
-    }
 
 
   # ======== Caller's login, uid, gid, home, gecos ========
@@ -646,7 +712,7 @@ RESET_AFTER_EXTRA_LINE_READ:
 
   s/\bgid=\d+/gid=gggg/;
   s/\begid=\d+/egid=gggg/;
-  s/\bpid=\d+/pid=pppp/;
+  s/\b(pid=|PID: )\d+/$1pppp/;
   s/\buid=\d+/uid=uuuu/;
   s/\beuid=\d+/euid=uuuu/;
   s/set_process_info:\s+\d+/set_process_info: pppp/;
@@ -660,8 +726,12 @@ RESET_AFTER_EXTRA_LINE_READ:
   s"test-mail/temp\.\d+\."test-mail/temp.pppp.";
 
   # Optional pid in log lines
-  s/^(\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d)(\s[+-]\d\d\d\d|)(\s\[\d+\])/
-    "$1$2 [" . new_value($3, "%s", \$next_pid) . "]"/gxe;
+  s/^(\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d)(\.\d{3}|)(\s[+-]\d{4}|)(\s\[\d+\])/
+    "$1$2$3 [" . new_value($4, "%s", \$next_pid) . "]"/gxe;
+
+  # Optional pid in syslog test lines
+  s/^(SYSLOG:\s\'([-0-9]{10}\s[:.0-9]{8,12}\s([-+]\d{4}\s)?|))(\[\d+\] )/
+    "$1\[" . new_value($4, "%s", \$next_pid) . "]"/gxe;
 
   # Detect a daemon stderr line with a pid and save the pid for subsequent
   # removal from following lines.
@@ -671,6 +741,9 @@ RESET_AFTER_EXTRA_LINE_READ:
   # Queue runner waiting messages
   s/waiting for children of \d+/waiting for children of pppp/;
   s/waiting for (\S+) \(\d+\)/waiting for $1 (pppp)/;
+
+  # The spool header file name varies with PID
+  s%^(Writing spool header file: .*/hdr).[0-9]{1,5}%$1.pppp%;
 
   # ======== Port numbers ========
   # Incoming port numbers may vary, but not in daemon startup line.
@@ -687,6 +760,10 @@ RESET_AFTER_EXTRA_LINE_READ:
 
   # Port in host address in spool file output from -Mvh
   s/^-host_address (.*)\.\d+/-host_address $1.9999/;
+
+  if ($dynamic_socket and $dynamic_socket->opened and my $port = $dynamic_socket->sockport) {
+    s/^Connecting to 127\.0\.0\.1 port \K$port/<dynamic port>/;
+  }
 
 
   # ======== Local IP addresses ========
@@ -790,7 +867,10 @@ RESET_AFTER_EXTRA_LINE_READ:
   # numbers, or handle specific bad conditions in different ways, leading to
   # different wording in the error messages, so we cannot compare them.
 
-  s/(TLS error on connection (?:from .* )?\(SSL_\w+\): error:)(.*)/$1 <<detail omitted>>/;
+#XXX This loses any trailing "deliving unencypted to" which is unfortunate
+#    but I can't work out how to deal with that.
+  s/(TLS session: \(SSL_\w+\): error:)(.*)(?!: delivering)/$1 <<detail omitted>>/;
+  s/(TLS error on connection from .* \(SSL_\w+\): error:)(.*)/$1 <<detail omitted>>/;
   next if /SSL verify error: depth=0 error=certificate not trusted/;
 
   # ======== Maildir things ========
@@ -874,15 +954,37 @@ RESET_AFTER_EXTRA_LINE_READ:
         }
       }
 
+    # remote IPv6 addrs vary
+    s/^(Connection request from) \[.*:.*:.*\]$/$1 \[ipv6\]/;
+
     # openssl version variances
-    next if /^SSL info: unknown state/;
-    next if /^SSL info: SSLv2\/v3 write client hello A/;
-    next if /^SSL info: SSLv3 read server key exchange A/;
+  # Error lines on stdout from SSL contain process id values and file names.
+  # They also contain a source file name and line number, which may vary from
+  # release to release.
+
+    next if /^SSL info:/;
     next if /SSL verify error: depth=0 error=certificate not trusted/;
-    s/SSL3_READ_BYTES/ssl3_read_bytes/;
+    s/SSL3_READ_BYTES/ssl3_read_bytes/i;
+    s/CONNECT_CR_FINISHED/ssl3_read_bytes/i;
+    s/^\d+:error:\d+(?:E\d+)?(:SSL routines:ssl3_read_bytes:[^:]+:).*(:SSL alert number \d\d)$/pppp:error:dddddddd$1\[...\]$2/;
+    s/^error:[^:]*:(SSL routines:ssl3_read_bytes:(tls|ssl)v\d+ alert)/error:dddddddd:$1/;
 
     # gnutls version variances
     next if /^Error in the pull function./;
+
+    # optional IDN2 variant conversions.  Accept either IDN1 or IDN2
+    s/conversion  strasse.de/conversion  xn--strae-oqa.de/;
+    s/conversion: german.xn--strae-oqa.de/conversion: german.straße.de/;
+
+    # subsecond timstamp info in reported header-files
+    s/^(-received_time_usec \.)\d{6}$/$1uuuuuu/;
+
+    # Postgres server takes varible time to shut down; lives in various places
+    s/^waiting for server to shut down\.+ done$/waiting for server to shut down.... done/;
+    s/^\/.*postgres /POSTGRES /;
+
+    # ARC is not always supported by the build
+    next if /^arc_sign =/;
     }
 
   # ======== stderr ========
@@ -893,14 +995,18 @@ RESET_AFTER_EXTRA_LINE_READ:
 
     s/^Exim version .*/Exim version x.yz ..../;
 
-    # Debugging lines for Exim terminations
+    # Debugging lines for Exim terminations and process-generation
 
     s/(?<=^>>>>>>>>>>>>>>>> Exim pid=)\d+(?= terminating)/pppp/;
+    s/^(proxy-proc \w{5}-pid) \d+$/$1 pppp/;
 
     # IP address lookups use gethostbyname() when IPv6 is not supported,
     # and gethostbyname2() or getipnodebyname() when it is.
 
     s/\b(gethostbyname2?|\bgetipnodebyname)(\(af=inet\))?/get[host|ipnode]byname[2]/;
+
+    # we don't care what TZ enviroment the testhost was running
+    next if /^Reset TZ to/;
 
     # drop gnutls version strings
     next if /GnuTLS compile-time version: \d+[\.\d]+$/;
@@ -948,7 +1054,7 @@ RESET_AFTER_EXTRA_LINE_READ:
     }
     next if /^tls_validate_require_cipher child \d+ ended: status=0x0/;
 
-    # We invoke Exim with -D, so we hit this new messag as of Exim 4.73:
+    # We invoke Exim with -D, so we hit this new message as of Exim 4.73:
     next if /^macros_trusted overridden to true by whitelisting/;
 
     # We have to omit the localhost ::1 address so that all is well in
@@ -959,7 +1065,7 @@ RESET_AFTER_EXTRA_LINE_READ:
     next if /name=localhost address=::1/;
 
     # drop pdkim debugging header
-    next if /^PDKIM <<<<<<<<<<<<<<<<<<<<<<<<<<<<<+$/;
+    next if /^PDKIM( <<<<<<<<<<<<<<<<<<<<<<<<<<<<<+|: no signatures)$/;
 
     # Various other IPv6 lines must be omitted too
 
@@ -1002,12 +1108,14 @@ RESET_AFTER_EXTRA_LINE_READ:
     # Some DBM libraries seem to make DBM files on opening with O_RDWR without
     # O_CREAT; other's don't. In the latter case there is some debugging output
     # which is not present in the former. Skip the relevant lines (there are
-    # two of them).
+    # three of them).
 
-    if (/TESTSUITE\/spool\/db\/\S+ appears not to exist: trying to create/)
+    if (/returned from EXIM_DBOPEN: \(nil\)/)
       {
-      $_ = <IN>;
-      next;
+      $_ .= <IN>;
+      s?\Q$parm_cwd\E?TESTSUITE?g;
+      if (/TESTSUITE\/spool\/db\/\S+ appears not to exist: trying to create/)
+	{ $_ = <IN>; next; }
       }
 
     # Some tests turn on +expand debugging to check on expansions.
@@ -1022,6 +1130,85 @@ RESET_AFTER_EXTRA_LINE_READ:
       {
       while (<IN>) { last if !/^\s/; }
       }
+
+    # remote port numbers vary
+    s/(Connection request from 127.0.0.1 port) \d{1,5}/$1 sssss/;
+
+    # Skip hosts_require_dane checks when the options
+    # are unset, because dane ain't always there.
+    next if /in\shosts_require_dane\?\sno\s\(option\sunset\)/x;
+
+    # DISABLE_OCSP 
+    next if /in hosts_requ(est|ire)_ocsp\? (no|yes)/;
+
+    # SUPPORT_PROXY
+    next if /host in hosts_proxy\?/;
+
+    # Experimental_International
+    next if / in smtputf8_advertise_hosts\? no \(option unset\)/;
+
+    # Experimental_REQUIRETLS
+    next if / in tls_advertise_requiretls?\? no \(end of list\)/;
+
+    # TCP Fast Open
+    next if /^(ppppp )?setsockopt FASTOPEN: Network Error/;
+
+    # Experimental_PIPE_CONNECT
+    next if / in (pipelining_connect_advertise_hosts|hosts_pipe_connect)?\? no /;
+
+    # Environment cleaning
+    next if /\w+ in keep_environment\? (yes|no)/;
+
+    # Sizes vary with test hostname
+    s/^cmd buf flush \d+ bytes$/cmd buf flush ddd bytes/;
+
+    # Spool filesystem free space changes on different systems.
+    s/^((?:spool|log) directory space =) -?\d+K (inodes =)\s*-?\d+/$1 nnnnnK $2 nnnnn/;
+
+    # Non-TLS builds have different expansions for received_header_text
+    if (s/(with \$received_protocol)\}\} \$\{if def:tls_cipher \{\(\$tls_cipher\)\n$/$1/)
+      {
+      $_ .= <IN>;
+      s/[\s╎]+\}\}(?=\(Exim )/\}\} /;
+      }
+    if (/^ ├──condition: def:tls_cipher$/)
+      {
+      <IN>; <IN>; <IN>; <IN>; <IN>; <IN>;
+      <IN>; <IN>; <IN>; <IN>; <IN>; next;
+      }
+
+    # Not all platforms build with DKIM enabled
+    next if /^PDKIM >> Body data for hash, canonicalized/;
+
+    # Not all platforms have sendfile support
+    next if /^cannot use sendfile for body: no support$/;
+
+    #  Parts of DKIM-specific debug output depend on the time/date
+    next if /^date:\w+,\{SP\}/;
+    next if /^PDKIM \[[^[]+\] (Header hash|b) computed:/;
+
+    # Not all platforms support TCP Fast Open, and the compile omits the check
+    if (s/\S+ in hosts_try_fastopen\? no \(option unset\)\n$//)
+      {
+      $_ .= <IN>;
+      s/ \.\.\. >>> / ... /;
+      s/Address family not supported by protocol family/Network Error/;
+      s/Network is unreachable/Network Error/;
+      }
+    next if /^(ppppp )?setsockopt FASTOPEN: Protocol not available$/;
+    s/^(Connecting to .* \.\.\. sending) \d+ (nonTFO early-data)$/$1 dd $2/;
+
+    # Specific pointer values reported for DB operations change from run to run
+    s/^(\s*returned from EXIM_DBOPEN: )(0x)?[0-9a-f]+/${1}0xAAAAAAAA/;
+    s/^(\s*EXIM_DBCLOSE.)(0x)?[0-9a-f]+/${1}0xAAAAAAAA/;
+
+    # Platform-dependent output during MySQL startup
+    next if /PerconaFT file system space/;
+    next if /^Waiting for MySQL server to answer/;
+    next if /mysqladmin: CREATE DATABASE failed; .* database exists/;
+
+    # Not all builds include DMARC
+    next if /^DMARC: no (dmarc_tld_file|sender_host_address)$/ ;
 
     # When Exim is checking the size of directories for maildir, it uses
     # the check_dir_size() function to scan directories. Of course, the order
@@ -1044,20 +1231,6 @@ RESET_AFTER_EXTRA_LINE_READ:
         @saved = ();
         }
 
-    # remote port numbers vary
-    s/(Connection request from 127.0.0.1 port) \d{1,5}/$1 sssss/;
-
-    # Skip hosts_require_dane checks when the options
-    # are unset, because dane ain't always there.
-
-    next if /in\shosts_require_dane\?\sno\s\(option\sunset\)/x;
-
-    # SUPPORT_PROXY
-    next if /host in hosts_proxy\?/;
-
-    # Experimental_International
-    next if / in smtputf8_advertise_hosts\? no \(option unset\)/;
-
       # Skip some lines that Exim puts out at the start of debugging output
       # because they will be different in different binaries.
 
@@ -1069,9 +1242,11 @@ RESET_AFTER_EXTRA_LINE_READ:
                 /^Support for:/ ||
                 /^Routers:/ ||
                 /^Transports:/ ||
+                /^Malware:/ ||
                 /^log selectors =/ ||
                 /^cwd=/ ||
                 /^Fixed never_users:/ ||
+		/^Configure owner:/ ||
                 /^Size of off_t:/
                 );
 
@@ -1087,6 +1262,49 @@ RESET_AFTER_EXTRA_LINE_READ:
     {
     # Berkeley DB version differences
     next if / Berkeley DB error: /;
+
+    # CHUNKING: exact sizes depend on hostnames in headers
+    s/(=>.* K C="250- \d)\d+ (byte chunk, total \d)\d+/$1nn $2nn/;
+
+    # openssl version variances
+    s/(TLS error on connection [^:]*: error:)[0-9A-F]{8}(:system library):(?:fopen|func\(4095\)):(No such file or directory)$/$1xxxxxxxx$2:fopen:$3/;
+    s/(DANE attempt failed.*error:)[0-9A-F]{8}(:SSL routines:)(ssl3_get_server_certificate|tls_process_server_certificate|CONNECT_CR_CERT)(?=:certificate verify failed$)/$1xxxxxxxx$2ssl3_get_server_certificate/;
+    s/(DKIM: validation error: )error:[0-9A-F]{8}:rsa routines:(?:(?i)int_rsa_verify|CRYPTO_internal):(?:bad signature|algorithm mismatch)$/$1Public key signature verification has failed./;
+
+    # gnutls version variances
+    if (/TLS error on connection \(recv\): .* (Decode error|peer did not send any certificate)/)
+      {
+      my $prev = $_;
+      $_ = <IN>;
+      if (/error on first read/)
+	{
+	s/TLS session: \Kerror on first read:/(gnutls_handshake): A TLS fatal alert has been received.:/;
+	goto RESET_AFTER_EXTRA_LINE_READ;
+	}
+      else
+	{ $_ = $prev; }
+      }
+
+    # DKIM timestamps
+    if ( /(DKIM: d=.*) t=([0-9]*) x=([0-9]*) / )
+      {
+      my ($prefix, $t_diff) = ($1, $3 - $2);
+      s/DKIM: d=.* t=[0-9]* x=[0-9]* /${prefix} t=T x=T+${t_diff} /;
+      }
+    }
+
+  # ======== mail ========
+
+  elsif ($is_mail)
+    {
+    # DKIM timestamps, and signatures depending thereon
+    if ( /^(\s+)t=([0-9]*); x=([0-9]*); b=[A-Za-z0-9+\/]+$/ )
+      {
+      my ($indent, $t_diff) = ($1, $3 - $2);
+      s/.*/${indent}t=T; x=T+${t_diff}; b=bbbb;/;
+      <IN>;
+      <IN>;
+      }
     }
 
   # ======== All files other than stderr ========
@@ -1110,11 +1328,22 @@ return $yield;
 #            [2] if there is a C in the prompt and $force_continue is true
 # Returns:   returns the answer
 
-sub interact{
-print $_[0];
-if ($_[1]) { $_ = "u"; print "... update forced\n"; }
-  elsif ($_[2]) { $_ = "c"; print "... continue forced\n"; }
-  else { $_ = <T>; }
+sub interact {
+  my ($prompt, $have_u, $have_c) = @_;
+
+  print $prompt;
+
+  if ($have_u) {
+    print "... update forced\n";
+    return 'u';
+  }
+
+  if ($have_c) {
+    print "... continue forced\n";
+    return 'c';
+  }
+
+  return lc <T>;
 }
 
 
@@ -1134,13 +1363,22 @@ if ($_[1]) { $_ = "u"; print "... update forced\n"; }
 
 
 sub log_failure {
-  my $logfile = shift();
-  my $testno  = shift();
-  my $detail  = shift() || '';
-  if ( open(my $fh, ">>", $logfile) ) {
-    print $fh "Test $testno $detail failed\n";
-    close $fh;
-  }
+  my ($logfile, $testno, $detail) = @_;
+
+  open(my $fh, '>>', $logfile) or return;
+
+  print $fh "Test $testno "
+        . (defined $detail ? "$detail " : '')
+        . "failed\n";
+}
+
+# Computer-readable summary results logfile
+
+sub log_test {
+  my ($logfile, $testno, $resultchar) = @_;
+
+  open(my $fh, '>>', $logfile) or return;
+  print $fh "$testno $resultchar\n";
 }
 
 
@@ -1160,8 +1398,9 @@ sub log_failure {
 #             [4] TRUE if this is a log file whose deliveries must be sorted
 #             [5] optionally, a custom munge command
 #
-# Returns:    0 comparison succeeded or differences to be ignored
-#             1 comparison failed; files may have been updated (=> re-compare)
+# Returns:    0 comparison succeeded
+#             1 comparison failed; differences to be ignored
+#             2 comparison failed; files may have been updated (=> re-compare)
 #
 # Does not return if the user replies "Q" to a prompt.
 
@@ -1187,12 +1426,14 @@ if (! -e $sf_current)
 
   for (;;)
     {
-    print "Continue, Show, or Quit? [Q] ";
-    $_ = $force_continue ? "c" : <T>;
-    tests_exit(1) if /^q?$/i;
-    log_failure($log_failed_filename, $testno, $rf) if (/^c$/i && $force_continue);
-    return 0 if /^c$/i;
-    last if (/^s$/);
+    $_ = interact('Continue, Show, or Quit? [Q] ', undef, $force_continue);
+    tests_exit(1) if /^q?$/;
+    if (/^c$/ && $force_continue) {
+      log_failure($log_failed_filename, $testno, $rf);
+      log_test($log_summary_filename, $testno, 'F') if ($force_continue);
+    }
+    return 1 if /^c$/i && $rf !~ /paniclog/ && $rsf !~ /paniclog/;
+    last if (/^[sc]$/);
     }
 
   foreach $f ($rf, $rsf)
@@ -1209,10 +1450,13 @@ if (! -e $sf_current)
   print "\n";
   for (;;)
     {
-    interact("Continue, Update & retry, Quit? [Q] ", $force_update, $force_continue);
-    tests_exit(1) if /^q?$/i;
-    log_failure($log_failed_filename, $testno, $rsf) if (/^c$/i && $force_continue);
-    return 0 if /^c$/i;
+    $_ = interact('Continue, Update & retry, Quit? [Q] ', $force_update, $force_continue);
+    tests_exit(1) if /^q?$/;
+    if (/^c$/ && $force_continue) {
+      log_failure($log_failed_filename, $testno, $rf);
+      log_test($log_summary_filename, $testno, 'F')
+    }
+    return 1 if /^c$/i;
     last if (/^u$/i);
     }
   }
@@ -1223,8 +1467,10 @@ if (! -e $sf_current)
 # was a request to create a saved file. First, create the munged file from any
 # data that does exist.
 
-open(MUNGED, ">$mf") || tests_exit(-1, "Failed to open $mf: $!");
+open(MUNGED, '>', $mf) || tests_exit(-1, "Failed to open $mf: $!");
 my($truncated) = munge($rf, $extra) if -e $rf;
+
+# Append the raw server log, if it is non-empty
 if (defined $rsf && -e $rsf)
   {
   print MUNGED "\n******** SERVER ********\n";
@@ -1254,7 +1500,7 @@ if (-e $sf_current)
     {
     my(@munged, @saved, $i, $j, $k);
 
-    open(MUNGED, "$mf") || tests_exit(-1, "Failed to open $mf: $!");
+    open(MUNGED, $mf) || tests_exit(-1, "Failed to open $mf: $!");
     @munged = <MUNGED>;
     close(MUNGED);
     open(SAVED, $sf_current) || tests_exit(-1, "Failed to open $sf_current: $!");
@@ -1279,7 +1525,7 @@ if (-e $sf_current)
         }
       }
 
-    open(MUNGED, ">$mf") || tests_exit(-1, "Failed to open $mf: $!");
+    open(MUNGED, '>', $mf) || tests_exit(-1, "Failed to open $mf: $!");
     for ($i = 0; $i < @munged; $i++)
       { print MUNGED $munged[$i]; }
     close(MUNGED);
@@ -1291,7 +1537,7 @@ if (-e $sf_current)
     {
     my(@munged, $i, $j);
 
-    open(MUNGED, "$mf") || tests_exit(-1, "Failed to open $mf: $!");
+    open(MUNGED, $mf) || tests_exit(-1, "Failed to open $mf: $!");
     @munged = <MUNGED>;
     close(MUNGED);
 
@@ -1329,13 +1575,16 @@ if (-e $sf_current)
   print "\n";
   for (;;)
     {
-    interact("Continue, Retry, Update current"
-	. ($sf_current ne $sf_flavour  ? "/Save for flavour '$flavour'" : "")
-	. " & retry, Quit? [Q] ", $force_update, $force_continue);
-    tests_exit(1) if /^q?$/i;
-    log_failure($log_failed_filename, $testno, $sf_current) if (/^c$/i && $force_continue);
-    return 0 if /^c$/i;
-    return 1 if /^r$/i;
+    $_ = interact('Continue, Retry, Update current'
+	. ($sf_current ne $sf_flavour  ? "/Save for flavour '$flavour'" : '')
+	. ' & retry, Quit? [Q] ', $force_update, $force_continue);
+    tests_exit(1) if /^q?$/;
+    if (/^c$/ && $force_continue) {
+      log_failure($log_failed_filename, $testno, $sf_current);
+      log_test($log_summary_filename, $testno, 'F')
+    }
+    return 1 if /^c$/i;
+    return 2 if /^r$/i;
     last if (/^[us]$/i);
     }
   }
@@ -1344,23 +1593,23 @@ if (-e $sf_current)
 
 if (-s $mf)
   {
-	my $sf = /^u/i ? $sf_current : $sf_flavour;
-		tests_exit(-1, "Failed to cp $mf $sf") if system("cp '$mf' '$sf'") != 0;
+    my $sf = /^u/i ? $sf_current : $sf_flavour;
+    tests_exit(-1, "Failed to cp $mf $sf") if system("cp '$mf' '$sf'") != 0;
   }
 else
   {
-	# if we deal with a flavour file, we can't delete it, because next time the generic
-	# file would be used again
-	if ($sf_current eq $sf_flavour) {
-		open(FOO, ">$sf_current");
-		close(FOO);
-	}
-	else {
-		tests_exit(-1, "Failed to unlink $sf_current") if !unlink($sf_current);
-	}
+    # if we deal with a flavour file, we can't delete it, because next time the generic
+    # file would be used again
+    if ($sf_current eq $sf_flavour) {
+      open(FOO, ">$sf_current");
+      close(FOO);
+    }
+    else {
+      tests_exit(-1, "Failed to unlink $sf_current") if !unlink($sf_current);
+    }
   }
 
-return 1;
+return 2;
 }
 
 
@@ -1385,6 +1634,11 @@ $munges =
     'gnutls_handshake' =>
     { 'mainlog' => 's/\(gnutls_handshake\): Error in the push function/\(gnutls_handshake\): A TLS packet with unexpected length was received/' },
 
+    'gnutls_bad_clientcert' =>
+    { 'mainlog' => 's/\(certificate verification failed\): certificate invalid/\(gnutls_handshake\): The peer did not send any certificate./',
+      'stdout'  => 's/Succeeded in starting TLS/A TLS fatal alert has been received.\nFailed to start TLS'
+    },
+
     'optional_events' =>
     { 'stdout' => '/event_action =/' },
 
@@ -1404,7 +1658,15 @@ $munges =
     { 'stderr' => 's/(1[5-9]|23\d)\d\d msec/ssss msec/' },
 
     'tls_anycipher' =>
-    { 'mainlog' => 's/ X=TLS\S+ / X=TLS_proto_and_cipher /' },
+    { 'mainlog'   => 's! X=TLS\S+ ! X=TLS_proto_and_cipher !;
+		      s! DN="C=! DN="/C=!;
+		      s! DN="[^,"]*\K,!/!;
+		      s! DN="[^,"]*\K,!/!;
+		      s! DN="[^,"]*\K,!/!;
+		     ',
+      'rejectlog' => 's/ X=TLS\S+ / X=TLS_proto_and_cipher /',
+      'mail'      => 's/ \(TLS[^)]*\)/ (TLS_proto_and_cipher)/',
+    },
 
     'debug_pid' =>
     { 'stderr' => 's/(^\s{0,4}|(?<=Process )|(?<=child ))\d{1,5}/ppppp/g' },
@@ -1415,23 +1677,47 @@ $munges =
 
     'optional_config' =>
     { 'stdout' => '/^(
-                  dkim_(canon|domain|private_key|selector|sign_headers|strict)
+                  dkim_(canon|domain|private_key|selector|sign_headers|strict|hash|identity|timestamps)
                   |gnutls_require_(kx|mac|protocols)
+		  |hosts_pipe_connect
                   |hosts_(requ(est|ire)|try)_(dane|ocsp)
-                  |hosts_(avoid|nopass|require|verify_avoid)_tls
+		  |dane_require_tls_ciphers
+                  |hosts_(avoid|nopass|noproxy|require|verify_avoid)_tls
+                  |pipelining_connect_advertise_hosts
                   |socks_proxy
                   |tls_[^ ]*
-                  )($|[ ]=)/x' },
+		  |utf8_downconvert
+                  )($|[ ]=)/x'
+    },
 
     'sys_bindir' =>
-    { 'mainlog' => 's%/(usr/)?bin/%SYSBINDIR/%' },
+    { 'mainlog' => 's%/(usr/(local/)?)?bin/%SYSBINDIR/%' },
 
     'sync_check_data' =>
     { 'mainlog'   => 's/^(.* SMTP protocol synchronization error .* next input=.{8}).*$/$1<suppressed>/',
       'rejectlog' => 's/^(.* SMTP protocol synchronization error .* next input=.{8}).*$/$1<suppressed>/'},
 
+    'debuglog_stdout' =>
+    { 'stdout' => 's/^\d\d:\d\d:\d\d\s+\d+ //;
+                  s/Process \d+ is ready for new message/Process pppp is ready for new message/'
+    },
+
+    'timeout_errno' =>		# actual errno differs Solaris vs. Linux
+    { 'mainlog' => 's/(host deferral .* errno) <\d+> /$1 <EEE> /' },
+
+    'peer_terminated_conn' =>	# actual error differs FreedBSD vs. Linux
+    { 'stderr' => 's/^(  SMTP\()Connection reset by peer(\)<<)$/$1closed$2/' },
+
+    'perl_variants' =>		# result of hash-in-scalar-context changed from bucket-fill to keycount
+    { 'stdout' => 's%^> X/X$%> X%' },
   };
 
+
+sub max {
+  my ($a, $b) = @_;
+  return $a if ($a > $b);
+  return $b;
+}
 
 ##################################################
 #    Subroutine to check the output of a test    #
@@ -1449,47 +1735,48 @@ $munges =
 #
 # Arguments: Optionally, name of a single custom munge to run.
 # Returns:   0 if the output compared equal
-#            1 if re-run needed (files may have been updated)
+#            1 if comparison failed; differences to be ignored
+#            2 if re-run needed (files may have been updated)
 
 sub check_output{
 my($mungename) = $_[0];
 my($yield) = 0;
 my($munge) = $munges->{$mungename} if defined $mungename;
 
-$yield = 1 if check_file("spool/log/paniclog",
+$yield = max($yield,  check_file("spool/log/paniclog",
                        "spool/log/serverpaniclog",
                        "test-paniclog-munged",
                        "paniclog/$testno", 0,
-		       $munge->{'paniclog'});
+		       $munge->{paniclog}));
 
-$yield = 1 if check_file("spool/log/rejectlog",
+$yield = max($yield,  check_file("spool/log/rejectlog",
                        "spool/log/serverrejectlog",
                        "test-rejectlog-munged",
                        "rejectlog/$testno", 0,
-		       $munge->{'rejectlog'});
+		       $munge->{rejectlog}));
 
-$yield = 1 if check_file("spool/log/mainlog",
+$yield = max($yield,  check_file("spool/log/mainlog",
                        "spool/log/servermainlog",
                        "test-mainlog-munged",
                        "log/$testno", $sortlog,
-		       $munge->{'mainlog'});
+		       $munge->{mainlog}));
 
 if (!$stdout_skip)
   {
-  $yield = 1 if check_file("test-stdout",
+  $yield = max($yield,  check_file("test-stdout",
                        "test-stdout-server",
                        "test-stdout-munged",
                        "stdout/$testno", 0,
-		       $munge->{'stdout'});
+		       $munge->{stdout}));
   }
 
 if (!$stderr_skip)
   {
-  $yield = 1 if check_file("test-stderr",
+  $yield = max($yield,  check_file("test-stderr",
                        "test-stderr-server",
                        "test-stderr-munged",
                        "stderr/$testno", 0,
-		       $munge->{'stderr'});
+		       $munge->{stderr}));
   }
 
 # Compare any delivered messages, unless this test is skipped.
@@ -1527,9 +1814,9 @@ if (! $message_skip)
       }
 
     print ">> COMPARE $mail mail/$testno.$saved_mail\n" if $debug;
-    $yield = 1 if check_file($mail, undef, "test-mail-munged",
+    $yield = max($yield,  check_file($mail, undef, "test-mail-munged",
       "mail/$testno.$saved_mail", 0,
-      $munge->{'mail'});
+      $munge->{mail}));
     delete $expected_mails{"mail/$testno.$saved_mail"};
     }
 
@@ -1542,16 +1829,19 @@ if (! $message_skip)
 
     for (;;)
       {
-      interact("Continue, Update & retry, or Quit? [Q] ", $force_update, $force_continue);
-      tests_exit(1) if /^q?$/i;
-      log_failure($log_failed_filename, $testno, "missing email") if (/^c$/i && $force_continue);
-      last if /^c$/i;
+      $_ = interact('Continue, Update & retry, or Quit? [Q] ', $force_update, $force_continue);
+      tests_exit(1) if /^q?$/;
+      if (/^c$/ && $force_continue) {
+	log_failure($log_failed_filename, $testno, "missing email");
+	log_test($log_summary_filename, $testno, 'F')
+      }
+      last if /^c$/;
 
       # For update, we not only have to unlink the file, but we must also
       # remove it from the @oldmails vector, as otherwise it will still be
       # checked for when we re-run the test.
 
-      if (/^u$/i)
+      if (/^u$/)
         {
         foreach $key (keys %expected_mails)
           {
@@ -1599,9 +1889,9 @@ if (! $msglog_skip)
       ($munged_msglog = $msglog) =~
         s/((?:[^\W_]{6}-){2}[^\W_]{2})
           /new_value($1, "10Hm%s-0005vi-00", \$next_msgid)/egx;
-      $yield = 1 if check_file("spool/msglog/$msglog", undef,
+      $yield = max($yield,  check_file("spool/msglog/$msglog", undef,
         "test-msglog-munged", "msglog/$testno.$munged_msglog", 0,
-        $munge->{'msglog'});
+        $munge->{msglog}));
       delete $expected_msglogs{"$testno.$munged_msglog"};
       }
     }
@@ -1626,11 +1916,14 @@ if (! $msglog_skip)
 
     for (;;)
       {
-      interact("Continue, Update, or Quit? [Q] ", $force_update, $force_continue);
-      tests_exit(1) if /^q?$/i;
-      log_failure($log_failed_filename, $testno, "missing msglog") if (/^c$/i && $force_continue);
-      last if /^c$/i;
-      if (/^u$/i)
+      $_ = interact('Continue, Update, or Quit? [Q] ', $force_update, $force_continue);
+      tests_exit(1) if /^q?$/;
+      if (/^c$/ && $force_continue) {
+	log_failure($log_failed_filename, $testno, "missing msglog");
+	log_test($log_summary_filename, $testno, 'F')
+      }
+      last if /^c$/;
+      if (/^u$/)
         {
         foreach $key (keys %expected_msglogs)
           {
@@ -1678,7 +1971,7 @@ system("$cmd");
 # The <SCRIPT> file is open for us to read an optional return code line,
 # followed by the command line and any following data lines for stdin. The
 # command line can be continued by the use of \. Data lines are not continued
-# in this way. In all lines, the following substutions are made:
+# in this way. In all lines, the following substitutions are made:
 #
 # DIR    => the current directory
 # CALLER => the caller of this script
@@ -1687,14 +1980,14 @@ system("$cmd");
 #            reference to the subtest number, holding previous value
 #            reference to the expected return code value
 #            reference to where to put the command name (for messages)
-#            auxilliary information returned from a previous run
+#            auxiliary information returned from a previous run
 #
-# Returns:   0 the commmand was executed inline, no subprocess was run
+# Returns:   0 the command was executed inline, no subprocess was run
 #            1 a non-exim command was run and waited for
 #            2 an exim command was run and waited for
 #            3 a command was run and not waited for (daemon, server, exim_lock)
 #            4 EOF was encountered after an initial return code line
-# Optionally alse a second parameter, a hash-ref, with auxilliary information:
+# Optionally also a second parameter, a hash-ref, with auxiliary information:
 #            exim_pid: pid of a run process
 #            munge: name of a post-script results munger
 
@@ -1817,8 +2110,16 @@ if (/^dump\s+(\S+)/)
   }
 
 
-# The "echo" command is a way of writing comments to the screen.
+# verbose comments start with ###
+if (/^###\s/) {
+  for my $file (qw(test-stdout test-stderr test-stderr-server test-stdout-server)) {
+    open my $fh, '>>', $file or die "Can't open >>$file: $!\n";
+    say {$fh} $_;
+  }
+  return 0;
+}
 
+# The "echo" command is a way of writing comments to the screen.
 if (/^echo\s+(.*)$/)
   {
   print "$1\n";
@@ -1935,7 +2236,7 @@ elsif (/^millisleep\s+(.*)$/)
 
 
 # The "munge" command selects one of a hardwired set of test-result modifications
-# to be made before result compares are run agains the golden set.  This lets
+# to be made before result compares are run against the golden set.  This lets
 # us account for test-system dependent things which only affect a few, but known,
 # test-cases.
 # Currently only the last munge takes effect.
@@ -1972,7 +2273,7 @@ if (/^sleep\s+(.*)$/)
 # Various Unix management commands are recognized
 
 if (/^(ln|ls|du|mkdir|mkfifo|touch|cp|cat)\s/ ||
-    /^sudo (rmdir|rm|chown|chmod)\s/)
+    /^sudo\s(rmdir|rm|mv|chown|chmod)\s/)
   {
   run_system("$_ >>test-stdout 2>>test-stderr");
   return 1;
@@ -1993,6 +2294,7 @@ if (/^(ln|ls|du|mkdir|mkfifo|touch|cp|cat)\s/ ||
 # command, triggered by $server_pid being non-zero. The server sends its output
 # to a different file. The variable $server_opts, if not empty, contains
 # options to disable IPv4 or IPv6 if necessary.
+# This works because "server" swallows its stdin before waiting for a connection.
 
 if (/^server\s+(.*)$/)
   {
@@ -2054,7 +2356,7 @@ if (/^(cat)?write\s+(\S+)(?:\s+(.*))?\s*$/)
     while (scalar @sizes > 0)
       {
       ($count,$len,$leadin) = (shift @sizes) =~ /(\d+)x(\d+)(?:=(.*))?/;
-      $leadin = "" if !defined $leadin;
+      $leadin = '' if !defined $leadin;
       $leadin =~ s/_/ /g;
       $len -= length($leadin) + 1;
       while ($count-- > 0)
@@ -2113,9 +2415,9 @@ if (/^client/ || /^(sudo\s+)?perl\b/)
 elsif (/^((?i:[A-Z\d_]+=\S+\s+)+)?(\d+)?\s*(sudo(?:\s+-u\s+(\w+))?\s+)?exim(_\S+)?\s+(.*)$/)
   {
   $args = $6;
-  my($envset) = (defined $1)? $1      : "";
-  my($sudo)   = (defined $3)? "sudo " . (defined $4 ? "-u $4 ":"")  : "";
-  my($special)= (defined $5)? $5      : "";
+  my($envset) = (defined $1)? $1      : '';
+  my($sudo)   = (defined $3)? "sudo " . (defined $4 ? "-u $4 ":'')  : '';
+  my($special)= (defined $5)? $5      : '';
   $wait_time  = (defined $2)? $2      : 0;
 
   # Return 2 rather than 1 afterwards
@@ -2146,19 +2448,24 @@ elsif (/^((?i:[A-Z\d_]+=\S+\s+)+)?(\d+)?\s*(sudo(?:\s+-u\s+(\w+))?\s+)?exim(_\S+
 
   if ($args =~ /\$msg/)
     {
-    my($listcmd) = "$parm_cwd/eximdir/exim -bp " .
-                   "-DEXIM_PATH=$parm_cwd/eximdir/exim " .
-                   "-C $parm_cwd/test-config |";
-    print ">> Getting queue list from:\n>>    $listcmd\n" if ($debug);
-    open (QLIST, $listcmd) || tests_exit(-1, "Couldn't run \"exim -bp\": $!\n");
-    my(@msglist) = ();
-    while (<QLIST>) { push (@msglist, $1) if /^\s*\d+[smhdw]\s+\S+\s+(\S+)/; }
-    close(QLIST);
+    my @listcmd  = ("$parm_cwd/eximdir/exim", '-bp',
+                   "-DEXIM_PATH=$parm_cwd/eximdir/exim",
+                   -C => "$parm_cwd/test-config");
+    print ">> Getting queue list from:\n>>    @listcmd\n" if $debug;
+    # We need the message ids sorted in ascending order.
+    # Message id is: <timestamp>-<pid>-<fractional-time>. On some systems (*BSD) the
+    # PIDs are randomized, so sorting just the whole PID doesn't work.
+    # We do the Schartz' transformation here (sort on
+    # <timestamp><fractional-time>). Thanks to Kirill Miazine
+    my @msglist =
+      map { $_->[1] }                                   # extract the values
+      sort { $a->[0] cmp $b->[0] }                      # sort by key
+      map { [join('.' => (split /-/, $_)[0,2]) => $_] } # key (timestamp.fractional-time) => value(message_id)
+      map { /^\s*\d+[smhdw]\s+\S+\s+(\S+)/ } `@listcmd` or tests_exit(-1, "No output from `exim -bp` (@listcmd)\n");
 
     # Done backwards just in case there are more than 9
 
-    my($i);
-    for ($i = @msglist; $i > 0; $i--) { $args =~ s/\$msg$i/$msglist[$i-1]/g; }
+    for (my $i = @msglist; $i > 0; $i--) { $args =~ s/\$msg$i/$msglist[$i-1]/g; }
     if ( $args =~ /\$msg\d/ )
       {
       tests_exit(-1, "Not enough messages in spool, for test $testno line $lineno\n")
@@ -2171,7 +2478,7 @@ elsif (/^((?i:[A-Z\d_]+=\S+\s+)+)?(\d+)?\s*(sudo(?:\s+-u\s+(\w+))?\s+)?exim(_\S+
 
   $args =~ s/(?:^|\s)-d\S*// if $optargs =~ /(?:^|\s)-d/;
 
-  my $opt_valgrind = $valgrind ? "valgrind --leak-check=yes --suppressions=$parm_cwd/aux-fixed/valgrind.supp " : "";
+  my $opt_valgrind = $valgrind ? "valgrind --leak-check=yes --suppressions=$parm_cwd/aux-fixed/valgrind.supp " : '';
 
   $cmd = "$envset$sudo$opt_valgrind" .
          "$parm_cwd/eximdir/exim$special$optargs " .
@@ -2191,7 +2498,6 @@ elsif (/^((?i:[A-Z\d_]+=\S+\s+)+)?(\d+)?\s*(sudo(?:\s+-u\s+(\w+))?\s+)?exim(_\S+
 
   if ($cmd =~ /\s-DSERVER=server\s/ && $cmd !~ /\s-DNOTDAEMON\s/)
     {
-    $pidfile = "$parm_cwd/spool/exim-daemon.pid";
     if ($debug) { printf ">> daemon: $cmd\n"; }
     run_system("sudo mkdir spool/log 2>/dev/null");
     run_system("sudo chown $parm_eximuser:$parm_eximgroup spool/log");
@@ -2218,36 +2524,30 @@ elsif (/^((?i:[A-Z\d_]+=\S+\s+)+)?(\d+)?\s*(sudo(?:\s+-u\s+(\w+))?\s+)?exim(_\S+
     while (<SCRIPT>) { $lineno++; last if /^\*{4}\s*$/; }   # Ignore any input
 
     # Interlock with daemon startup
-    while (! stat("$pidfile") ) { select(undef, undef, undef, 0.3); }
+    for (my $count = 0; ! stat("$pidfile") && $count < 30; $count++ )
+      { select(undef, undef, undef, 0.3); }
     return 3;                                     # Don't wait
     }
   elsif ($cmd =~ /\s-DSERVER=wait:(\d+)\s/)
     {
+
+    # The port and the $dynamic_socket was already allocated while parsing the
+    # script file, where -DSERVER=wait:PORT_DYNAMIC was encountered.
+
     my $listen_port = $1;
-    my $waitmode_sock = new FileHandle;
     if ($debug) { printf ">> wait-mode daemon: $cmd\n"; }
     run_system("sudo mkdir spool/log 2>/dev/null");
     run_system("sudo chown $parm_eximuser:$parm_eximgroup spool/log");
 
-    my ($s_ip,$s_port) = ('127.0.0.1', $listen_port);
-    my $sin = sockaddr_in($s_port, inet_aton($s_ip))
-        or die "** Failed packing $s_ip:$s_port\n";
-    socket($waitmode_sock, PF_INET, SOCK_STREAM, getprotobyname('tcp'))
-        or die "** Unable to open socket $s_ip:$s_port: $!\n";
-    setsockopt($waitmode_sock, SOL_SOCKET, SO_REUSEADDR, 1)
-        or die "** Unable to setsockopt(SO_REUSEADDR): $!\n";
-    bind($waitmode_sock, $sin)
-        or die "** Unable to bind socket ($s_port): $!\n";
-    listen($waitmode_sock, 5);
     my $pid = fork();
     if (not defined $pid) { die "** fork failed: $!\n" }
     if (not $pid) {
       close(STDIN);
-      open(STDIN, "<&", $waitmode_sock) or die "** dup sock to stdin failed: $!\n";
-      close($waitmode_sock);
+      open(STDIN, '<&', $dynamic_socket) or die "** dup sock to stdin failed: $!\n";
+      close($dynamic_socket);
       print "[$$]>> ${cmd}-server\n" if ($debug);
       exec "exec ${cmd}-server";
-      exit(1);
+      die "Can't exec ${cmd}-server: $!\n";
     }
     while (<SCRIPT>) { $lineno++; last if /^\*{4}\s*$/; }   # Ignore any input
     select(undef, undef, undef, 0.3);             # Let the daemon get going
@@ -2266,6 +2566,7 @@ elsif (/^background$/)
 
   $_ = <SCRIPT>; $lineno++;
   chomp;
+  do_substitute($testno);
   $line = $_;
   if ($debug) { printf ">> daemon: $line >>test-stdout 2>>test-stderr\n"; }
 
@@ -2306,7 +2607,7 @@ else { tests_exit(-1, "Command unrecognized in line $lineno: $_"); }
 # -DSERVER=server add "-server" to the command, where it will adjoin the name
 # for the stderr file. See comment above about the use of -DSERVER.
 
-$stderrsuffix = ($cmd =~ /\s-DSERVER=server\s/)? "-server" : "";
+$stderrsuffix = ($cmd =~ /\s-DSERVER=server\s/)? "-server" : '';
 print ">> |${cmd}${stderrsuffix}\n" if ($debug);
 open CMD, "|${cmd}${stderrsuffix}" || tests_exit(1, "Failed to run $cmd");
 
@@ -2344,7 +2645,7 @@ return $yield;            # Ran command and waited
 ###############################################################################
 ###############################################################################
 
-# Here beginneth the Main Program ...
+# Here begins the Main Program ...
 
 ###############################################################################
 ###############################################################################
@@ -2357,9 +2658,9 @@ print "Exim tester $testversion\n";
 # we map all (.../bin) to (.../sbin:.../bin)
 $ENV{PATH} = do {
   my %seen = map { $_, 1 } split /:/, $ENV{PATH};
-  join ':' => map { m{(.*)/bin$} 
-                ? ( $seen{"$1/sbin"} ? () : ("$1/sbin"), $_) 
-                : ($_) } 
+  join ':' => map { m{(.*)/bin$}
+                ? ( $seen{"$1/sbin"} ? () : ("$1/sbin"), $_)
+                : ($_) }
       split /:/, $ENV{PATH};
 };
 
@@ -2374,23 +2675,7 @@ umask 022;
 #       Check for the "less" command             #
 ##################################################
 
-$more = "more" if system("which less >/dev/null 2>&1") != 0;
-
-
-
-##################################################
-#        Check for sudo access to root           #
-##################################################
-
-print "You need to have sudo access to root to run these tests. Checking ...\n";
-if (system("sudo date >/dev/null") != 0)
-  {
-  die "** Test for sudo failed: testing abandoned.\n";
-  }
-else
-  {
-  print "Test for sudo OK\n";
-  }
+$more = 'more' if system('which less >/dev/null 2>&1') != 0;
 
 
 
@@ -2402,10 +2687,6 @@ else
 # as the path to the binary. If the first argument does not start with a
 # '/' but exists in the file system, it's assumed to be the Exim binary.
 
-$parm_exim = (@ARGV > 0 && (-x $ARGV[0] or $ARGV[0] =~ m?^/?))? Cwd::abs_path(shift @ARGV) : "";
-print "Exim binary is $parm_exim\n" if $parm_exim ne "";
-
-
 
 ##################################################
 # Sort out options and which tests are to be run #
@@ -2415,36 +2696,58 @@ print "Exim binary is $parm_exim\n" if $parm_exim ne "";
 # options are passed on to Exim calls within the tests. Typically, this is used
 # to turn on Exim debugging while setting up a test.
 
-while (@ARGV > 0 && $ARGV[0] =~ /^-/)
+Getopt::Long::Configure qw(no_getopt_compat);
+GetOptions(
+    'debug'    => sub { $debug          = 1; $cr   = "\n" },
+    'diff'     => sub { $cf             = 'diff -u' },
+    'continue' => sub { $force_continue = 1; $more = 'cat' },
+    'update'   => \$force_update,
+    'ipv4!'    => \$have_ipv4,
+    'ipv6!'    => \$have_ipv6,
+    'keep'     => \$save_output,
+    'slow'     => \$slow,
+    'valgrind' => \$valgrind,
+    'range=s{2}'       => \my @range_wanted,
+    'test=i@'          => \my @tests_wanted,
+    'flavor|flavour=s' => \$flavour,
+    'help'             => sub { pod2usage(-exit => 0) },
+    'man'              => sub {
+        pod2usage(
+            -exit      => 0,
+            -verbose   => 2,
+            -noperldoc => system('perldoc -V 2>/dev/null 1>&2')
+        );
+    },
+) or pod2usage;
+
+($parm_exim, @ARGV) = Exim::Runtest::exim_binary(@ARGV);
+print "Exim binary is `$parm_exim'\n" if defined $parm_exim;
+
+
+my @wanted = sort numerically uniq
+  @tests_wanted ? @tests_wanted : (),
+  @range_wanted ? $range_wanted[0] .. $range_wanted[1] : (),
+  @ARGV ? @ARGV == 1 ? $ARGV[0] :
+          $ARGV[1] eq '+' ? $ARGV[0]..($ARGV[0] >= 9000 ? TEST_SPECIAL_TOP : TEST_TOP) :
+          0+$ARGV[0]..0+$ARGV[1]    # add 0 to cope with test numbers starting with zero
+        : ();
+@wanted = 1..TEST_TOP if not @wanted;
+
+##################################################
+#        Check for sudo access to root           #
+##################################################
+
+print "You need to have sudo access to root to run these tests. Checking ...\n";
+if (system('sudo true >/dev/null') != 0)
   {
-  my($arg) = shift @ARGV;
-  if ($optargs eq "")
-    {
-    if ($arg eq "-DEBUG")  { $debug = 1; $cr = "\n"; next; }
-    if ($arg eq "-DIFF")   { $cf = "diff -u"; next; }
-    if ($arg eq "-CONTINUE"){$force_continue = 1;
-                             $more = "cat";
-                             next; }
-    if ($arg eq "-UPDATE") { $force_update = 1; next; }
-    if ($arg eq "-NOIPV4") { $have_ipv4 = 0; next; }
-    if ($arg eq "-NOIPV6") { $have_ipv6 = 0; next; }
-    if ($arg eq "-KEEP")   { $save_output = 1; next; }
-    if ($arg eq "-VALGRIND")   { $valgrind = 1; next; }
-    if ($arg =~ /^-FLAVOU?R$/) { $flavour = shift; next; }
-    }
-  $optargs .= " $arg";
+  die "** Test for sudo failed: testing abandoned.\n";
+  }
+else
+  {
+  print "Test for sudo OK\n";
   }
 
-# Any subsequent arguments are a range of test numbers.
 
-if (@ARGV > 0)
-  {
-  $test_end = $test_start = $ARGV[0];
-  $test_end = $ARGV[1] if (@ARGV > 1);
-  $test_end = ($test_start >= 9000)? $test_special_top : $test_top
-    if $test_end eq "+";
-  die "** Test numbers out of order\n" if ($test_end < $test_start);
-  }
 
 
 ##################################################
@@ -2469,58 +2772,9 @@ $parm_cwd = Cwd::getcwd();
 # takes precedence; otherwise exim-snapshot takes precedence over any numbered
 # releases.
 
-if ($parm_exim eq "")
-  {
-  my($use_srcdir) = "";
-
-  opendir DIR, ".." || die "** Failed to opendir \"..\": $!\n";
-  while ($f = readdir(DIR))
-    {
-    my($srcdir);
-
-    # Try this directory if it is "exim4" or if it is exim-snapshot or exim-n.m
-    # possibly followed by -RCx where n.m is greater than any previously tried
-    # directory. Thus, we should choose the highest version of Exim that has
-    # been compiled.
-
-    if ($f eq "exim4" || $f eq "exim-snapshot" || $f eq 'src')
-      { $srcdir = $f; }
-    else
-      { $srcdir = $f
-        if ($f =~ /^exim-\d+\.\d+(-RC\d+)?$/ && $f gt $use_srcdir); }
-
-    # Look for a build directory with a binary in it. If we find a binary,
-    # accept this source directory.
-
-    if ($srcdir)
-      {
-      opendir SRCDIR, "../$srcdir" ||
-        die "** Failed to opendir \"$cwd/../$srcdir\": $!\n";
-      while ($f = readdir(SRCDIR))
-        {
-        if ($f =~ /^build-/ && -e "../$srcdir/$f/exim")
-          {
-          $use_srcdir = $srcdir;
-          $parm_exim = "$cwd/../$srcdir/$f/exim";
-          $parm_exim =~ s'/[^/]+/\.\./'/';
-          last;
-          }
-        }
-      closedir(SRCDIR);
-      }
-
-    # If we have found "exim4" or "exim-snapshot", that takes precedence.
-    # Otherwise, continue to see if there's a later version.
-
-    last if $use_srcdir eq "exim4" || $use_srcdir eq "exim-snapshot";
-    }
-  closedir(DIR);
-  print "Exim binary found in $parm_exim\n" if $parm_exim ne "";
-  }
-
 # If $parm_exim is still empty, ask the caller
 
-if ($parm_exim eq "")
+if (not $parm_exim)
   {
   print "** Did not find an Exim binary to test\n";
   for ($i = 0; $i < 5; $i++)
@@ -2538,7 +2792,7 @@ if ($parm_exim eq "")
       print "** $trybin does not exist\n";
       }
     }
-  die "** Too many tries\n" if $parm_exim eq "";
+  die "** Too many tries\n" if $parm_exim eq '';
   }
 
 
@@ -2558,30 +2812,53 @@ close(IN);
 close(OUT);
 
 print("Probing with config file: $parm_cwd/test-config\n");
-open(EXIMINFO, "$parm_exim -d -C $parm_cwd/test-config -DDIR=$parm_cwd " .
-               "-bP exim_user exim_group 2>&1|") ||
-  die "** Cannot run $parm_exim: $!\n";
-while(<EXIMINFO>)
+
+my $eximinfo = "$parm_exim -d -C $parm_cwd/test-config -DDIR=$parm_cwd -bP exim_user exim_group";
+chomp(my @eximinfo = `$eximinfo 2>&1`);
+die "$0: Can't run $eximinfo\n" if $? == -1;
+
+warn 'Got ' . $?>>8 . " from $eximinfo\n" if $?;
+foreach (@eximinfo)
   {
+  if (my ($version) = /^Exim version (\S+)/) {
+    my $git = `git describe --dirty=-XX --match 'exim-4*'`;
+    if (defined $git and $? == 0) {
+      chomp $git;
+      $version =~ s/^\d+\K\./_/;
+      $git =~ s/^exim-//i;
+      $git =~ s/.*-\Kg([[:xdigit:]]+(?:-XX)?)/$1/;
+      print <<___
+
+*** Version mismatch
+*** Exim binary: $version
+*** Git        : $git
+
+___
+        if not $version eq $git;
+    }
+  }
   $parm_eximuser = $1 if /^exim_user = (.*)$/;
   $parm_eximgroup = $1 if /^exim_group = (.*)$/;
   $parm_trusted_config_list = $1 if /^TRUSTED_CONFIG_LIST:.*?"(.*?)"$/;
-  print "$_" if /wrong owner/;
+  ($parm_configure_owner, $parm_configure_group) = ($1, $2)
+	if /^Configure owner:\s*(\d+):(\d+)/;
+  print if /wrong owner/;
   }
-close(EXIMINFO);
 
-if (defined $parm_eximuser)
-  {
-  if ($parm_eximuser =~ /^\d+$/) { $parm_exim_uid = $parm_eximuser; }
-    else { $parm_exim_uid = getpwnam($parm_eximuser); }
-  }
-else
-  {
-  print "Unable to extract exim_user from binary.\n";
-  print "Check if Exim refused to run; if so, consider:\n";
-  print "  TRUSTED_CONFIG_LIST ALT_CONFIG_PREFIX WHITELIST_D_MACROS\n";
-  die "Failing to get information from binary.\n";
-  }
+if (not defined $parm_eximuser) {
+  die <<XXX, map { "|$_\n" } @eximinfo;
+Unable to extract exim_user from binary.
+Check if Exim refused to run; if so, consider:
+  TRUSTED_CONFIG_LIST ALT_CONFIG_PREFIX WHITELIST_D_MACROS
+If debug permission denied, are you in the exim group?
+Failing to get information from binary.
+Output from $eximinfo:
+XXX
+
+}
+
+if ($parm_eximuser =~ /^\d+$/) { $parm_exim_uid = $parm_eximuser; }
+else { $parm_exim_uid = getpwnam($parm_eximuser); }
 
 if (defined $parm_eximgroup)
   {
@@ -2610,12 +2887,23 @@ if (defined $parm_trusted_config_list)
   open(TCL, $parm_trusted_config_list) or die "Can't open $parm_trusted_config_list: $!\n";
   my $test_config = getcwd() . '/test-config';
   die "Can't find '$test_config' in TRUSTED_CONFIG_LIST $parm_trusted_config_list."
-  if not grep { /^$test_config$/ } <TCL>;
+  if not grep { /^\Q$test_config\E$/ } <TCL>;
   }
 else
   {
   die "Unable to check the TRUSTED_CONFIG_LIST, seems to be empty?\n";
   }
+
+die "CONFIGURE_OWNER ($parm_configure_owner) does not match the user invoking $0 ($>)\n"
+	if $parm_configure_owner != $>;
+
+die "CONFIGURE_GROUP ($parm_configure_group) does not match the group invoking $0 ($))\n"
+	if 0020 & (stat "$parm_cwd/test-config")[2]
+	and $parm_configure_group != $);
+
+die "aux-fixed file is world-writeable; best to strip them all, recursively\n"
+	if 0020 & (stat "aux-fixed/0037.f-1")[2];
+
 
 open(EXIMINFO, "$parm_exim -d-all+transport -bV -C $parm_cwd/test-config -DDIR=$parm_cwd |") ||
   die "** Cannot run $parm_exim: $!\n";
@@ -2627,6 +2915,7 @@ while (<EXIMINFO>)
   my(@temp);
 
   if (/^(Exim|Library) version/) { print; }
+  if (/Runtime: /) {print; }
 
   elsif (/^Size of off_t: (\d+)/)
     {
@@ -2684,12 +2973,21 @@ while (<EXIMINFO>)
       if ($k =~ "/")
         {
         @temp = split /\//, $k;
-        $parm_transports{"$temp[0]"} = " ";
+        $parm_transports{$temp[0]} = " ";
         for ($i = 1; $i < @temp; $i++)
           { $parm_transports{"$temp[0]/$temp[$i]"} = " "; }
         }
       }
     }
+
+  elsif (/^Malware: (.*)/)
+    {
+    print;
+    @temp = split /(\s+)/, $1;
+    push(@temp, ' ');
+    %parm_malware = @temp;
+    }
+
   }
 close(EXIMINFO);
 print "-" x 78, "\n";
@@ -2703,7 +3001,7 @@ unlink("$parm_cwd/test-config");
 # These are crude tests. If they aren't good enough, we'll have to improve
 # them, for example by actually passing a message through spamc or clamscan.
 
-if (defined $parm_support{'Content_Scanning'})
+if (defined $parm_support{Content_Scanning})
   {
   my $sock = new FileHandle;
 
@@ -2714,7 +3012,7 @@ if (defined $parm_support{'Content_Scanning'})
     # This test for an active SpamAssassin is courtesy of John Jetmore.
     # The tests are hard coded to localhost:783, so no point in making
     # this test flexible like the clamav test until the test scripts are
-    # changed.  spamd doesn't have the nice PING/PONG protoccol that
+    # changed.  spamd doesn't have the nice PING/PONG protocol that
     # clamd does, but it does respond to errors in an informative manner,
     # so use that.
 
@@ -2754,7 +3052,7 @@ if (defined $parm_support{'Content_Scanning'})
       }
     else
       {
-      $parm_running{'SpamAssassin'} = ' ';
+      $parm_running{SpamAssassin} = ' ';
       print "  SpamAssassin (spamd) seems to be running\n";
       }
     }
@@ -2773,11 +3071,11 @@ if (defined $parm_support{'Content_Scanning'})
     print "The clamscan command works";
 
     $test_prefix = $ENV{EXIM_TEST_PREFIX};
-    $test_prefix = "" if !defined $test_prefix;
+    $test_prefix = '' if !defined $test_prefix;
 
     foreach $f ("$test_prefix/etc/clamd.conf",
                 "$test_prefix/usr/local/etc/clamd.conf",
-                "$test_prefix/etc/clamav/clamd.conf", "")
+                "$test_prefix/etc/clamav/clamd.conf", '')
       {
       if (-e $f)
         {
@@ -2788,7 +3086,7 @@ if (defined $parm_support{'Content_Scanning'})
 
     # Read the ClamAV configuration file and find the socket interface.
 
-    if ($clamconf ne "")
+    if ($clamconf ne '')
       {
       my $socket_domain;
       open(IN, "$clamconf") || die "\n** Unable to open $clamconf: $!\n";
@@ -2875,7 +3173,7 @@ if (defined $parm_support{'Content_Scanning'})
           }
         else
           {
-          $parm_running{'ClamAV'} = ' ';
+          $parm_running{ClamAV} = ' ';
           print "  ClamAV seems to be running\n";
           }
         }
@@ -2898,12 +3196,12 @@ if (defined $parm_support{'Content_Scanning'})
 ##################################################
 #       Check for redis                          #
 ##################################################
-if (defined $parm_lookups{'redis'})
+if (defined $parm_lookups{redis})
   {
   if (system("redis-server -v 2>/dev/null >/dev/null") == 0)
     {
     print "The redis-server command works\n";
-    $parm_running{'redis'} = ' ';
+    $parm_running{redis} = ' ';
     }
   else
     {
@@ -2918,21 +3216,21 @@ if (defined $parm_lookups{'redis'})
 # This test suite assumes that Exim has been built with at least the "usual"
 # set of routers, transports, and lookups. Ensure that this is so.
 
-$missing = "";
+$missing = '';
 
-$missing .= "     Lookup: lsearch\n" if (!defined $parm_lookups{'lsearch'});
+$missing .= "     Lookup: lsearch\n" if (!defined $parm_lookups{lsearch});
 
-$missing .= "     Router: accept\n" if (!defined $parm_routers{'accept'});
-$missing .= "     Router: dnslookup\n" if (!defined $parm_routers{'dnslookup'});
-$missing .= "     Router: manualroute\n" if (!defined $parm_routers{'manualroute'});
-$missing .= "     Router: redirect\n" if (!defined $parm_routers{'redirect'});
+$missing .= "     Router: accept\n" if (!defined $parm_routers{accept});
+$missing .= "     Router: dnslookup\n" if (!defined $parm_routers{dnslookup});
+$missing .= "     Router: manualroute\n" if (!defined $parm_routers{manualroute});
+$missing .= "     Router: redirect\n" if (!defined $parm_routers{redirect});
 
-$missing .= "     Transport: appendfile\n" if (!defined $parm_transports{'appendfile'});
-$missing .= "     Transport: autoreply\n" if (!defined $parm_transports{'autoreply'});
-$missing .= "     Transport: pipe\n" if (!defined $parm_transports{'pipe'});
-$missing .= "     Transport: smtp\n" if (!defined $parm_transports{'smtp'});
+$missing .= "     Transport: appendfile\n" if (!defined $parm_transports{appendfile});
+$missing .= "     Transport: autoreply\n" if (!defined $parm_transports{autoreply});
+$missing .= "     Transport: pipe\n" if (!defined $parm_transports{pipe});
+$missing .= "     Transport: smtp\n" if (!defined $parm_transports{smtp});
 
-if ($missing ne "")
+if ($missing ne '')
   {
   print "\n";
   print "** Many features can be included or excluded from Exim binaries.\n";
@@ -2954,8 +3252,8 @@ if ($missing ne "")
 for $prog ("cf", "checkaccess", "client", "client-ssl", "client-gnutls",
            "fakens", "iefbr14", "server")
   {
-  next if ($prog eq "client-ssl" && !defined $parm_support{'OpenSSL'});
-  next if ($prog eq "client-gnutls" && !defined $parm_support{'GnuTLS'});
+  next if ($prog eq "client-ssl" && !defined $parm_support{OpenSSL});
+  next if ($prog eq "client-gnutls" && !defined $parm_support{GnuTLS});
   if (!-e "bin/$prog")
     {
     print "\n";
@@ -2969,9 +3267,9 @@ for $prog ("cf", "checkaccess", "client", "client-ssl", "client-gnutls",
 # have that functionality compiled, we needn't bother.
 
 $dlfunc_deleted = 0;
-if (defined $parm_support{'Expand_dlfunc'} && !-e "bin/loaded")
+if (defined $parm_support{Expand_dlfunc} && !-e 'bin/loaded')
   {
-  delete $parm_support{'Expand_dlfunc'};
+  delete $parm_support{Expand_dlfunc};
   $dlfunc_deleted = 1;
   }
 
@@ -3000,6 +3298,12 @@ unless (defined $parm_eximgroup)
   die "** ABANDONING.\n";
   }
 
+if ($parm_caller_home eq $parm_cwd)
+  {
+  print "will confuse working dir with homedir; change homedir\n";
+  die "** ABANDONING.\n";
+  }
+
 print "You need to be in the Exim group to run these tests. Checking ...";
 
 if (`groups` =~ /\b\Q$parm_eximgroup\E\b/)
@@ -3015,38 +3319,25 @@ else
 # Find this host's IP addresses - there may be many, of course, but we keep
 # one of each type (IPv4 and IPv6).
 
-$parm_ipv4 = "";
-$parm_ipv6 = "";
-
-$local_ipv4 = "";
-$local_ipv6 = "";
-
-open(IFCONFIG, "ifconfig -a|") || die "** Cannot run \"ifconfig\": $!\n";
-while (($parm_ipv4 eq "" || $parm_ipv6 eq "") && ($_ = <IFCONFIG>))
+open(IFCONFIG, '-|', (grep { -x "$_/ip" } split /:/, $ENV{PATH}) ? 'ip address' : 'ifconfig -a')
+  or die "** Cannot run 'ip address' or 'ifconfig -a'\n";
+while (not ($parm_ipv4 and $parm_ipv6) and defined($_ = <IFCONFIG>))
   {
-  my($ip);
-  if ($parm_ipv4 eq "" &&
-      $_ =~ /^\s*inet(?:\saddr)?:?\s?(\d+\.\d+\.\d+\.\d+)\s/i)
+  if (not $parm_ipv4 and /^\s*inet(?:\saddr)?:?\s?(\d+\.\d+\.\d+\.\d+)(?:\/\d+)?\s/i)
     {
-    $ip = $1;
-    next if ($ip =~ /^127\./ || $ip =~ /^10\./);
-    $parm_ipv4 = $ip;
+    next if $1 =~ /^(?:127|10)\./;
+    $parm_ipv4 = $1;
     }
 
-  if ($parm_ipv6 eq "" &&
-      $_ =~ /^\s*inet6(?:\saddr)?:?\s?([abcdef\d:]+)/i)
+  if (not $parm_ipv6 and /^\s*inet6(?:\saddr)?:?\s?([abcdef\d:]+)(?:\/\d+)/i)
     {
-    $ip = $1;
-    next if ($ip eq "::1" || $ip =~ /^fe80/i);
-    $parm_ipv6 = $ip;
+    next if $1 eq '::1' or $1 =~ /^fe80/i;
+    $parm_ipv6 = $1;
     }
   }
 close(IFCONFIG);
 
 # Use private IP addresses if there are no public ones.
-
-$parm_ipv4 = $local_ipv4 if ($parm_ipv4 eq "");
-$parm_ipv6 = $local_ipv6 if ($parm_ipv6 eq "");
 
 # If either type of IP address is missing, we need to set the value to
 # something other than empty, because that wrecks the substitutions. The value
@@ -3056,7 +3347,7 @@ $parm_ipv6 = $local_ipv6 if ($parm_ipv6 eq "");
 # of IPV4 or IPv6 can be simulated by command options, which force $have_ipv4
 # and $have_ipv6 false.
 
-if ($parm_ipv4 eq "")
+if (not $parm_ipv4)
   {
   $have_ipv4 = 0;
   $parm_ipv4 = "<no IPv4 address found>";
@@ -3069,23 +3360,23 @@ elsif ($have_ipv4 == 0)
   }
 else
   {
-  $parm_running{"IPv4"} = " ";
+  $parm_running{IPv4} = " ";
   }
 
-if ($parm_ipv6 eq "")
+if (not $parm_ipv6)
   {
   $have_ipv6 = 0;
   $parm_ipv6 = "<no IPv6 address found>";
   $server_opts .= " -noipv6";
-  delete($parm_support{"IPv6"});
+  delete($parm_support{IPv6});
   }
 elsif ($have_ipv6 == 0)
   {
   $parm_ipv6 = "<IPv6 testing disabled>";
   $server_opts .= " -noipv6";
-  delete($parm_support{"IPv6"});
+  delete($parm_support{IPv6});
   }
-elsif (!defined $parm_support{'IPv6'})
+elsif (!defined $parm_support{IPv6})
   {
   $have_ipv6 = 0;
   $parm_ipv6 = "<no IPv6 support in Exim binary>";
@@ -3093,7 +3384,7 @@ elsif (!defined $parm_support{'IPv6'})
   }
 else
   {
-  $parm_running{"IPv6"} = " ";
+  $parm_running{IPv6} = " ";
   }
 
 print "IPv4 address is $parm_ipv4\n";
@@ -3101,7 +3392,7 @@ print "IPv6 address is $parm_ipv6\n";
 
 # For munging test output, we need the reversed IP addresses.
 
-$parm_ipv4r = ($parm_ipv4 !~ /^\d/)? "" :
+$parm_ipv4r = ($parm_ipv4 !~ /^\d/)? '' :
   join(".", reverse(split /\./, $parm_ipv4));
 
 $parm_ipv6r = $parm_ipv6;             # Appropriate if not in use
@@ -3120,8 +3411,16 @@ if ($parm_ipv6 =~ /^[\da-f]/)
 # Find the host name, fully qualified.
 
 chomp($temp = `hostname`);
-$parm_hostname = (gethostbyname($temp))[0];
-$parm_hostname = "no.host.name.found" if $parm_hostname eq "";
+die "'hostname' didn't return anything\n" unless defined $temp and length $temp;
+if ($temp =~ /\./)
+  {
+  $parm_hostname = $temp;
+  }
+else
+  {
+  $parm_hostname = (gethostbyname($temp))[0];
+  $parm_hostname = "no.host.name.found" unless defined $parm_hostname and length $parm_hostname;
+  }
 print "Hostname is $parm_hostname\n";
 
 if ($parm_hostname !~ /\./)
@@ -3132,6 +3431,12 @@ if ($parm_hostname !~ /\./)
 if ($parm_hostname =~ /[[:upper:]]/)
   {
   print "\n*** Host name has upper case characters: this may cause problems ***\n\n";
+  }
+
+if ($parm_hostname =~ /\.example\.com$/)
+  {
+  die "\n*** Host name ends in .example.com; this conflicts with the testsuite use of that domain.\n"
+	. "    Please change the host's name (or comment out this check, and fail several testcases)\n";
   }
 
 
@@ -3176,8 +3481,8 @@ die "** Unable to make patched exim: $!\n"
 # tests_exit(), so that suitable cleaning up can be done when required.
 # Arrange to catch interrupting signals, to assist with this.
 
-$SIG{'INT'} = \&inthandler;
-$SIG{'PIPE'} = \&pipehandler;
+$SIG{INT} = \&inthandler;
+$SIG{PIPE} = \&pipehandler;
 
 # For some tests, we need another copy of the binary that is setuid exim rather
 # than root.
@@ -3186,7 +3491,6 @@ system("sudo cp eximdir/exim eximdir/exim_exim;" .
        "sudo chown $parm_eximuser eximdir/exim_exim;" .
        "sudo chgrp $parm_eximgroup eximdir/exim_exim;" .
        "sudo chmod 06755 eximdir/exim_exim");
-
 
 ##################################################
 #     Make copies of utilities we might need     #
@@ -3198,10 +3502,10 @@ system("sudo cp eximdir/exim eximdir/exim_exim;" .
 ($parm_exim_dir) = $parm_exim =~ m?^(.*)/exim?;
 
 $dbm_build_deleted = 0;
-if (defined $parm_lookups{'dbm'} &&
+if (defined $parm_lookups{dbm} &&
     system("cp $parm_exim_dir/exim_dbmbuild eximdir") != 0)
   {
-  delete $parm_lookups{'dbm'};
+  delete $parm_lookups{dbm};
   $dbm_build_deleted = 1;
   }
 
@@ -3229,6 +3533,15 @@ if (system("cp $parm_exim_dir/eximstats eximdir") != 0)
   {
   tests_exit(-1, "Failed to make a copy of eximstats: $!");
   }
+
+# Collect some version information
+print '-' x 78, "\n";
+print "Perl version for runtest: $]\n";
+foreach (map { "./eximdir/$_" } qw(exigrep exinext eximstats)) {
+  # fold (or unfold?) multiline output into a one-liner
+  print join(', ', map { chomp; $_ } `$_ --version`), "\n";
+}
+print '-' x 78, "\n";
 
 
 ##################################################
@@ -3272,6 +3585,8 @@ else
   print " OK\n";
   }
 
+tests_exit(-1, "Failed to unlink $log_summary_filename: $!")
+  if not unlink($log_summary_filename) and -e $log_summary_filename;
 
 ##################################################
 #        Create a list of available tests        #
@@ -3285,31 +3600,21 @@ else
 # because the current binary does not support the right facilities, and also
 # those that are outside the numerical range selected.
 
-print "\nTest range is $test_start to $test_end (flavour $flavour)\n";
+printf "\nWill run %d tests between %d and %d for flavour %s\n",
+  scalar(@wanted), $wanted[0], $wanted[-1], $flavour;
+
 print "Omitting \${dlfunc expansion tests (loadable module not present)\n"
   if $dlfunc_deleted;
 print "Omitting dbm tests (unable to copy exim_dbmbuild)\n"
   if $dbm_build_deleted;
 
-opendir(DIR, "scripts") || tests_exit(-1, "Failed to opendir(\"scripts\"): $!");
-@test_dirs = sort readdir(DIR);
-closedir(DIR);
 
-# Remove . and .. and CVS from the list.
-
-for ($i = 0; $i < @test_dirs; $i++)
-  {
-  my($d) = $test_dirs[$i];
-  if ($d eq "." || $d eq ".." || $d eq "CVS")
-    {
-    splice @test_dirs, $i, 1;
-    $i--;
-    }
-  }
+my @test_dirs = grep { not /^CVS$/ } map { basename $_ } glob 'scripts/*'
+  or die tests_exit(-1, "Failed to find test scripts in 'scripts/*`: $!");
 
 # Scan for relevant tests
-
-for ($i = 0; $i < @test_dirs; $i++)
+# HS12: Needs to be reworked.
+DIR: for (my $i = 0; $i < @test_dirs; $i++)
   {
   my($testdir) = $test_dirs[$i];
   my($wantthis) = 1;
@@ -3319,19 +3624,19 @@ for ($i = 0; $i < @test_dirs; $i++)
   # Skip this directory if the first test is equal or greater than the first
   # test in the next directory.
 
-  next if ($i < @test_dirs - 1) &&
-          ($test_start >= substr($test_dirs[$i+1], 0, 4));
+  next DIR if ($i < @test_dirs - 1) &&
+          ($wanted[0] >= substr($test_dirs[$i+1], 0, 4));
 
   # No need to carry on if the end test is less than the first test in this
   # subdirectory.
 
-  last if $test_end < substr($testdir, 0, 4);
+  last DIR if $wanted[-1] < substr($testdir, 0, 4);
 
   # Check requirements, if any.
 
-  if (open(REQUIRES, "scripts/$testdir/REQUIRES"))
+  if (open(my $requires, "scripts/$testdir/REQUIRES"))
     {
-    while (<REQUIRES>)
+    while (<$requires>)
       {
       next if /^\s*$/;
       s/\s+$//;
@@ -3359,12 +3664,41 @@ for ($i = 0; $i < @test_dirs; $i++)
         {
         if (!defined $parm_transports{$1}) { $wantthis = 0; last; }
         }
+      elsif (/^malware (.*)$/)
+        {
+        if (!defined $parm_malware{$1}) { $wantthis = 0; last; }
+        }
+      elsif (/^feature (.*)$/)
+        {
+	# move to a subroutine?
+	my $eximinfo = "$parm_exim -C $parm_cwd/test-config -DDIR=$parm_cwd -bP macro $1";
+
+	open (IN, "$parm_cwd/confs/0000") ||
+	  tests_exit(-1, "Couldn't open $parm_cwd/confs/0000: $!\n");
+	open (OUT, ">test-config") ||
+	  tests_exit(-1, "Couldn't open test-config: $!\n");
+	while (<IN>)
+	  {
+	  do_substitute($testno);
+	  print OUT;
+	  }
+	close(IN);
+	close(OUT);
+
+	system($eximinfo . " >/dev/null 2>&1");
+	if ($? != 0) {
+	  unlink("$parm_cwd/test-config");
+	  $wantthis = 0;
+	  $_ = "feature $1";
+	  last;
+	}
+	unlink("$parm_cwd/test-config");
+        }
       else
         {
         tests_exit(-1, "Unknown line in \"scripts/$testdir/REQUIRES\": \"$_\"");
         }
       }
-    close(REQUIRES);
     }
   else
     {
@@ -3378,26 +3712,29 @@ for ($i = 0; $i < @test_dirs; $i++)
     {
     chomp;
     print "Omitting tests in $testdir (missing $_)\n";
-    next;
     }
 
   # We want the tests from this subdirectory, provided they are in the
   # range that was selected.
 
-  opendir(SUBDIR, "scripts/$testdir") ||
-    tests_exit(-1, "Failed to opendir(\"scripts/$testdir\"): $!");
-  @testlist = sort readdir(SUBDIR);
-  close(SUBDIR);
+  @testlist = grep { $_ ~~ @wanted } grep { /^\d+(?:\.\d+)?$/ } map { basename $_ } glob "scripts/$testdir/*";
+  tests_exit(-1, "Failed to read test scripts from `scripts/$testdir/*': $!")
+    if not @testlist;
 
   foreach $test (@testlist)
     {
-    next if $test !~ /^\d{4}(?:\.\d+)?$/;
-    next if $test < $test_start || $test > $test_end;
-    push @test_list, "$testdir/$test";
+    if (!$wantthis)
+      {
+      log_test($log_summary_filename, $test, '.');
+      }
+    else
+      {
+      push @test_list, "$testdir/$test";
+      }
     }
   }
 
-print ">>Test List: @test_list\n", if $debug;
+print ">>Test List:\n", join "\n", @test_list, '' if $debug;
 
 
 ##################################################
@@ -3461,8 +3798,8 @@ foreach $basedir ("aux-var", "dnszones")
 
 # Set a user's shell, distinguishable from /bin/sh
 
-symlink("/bin/sh","aux-var/sh");
-$ENV{'SHELL'} = $parm_shell = $parm_cwd . "/aux-var/sh";
+symlink('/bin/sh' => 'aux-var/sh');
+$ENV{SHELL} = $parm_shell = "$parm_cwd/aux-var/sh";
 
 ##################################################
 #     Create fake DNS zones for this host        #
@@ -3515,7 +3852,7 @@ if ($have_ipv6 && $parm_ipv6 ne "::1")
   }
   my(@components) = split /:/, $exp_v6;
   my(@nibbles) = reverse (split /\s*/, shift @components);
-  my($sep) =  "";
+  my($sep) =  '';
 
   $" = ".";
   open(OUT, ">$parm_cwd/dnszones/db.ip6.@nibbles") ||
@@ -3564,45 +3901,55 @@ closedir(DIR);
 # contains ****. We open input from the terminal so that we can read responses
 # to prompts.
 
-open(T, "/dev/tty") || tests_exit(-1, "Failed to open /dev/tty: $!");
+if (not $force_continue) {
+  # runtest needs to interact if we're not in continue
+  # mode. It does so by communicate to /dev/tty
+  open(T, '<', '/dev/tty') or tests_exit(-1, "Failed to open /dev/tty: $!");
+  print "\nPress RETURN to run the tests: ";
+  <T>;
+}
 
-print "\nPress RETURN to run the tests: ";
-$_ = $force_continue ? "c" : <T>;
-print "\n";
-
-$lasttestdir = "";
 
 foreach $test (@test_list)
   {
-  local($lineno) = 0;
-  local($commandno) = 0;
-  local($subtestno) = 0;
-  (local $testno = $test) =~ s|.*/||;
-  local($sortlog) = 0;
+  state $lasttestdir = '';
 
-  my($gnutls) = 0;
-  my($docheck) = 1;
-  my($thistestdir) = substr($test, 0, -5);
+  local $lineno     = 0;
+  local $commandno  = 0;
+  local $subtestno  = 0;
+  local $sortlog    = 0;
+
+  (local $testno = $test) =~ s|.*/||;
+
+  # Leaving traces in the process table and in the environment
+  # gives us a chance to identify hanging processes (exim daemons)
+  local $0 = "[runtest $testno]";
+  local $ENV{EXIM_TEST_NUMBER} = $testno;
+
+  my $gnutls   = 0;
+  my $docheck  = 1;
+  my $thistestdir  = substr($test, 0, -5);
+
+  $dynamic_socket->close() if $dynamic_socket;
 
   if ($lasttestdir ne $thistestdir)
     {
     $gnutls = 0;
     if (-s "scripts/$thistestdir/REQUIRES")
       {
-      my($indent) = "";
+      my $indent = '';
       print "\n>>> The following tests require: ";
-      open(IN, "scripts/$thistestdir/REQUIRES") ||
-        tests_exit(-1, "Failed to open scripts/$thistestdir/REQUIRES: $1");
-      while (<IN>)
+      open(my $requires, '<', "scripts/$thistestdir/REQUIRES") ||
+        tests_exit(-1, "Failed to open scripts/$thistestdir/REQUIRES: $!");
+      while (<$requires>)
         {
         $gnutls = 1 if /^support GnuTLS/;
         print $indent, $_;
         $indent = ">>>                              ";
         }
-      close(IN);
       }
+      $lasttestdir = $thistestdir;
     }
-  $lasttestdir = $thistestdir;
 
   # Remove any debris in the spool directory and the test-mail directory
   # and also the files for collecting stdout and stderr. Then put back
@@ -3633,7 +3980,7 @@ foreach $test (@test_list)
   $stdout_skip = 0;
   $rmfiltertest = 0;
   $is_ipv6test = 0;
-  $TEST_STATE->{munge} = "";
+  $TEST_STATE->{munge} = '';
 
   # Remove the associative arrays used to hold checked mail files and msglogs
 
@@ -3652,6 +3999,7 @@ foreach $test (@test_list)
     if (/^no_stdout_check/)  { $stdout_skip = 1; next; }
     if (/^rmfiltertest/)     { $rmfiltertest = 1; next; }
     if (/^sortlog/)          { $sortlog = 1; next; }
+    if (/\bPORT_DYNAMIC\b/)  { $dynamic_socket = Exim::Runtest::dynamic_socket(); next; }
     }
   # Reset to beginning of file for per test interpreting/processing
   seek(SCRIPT, 0, 0);
@@ -3719,7 +4067,7 @@ foreach $test (@test_list)
 
       if (/^need_move_frozen_messages/)
         {
-        next if defined $parm_support{"move_frozen_messages"};
+        next if defined $parm_support{move_frozen_messages};
         print ">>> move frozen message support is needed for test $testno, " .
           "but is not\n>>> available: skipping\n";
         $docheck = 0;      # don't check output
@@ -3727,22 +4075,21 @@ foreach $test (@test_list)
         last;
         }
 
-      last unless /^(#|\s*$)/;
+      last unless /^(?:#(?!##\s)|\s*$)/;
       }
     last if !defined $_;  # Hit EOF
 
     my($subtest_startline) = $lineno;
 
-    # Now run the command. The function returns 0 if exim was run and waited
-    # for, 1 if any other command was run and waited for, and 2 if a command
+    # Now run the command. The function returns 0 for an inline command,
+    # 1 if a non-exim command was run and waited for, 2 if an exim
+    # command was run and waited for, and 3 if a command
     # was run and not waited for (usually a daemon or server startup).
 
-    my($commandname) = "";
+    my($commandname) = '';
     my($expectrc) = 0;
     my($rc, $run_extra) = run_command($testno, \$subtestno, \$expectrc, \$commandname, $TEST_STATE);
     my($cmdrc) = $?;
-
-$0 = "[runtest $testno]";
 
     if ($debug) {
       print ">> rc=$rc cmdrc=$cmdrc\n";
@@ -3796,11 +4143,18 @@ $0 = "[runtest $testno]";
         print "\nshow stdErr, show stdOut, Retry, Continue (without file comparison), or Quit? [Q] ";
         $_ = $force_continue ? "c" : <T>;
         tests_exit(1) if /^q?$/i;
-        log_failure($log_failed_filename, $testno, "exit code unexpected") if (/^c$/i && $force_continue);
+	if (/^c$/ && $force_continue) {
+	  log_failure($log_failed_filename, $testno, "exit code unexpected");
+	  log_test($log_summary_filename, $testno, 'F')
+	}
         if ($force_continue)
           {
-          print "\nstderr tail:\n";
+          print "\nstdout tail:\n";
+          print "==================>\n";
+          system("tail -20 test-stdout");
           print "===================\n";
+          print "stderr tail:\n";
+          print "==================>\n";
           system("tail -20 test-stderr");
           print "===================\n";
           print "... continue forced\n";
@@ -3832,7 +4186,8 @@ $0 = "[runtest $testno]";
       if ($? != 0)
         {
         if (($? & 0xff) == 0)
-          { printf("Server return code %d", $?/256); }
+          { printf("Server return code %d for test %d starting line %d", $?/256,
+	       	$testno, $subtest_startline); }
         elsif (($? & 0xff00) == 0)
           { printf("Server killed by signal %d", $? & 255); }
         else
@@ -3843,7 +4198,10 @@ $0 = "[runtest $testno]";
           print "\nShow server stdout, Retry, Continue, or Quit? [Q] ";
           $_ = $force_continue ? "c" : <T>;
           tests_exit(1) if /^q?$/i;
-          log_failure($log_failed_filename, $testno, "exit code unexpected") if (/^c$/i && $force_continue);
+	  if (/^c$/ && $force_continue) {
+	    log_failure($log_failed_filename, $testno, "exit code unexpected");
+	    log_test($log_summary_filename, $testno, 'F')
+	  }
           print "... continue forced\n" if $force_continue;
           last if /^[rc]$/i;
 
@@ -3863,9 +4221,9 @@ $0 = "[runtest $testno]";
   close SCRIPT;
 
   # The script has finished. Check the all the output that was generated. The
-  # function returns 0 if all is well, 1 if we should rerun the test (the files
-  # function returns 0 if all is well, 1 if we should rerun the test (the files
-  # have been updated). It does not return if the user responds Q to a prompt.
+  # function returns 0 for a perfect pass, 1 if imperfect but ok, 2 if we should
+  # rerun the test (the files # have been updated).
+  # It does not return if the user responds Q to a prompt.
 
   if ($retry)
     {
@@ -3876,14 +4234,17 @@ $0 = "[runtest $testno]";
 
   if ($docheck)
     {
-    if (check_output($TEST_STATE->{munge}) != 0)
+    sleep 1 if $slow;
+    my $rc = check_output($TEST_STATE->{munge});
+    log_test($log_summary_filename, $testno, 'P') if ($rc == 0);
+    if ($rc < 2)
       {
-      print (("#" x 79) . "\n");
-      redo;
+      print ("  Script completed\n");
       }
     else
       {
-      print ("  Script completed\n");
+      print (("#" x 79) . "\n");
+      redo;
       }
     }
   }
@@ -3893,8 +4254,84 @@ $0 = "[runtest $testno]";
 #         Exit from the test script              #
 ##################################################
 
-tests_exit(-1, "No runnable tests selected") if @test_list == 0;
+tests_exit(-1, "No runnable tests selected") if not @test_list;
 tests_exit(0);
 
+__END__
+
+=head1 NAME
+
+ runtest - run the exim testsuite
+
+=head1 SYNOPSIS
+
+ runtest [exim-path] [options] [test0 [test1]]
+
+=head1 DESCRIPTION
+
+B<runtest> runs the Exim testsuite.
+
+=head1 OPTIONS
+
+For legacy reasons the options are not case sensitive.
+
+=over
+
+=item B<--continue>
+
+Do not stop for user interaction or on errors. (default: off)
+
+=item B<--debug>
+
+This option enables the output of debug information when running the
+various test commands. (default: off)
+
+=item B<--diff>
+
+Use C<diff -u> for comparing the expected output with the produced
+output. (default: use a built-in routine)
+
+=item B<--flavor>|B<--flavour> I<flavour>
+
+Override the expected results for results for a specific (OS) flavour.
+(default: unused)
+
+=item B<--[no]ipv4>
+
+Skip IPv4 related setup and tests (default: use ipv4)
+
+=item B<--[no]ipv6>
+
+Skip IPv6 related setup and tests (default: use ipv6)
+
+=item B<--keep>
+
+Keep the various output files produced during a test run. (default: don't keep)
+
+=item B<--range> I<n0> I<n1>
+
+Run tests between (including) I<n0> and I<n1>. A "+" may be used to specify the "last
+test available".
+
+=item B<--slow>
+
+Insert some delays to compensate for a slow host system. (default: off)
+
+=item B<--test> I<n>
+
+Run the specified test. This option may used multiple times.
+
+=item B<--update>
+
+Automatically update the recorded (expected) data on mismatch. (default: off)
+
+=item B<--valgrind>
+
+Start Exim wrapped by I<valgrind>. (default: don't use valgrind)
+
+=back
+
+=cut
+
+
 # End of runtest script
-# vim: set sw=2 et :

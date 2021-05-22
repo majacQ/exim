@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -14,15 +14,15 @@ local_scan.h includes it and exim.h includes them both (to get this earlier). */
 #define MYTYPES_H
 
 #ifndef FALSE
-#define FALSE         0
+# define FALSE         0
 #endif
 
 #ifndef TRUE
-#define TRUE          1
+# define TRUE          1
 #endif
 
 #ifndef TRUE_UNSET
-#define TRUE_UNSET    2
+# define TRUE_UNSET    2
 #endif
 
 
@@ -30,17 +30,19 @@ local_scan.h includes it and exim.h includes them both (to get this earlier). */
 the arguments of printf-like functions. This is done by a macro. */
 
 #if defined(__GNUC__) || defined(__clang__)
-#define PRINTF_FUNCTION(A,B)  __attribute__((format(printf,A,B)))
-#define ARG_UNUSED  __attribute__((__unused__))
+# define PRINTF_FUNCTION(A,B)	__attribute__((format(printf,A,B)))
+# define ARG_UNUSED		__attribute__((__unused__))
+# define WARN_UNUSED_RESULT	__attribute__((__warn_unused_result__))
 #else
-#define PRINTF_FUNCTION(A,B)
-#define ARG_UNUSED  /**/
+# define PRINTF_FUNCTION(A,B)
+# define ARG_UNUSED  /**/
+# define WARN_UNUSED_RESULT /**/
 #endif
 
 #ifdef WANT_DEEPER_PRINTF_CHECKS
-#define ALMOST_PRINTF(A, B) PRINTF_FUNCTION(A, B)
+# define ALMOST_PRINTF(A, B) PRINTF_FUNCTION(A, B)
 #else
-#define ALMOST_PRINTF(A, B)
+# define ALMOST_PRINTF(A, B)
 #endif
 
 
@@ -49,7 +51,7 @@ the standard header files, so we use "uschar". Solaris has u_char in
 sys/types.h. This is just a typing convenience, of course. */
 
 typedef unsigned char uschar;
-typedef int BOOL;
+typedef unsigned BOOL;
 /* We also have SIGNAL_BOOL, which requires signal.h be included, so is defined
 elsewhere */
 

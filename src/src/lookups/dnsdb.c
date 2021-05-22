@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 #include "../exim.h"
@@ -14,17 +14,17 @@
 header files. */
 
 #ifndef T_TXT
-#define T_TXT 16
+# define T_TXT 16
 #endif
 
 /* Many systems do not have T_SPF. */
 #ifndef T_SPF
-#define T_SPF 99
+# define T_SPF 99
 #endif
 
 /* New TLSA record for DANE */
 #ifndef T_TLSA
-#define T_TLSA 52
+# define T_TLSA 52
 #endif
 
 /* Table of recognized DNS record types and their integer values. */
@@ -134,8 +134,6 @@ dnsdb_find(void *handle, uschar *filename, const uschar *keystring, int length,
   uschar **result, uschar **errmsg, uint *do_cache)
 {
 int rc;
-int size = 256;
-int ptr = 0;
 int sep = 0;
 int defer_mode = PASS;
 int dnssec_mode = OK;
@@ -147,12 +145,12 @@ const uschar *outsep = CUS"\n";
 const uschar *outsep2 = NULL;
 uschar *equals, *domain, *found;
 
-/* Because we're the working in the search pool, we try to reclaim as much
+/* Because we're working in the search pool, we try to reclaim as much
 store as possible later, so we preallocate the result here */
 
-uschar *yield = store_get(size);
+gstring * yield = string_get(256);
 
-dns_record *rr;
+dns_record * rr;
 dns_answer dnsa;
 dns_scan dnss;
 
@@ -261,17 +259,15 @@ if ((equals = Ustrchr(keystring, '=')) != NULL)
   while (tend > keystring && isspace(tend[-1])) tend--;
   len = tend - keystring;
 
-  for (i = 0; i < sizeof(type_names)/sizeof(uschar *); i++)
-    {
+  for (i = 0; i < nelem(type_names); i++)
     if (len == Ustrlen(type_names[i]) &&
         strncmpic(keystring, US type_names[i], len) == 0)
       {
       type = type_values[i];
       break;
       }
-    }
 
-  if (i >= sizeof(type_names)/sizeof(uschar *))
+  if (i >= nelem(type_names))
     {
     *errmsg = US"unsupported DNS record type";
     return DEFER;
@@ -382,12 +378,9 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
 
     /* Search the returned records */
 
-    for (rr = dns_next_rr(&dnsa, &dnss, RESET_ANSWERS);
-         rr != NULL;
-         rr = dns_next_rr(&dnsa, &dnss, RESET_NEXT))
+    for (rr = dns_next_rr(&dnsa, &dnss, RESET_ANSWERS); rr;
+         rr = dns_next_rr(&dnsa, &dnss, RESET_NEXT)) if (rr->type == searchtype)
       {
-      if (rr->type != searchtype) continue;
-
       if (*do_cache > rr->ttl)
 	*do_cache = rr->ttl;
 
@@ -396,9 +389,8 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
         dns_address *da;
         for (da = dns_address_from_rr(&dnsa, rr); da; da = da->next)
           {
-          if (ptr != 0) yield = string_cat(yield, &size, &ptr, outsep, 1);
-          yield = string_cat(yield, &size, &ptr, da->address,
-            Ustrlen(da->address));
+          if (yield->ptr) yield = string_catn(yield, outsep, 1);
+          yield = string_cat(yield, da->address);
           }
         continue;
         }
@@ -406,16 +398,12 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
       /* Other kinds of record just have one piece of data each, but there may be
       several of them, of course. */
 
-      if (ptr != 0) yield = string_cat(yield, &size, &ptr, outsep, 1);
+      if (yield->ptr) yield = string_catn(yield, outsep, 1);
 
       if (type == T_TXT || type == T_SPF)
         {
-        if (outsep2 == NULL)
-          {
-          /* output only the first item of data */
-          yield = string_cat(yield, &size, &ptr, (uschar *)(rr->data+1),
-            (rr->data)[0]);
-          }
+        if (outsep2 == NULL)	/* output only the first item of data */
+          yield = string_catn(yield, US (rr->data+1), (rr->data)[0]);
         else
           {
           /* output all items */
@@ -424,9 +412,8 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
             {
             uschar chunk_len = (rr->data)[data_offset++];
             if (outsep2[0] != '\0' && data_offset != 1)
-              yield = string_cat(yield, &size, &ptr, outsep2, 1);
-            yield = string_cat(yield, &size, &ptr,
-                             (uschar *)((rr->data)+data_offset), chunk_len);
+              yield = string_catn(yield, outsep2, 1);
+            yield = string_catn(yield, US ((rr->data)+data_offset), chunk_len);
             data_offset += chunk_len;
             }
           }
@@ -434,7 +421,7 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
       else if (type == T_TLSA)
         {
         uint8_t usage, selector, matching_type;
-        uint16_t i, payload_length;
+        uint16_t payload_length;
         uschar s[MAX_TLSA_EXPANDED_SIZE];
 	uschar * sp = s;
         uschar * p = US rr->data;
@@ -447,12 +434,10 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
         sp += sprintf(CS s, "%d%c%d%c%d%c", usage, *outsep2,
 		selector, *outsep2, matching_type, *outsep2);
         /* Now append the cert/identifier, one hex char at a time */
-        for (i=0;
-             i < payload_length && sp-s < (MAX_TLSA_EXPANDED_SIZE - 4);
-             i++)
-          sp += sprintf(CS sp, "%02x", (unsigned char)p[i]);
+	while (payload_length-- > 0 && sp-s < (MAX_TLSA_EXPANDED_SIZE - 4))
+          sp += sprintf(CS sp, "%02x", *p++);
 
-        yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+        yield = string_cat(yield, s);
         }
       else   /* T_CNAME, T_CSA, T_MX, T_MXH, T_NS, T_PTR, T_SOA, T_SRV */
         {
@@ -470,7 +455,7 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
 	  case T_MX:
 	    GETSHORT(priority, p);
 	    sprintf(CS s, "%d%c", priority, *outsep2);
-	    yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+	    yield = string_cat(yield, s);
 	    break;
 
 	  case T_SRV:
@@ -479,7 +464,7 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
 	    GETSHORT(port, p);
 	    sprintf(CS s, "%d%c%d%c%d%c", priority, *outsep2,
 			      weight, *outsep2, port, *outsep2);
-	    yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+	    yield = string_cat(yield, s);
 	    break;
 
 	  case T_CSA:
@@ -508,7 +493,7 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
 	      }
 
 	    s[1] = ' ';
-	    yield = string_cat(yield, &size, &ptr, s, 2);
+	    yield = string_catn(yield, s, 2);
 	    break;
 
 	  default:
@@ -529,14 +514,14 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
             "domain=%s", dns_text_type(type), domain);
           break;
           }
-        else yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+        else yield = string_cat(yield, s);
 
 	if (type == T_SOA && outsep2 != NULL)
 	  {
 	  unsigned long serial, refresh, retry, expire, minimum;
 
 	  p += rc;
-	  yield = string_cat(yield, &size, &ptr, outsep2, 1);
+	  yield = string_catn(yield, outsep2, 1);
 
 	  rc = dn_expand(dnsa.answer, dnsa.answer + dnsa.answerlen, p,
 	    (DN_EXPAND_ARG4_TYPE)s, sizeof(s));
@@ -546,7 +531,7 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
 	      "domain=%s", dns_text_type(type), domain);
 	    break;
 	    }
-	  else yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+	  else yield = string_cat(yield, s);
 
 	  p += rc;
 	  GETLONG(serial, p); GETLONG(refresh, p);
@@ -554,30 +539,30 @@ while ((domain = string_nextinlist(&keystring, &sep, NULL, 0)))
 	  sprintf(CS s, "%c%lu%c%lu%c%lu%c%lu%c%lu",
 	    *outsep2, serial, *outsep2, refresh,
 	    *outsep2, retry,  *outsep2, expire,  *outsep2, minimum);
-	  yield = string_cat(yield, &size, &ptr, s, Ustrlen(s));
+	  yield = string_cat(yield, s);
 	  }
         }
       }    /* Loop for list of returned records */
 
-           /* Loop for set of A-lookupu types */
+           /* Loop for set of A-lookup types */
     } while (type == T_ADDRESSES && searchtype != T_A);
 
   }        /* Loop for list of domains */
 
 /* Reclaim unused memory */
 
-store_reset(yield + ptr + 1);
+store_reset(yield->s + yield->ptr + 1);
 
-/* If ptr == 0 we have not found anything. Otherwise, insert the terminating
+/* If yield NULL we have not found anything. Otherwise, insert the terminating
 zero and return the result. */
 
 dns_retrans = save_retrans;
 dns_retry = save_retry;
 dns_init(FALSE, FALSE, FALSE);	/* clear the dnssec bit for getaddrbyname */
 
-if (ptr == 0) return failrc;
-yield[ptr] = 0;
-*result = yield;
+if (!yield || !yield->ptr) return failrc;
+
+*result = string_from_gstring(yield);
 return OK;
 }
 

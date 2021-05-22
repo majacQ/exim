@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -39,6 +39,17 @@ address can appear in the tables drtables.c. */
 
 int lmtp_transport_options_count =
   sizeof(lmtp_transport_options)/sizeof(optionlist);
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+lmtp_transport_options_block lmtp_transport_option_defaults = {0};
+void lmtp_transport_init(transport_instance *tblock) {}
+BOOL lmtp_transport_entry(transport_instance *tblock, address_item *addr) {return FALSE;}
+
+#else   /*!MACRO_PREDEF*/
+
 
 /* Default private options block for the lmtp transport. */
 
@@ -106,12 +117,13 @@ Arguments:
   more_errno   from the top address for use with ERRNO_FILTER_FAIL
   buffer       the LMTP response buffer
   yield        where to put a one-digit LMTP response code
-  message      where to put an errror message
+  message      where to put an error message
 
 Returns:       TRUE if a "QUIT" command should be sent, else FALSE
 */
 
-static BOOL check_response(int *errno_value, int more_errno, uschar *buffer,
+static BOOL
+check_response(int *errno_value, int more_errno, uschar *buffer,
   int *yield, uschar **message)
 {
 *yield = '4';    /* Default setting is to give a temporary error */
@@ -212,19 +224,21 @@ Returns:     TRUE if successful, FALSE if not, with errno set
 static BOOL
 lmtp_write_command(int fd, const char *format, ...)
 {
-int count, rc;
+gstring gs = { .size = big_buffer_size, .ptr = 0, .s = big_buffer };
+int rc;
 va_list ap;
+
 va_start(ap, format);
-if (!string_vformat(big_buffer, big_buffer_size, CS format, ap))
+if (!string_vformat(&gs, FALSE, CS format, ap))
   {
+  va_end(ap);
   errno = ERRNO_SMTPFORMAT;
   return FALSE;
   }
 va_end(ap);
-count = Ustrlen(big_buffer);
-DEBUG(D_transport|D_v) debug_printf("  LMTP>> %s", big_buffer);
-rc = write(fd, big_buffer, count);
-big_buffer[count-2] = 0;     /* remove \r\n for debug and error message */
+DEBUG(D_transport|D_v) debug_printf("  LMTP>> %s", string_from_gstring(&gs));
+rc = write(fd, gs.s, gs.ptr);
+gs.ptr -= 2; string_from_gstring(&gs); /* remove \r\n for debug and error message */
 if (rc > 0) return TRUE;
 DEBUG(D_transport) debug_printf("write failed: %s\n", strerror(errno));
 return FALSE;
@@ -287,10 +301,10 @@ for (;;)
 
     *readptr = 0;           /* In case nothing gets read */
     sigalrm_seen = FALSE;
-    alarm(timeout);
+    ALARM(timeout);
     rc = Ufgets(readptr, size-1, f);
     save_errno = errno;
-    alarm(0);
+    ALARM_CLR(0);
     errno = save_errno;
 
     if (rc != NULL) break;  /* A line has been read */
@@ -478,7 +492,7 @@ if (ob->cmd)
     return FALSE;
 
   /* If the -N option is set, can't do any more. Presume all has gone well. */
-  if (dont_deliver)
+  if (f.dont_deliver)
     goto MINUS_N;
 
 /* As this is a local transport, we are already running with the required
@@ -516,7 +530,7 @@ else
     }
 
   /* If the -N option is set, can't do any more. Presume all has gone well. */
-  if (dont_deliver)
+  if (f.dont_deliver)
     goto MINUS_N;
 
   sockun.sun_family = AF_UNIX;
@@ -608,6 +622,13 @@ for (addr = addrlist; addr != NULL; addr = addr->next)
 if (send_data)
   {
   BOOL ok;
+  transport_ctx tctx = {
+    {fd_in},
+    tblock,
+    addrlist,
+    US".", US"..",
+    ob->options
+  };
 
   if (!lmtp_write_command(fd_in, "DATA\r\n")) goto WRITE_FAILED;
   if (!lmtp_read_response(out, buffer, sizeof(buffer), '3', timeout))
@@ -627,9 +648,7 @@ if (send_data)
     debug_printf("  LMTP>> writing message and terminating \".\"\n");
 
   transport_count = 0;
-  ok = transport_write_message(addrlist, fd_in, ob->options, 0,
-        tblock->add_headers, tblock->remove_headers, US".", US"..",
-        tblock->rewrite_rules, tblock->rewrite_existflags);
+  ok = transport_write_message(&tctx, 0);
 
   /* Failure can either be some kind of I/O disaster (including timeout),
   or the failure of a transport filter or the expansion of added headers. */
@@ -658,7 +677,7 @@ if (send_data)
         {
         const uschar *s = string_printing(buffer);
 	/* de-const safe here as string_printing known to have alloc'n'copied */
-        addr->message = (s == buffer)? (uschar *)string_copy(s) : US s;
+        addr->message = (s == buffer)? US string_copy(s) : US s;
         }
       }
     /* If the response has failed badly, use it for all the remaining pending
@@ -785,4 +804,5 @@ MINUS_N:
   return FALSE;
 }
 
+#endif	/*!MACRO_PREDEF*/
 /* End of transport/lmtp.c */

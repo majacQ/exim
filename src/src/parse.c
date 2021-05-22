@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Functions for parsing addresses */
@@ -187,7 +187,7 @@ The start of the last potential comment position is remembered to
 make it possible to ignore comments at the end of compound items.
 
 Argument: current character pointer
-Regurns:  new character pointer
+Returns:  new character pointer
 */
 
 static uschar *
@@ -421,10 +421,10 @@ for (;;)
   if (*s == '\"')
     {
     *t++ = '\"';
-    while ((c = *(++s)) != 0 && c != '\"')
+    while ((c = *++s) && c != '\"')
       {
       *t++ = c;
-      if (c == '\\' && s[1] != 0) *t++ = *(++s);
+      if (c == '\\' && s[1]) *t++ = *++s;
       }
     if (c == '\"')
       {
@@ -443,7 +443,7 @@ for (;;)
   else while (!mac_iscntrl_or_special(*s) || *s == '\\')
     {
     c = *t++ = *s++;
-    if (c == '\\' && *s != 0) *t++ = *s++;
+    if (c == '\\' && *s) *t++ = *s++;
     }
 
   /* Terminate the word and skip subsequent comment */
@@ -620,8 +620,8 @@ parse_extract_address(uschar *mailbox, uschar **errorptr, int *start, int *end,
 {
 uschar *yield = store_get(Ustrlen(mailbox) + 1);
 uschar *startptr, *endptr;
-uschar *s = (uschar *)mailbox;
-uschar *t = (uschar *)yield;
+uschar *s = US mailbox;
+uschar *t = US yield;
 
 *domain = 0;
 
@@ -638,7 +638,7 @@ RESTART:   /* Come back here after passing a group name */
 s = skip_comment(s);
 startptr = s;                                 /* In case addr-spec */
 s = read_local_part(s, t, errorptr, TRUE);    /* Dot separated words */
-if (*errorptr != NULL) goto PARSE_FAILED;
+if (*errorptr) goto PARSE_FAILED;
 
 /* If the terminator is neither < nor @ then the format of the address
 must either be a bare local-part (we are now at the end), or a phrase
@@ -658,10 +658,10 @@ if (*s != '@' && *s != '<')
   end of string will produce a null local_part and therefore fail. We don't
   need to keep updating t, as the phrase isn't to be kept. */
 
-  while (*s != '<' && (!parse_allow_group || *s != ':'))
+  while (*s != '<' && (!f.parse_allow_group || *s != ':'))
     {
     s = read_local_part(s, t, errorptr, FALSE);
-    if (*errorptr != NULL)
+    if (*errorptr)
       {
       *errorptr = string_sprintf("%s (expected word or \"<\")", *errorptr);
       goto PARSE_FAILED;
@@ -670,8 +670,8 @@ if (*s != '@' && *s != '<')
 
   if (*s == ':')
     {
-    parse_found_group = TRUE;
-    parse_allow_group = FALSE;
+    f.parse_found_group = TRUE;
+    f.parse_allow_group = FALSE;
     s++;
     goto RESTART;
     }
@@ -686,8 +686,8 @@ processing it. Note that this is "if" rather than "else if" because it's also
 used after reading a preceding phrase.
 
 There are a lot of broken sendmails out there that put additional pairs of <>
-round <route-addr>s. If strip_excess_angle_brackets is set, allow any number of
-them, as long as they match. */
+round <route-addr>s.  If strip_excess_angle_brackets is set, allow a limited
+number of them, as long as they match. */
 
 if (*s == '<')
   {
@@ -696,8 +696,11 @@ if (*s == '<')
   int bracket_count = 1;
 
   s++;
-  if (strip_excess_angle_brackets)
-    while (*s == '<') { bracket_count++; s++; }
+  if (strip_excess_angle_brackets) while (*s == '<')
+   {
+   if(bracket_count++ > 5) FAILED(US"angle-brackets nested too deep");
+   s++;
+   }
 
   t = yield;
   startptr = s;
@@ -711,7 +714,7 @@ if (*s == '<')
   if (*s == '@')
     {
     s = read_route(s, t, errorptr);
-    if (*errorptr != NULL) goto PARSE_FAILED;
+    if (*errorptr) goto PARSE_FAILED;
     *t = 0;                  /* Ensure route is ignored - probably overkill */
     source_routed = TRUE;
     }
@@ -729,7 +732,7 @@ if (*s == '<')
   else
     {
     s = read_addr_spec(s, t, '>', errorptr, &domainptr);
-    if (*errorptr != NULL) goto PARSE_FAILED;
+    if (*errorptr) goto PARSE_FAILED;
     *domain = domainptr - yield;
     if (source_routed && *domain == 0)
       FAILED(US"domain missing in source-routed address");
@@ -739,9 +742,10 @@ if (*s == '<')
   if (*errorptr != NULL) goto PARSE_FAILED;
   while (bracket_count-- > 0) if (*s++ != '>')
     {
-    *errorptr = (s[-1] == 0)? US"'>' missing at end of address" :
-      string_sprintf("malformed address: %.32s may not follow %.*s",
-        s-1, s - (uschar *)mailbox - 1, mailbox);
+    *errorptr = s[-1] == 0
+      ? US"'>' missing at end of address"
+      : string_sprintf("malformed address: %.32s may not follow %.*s",
+	  s-1, (int)(s - US mailbox - 1), mailbox);
     goto PARSE_FAILED;
     }
 
@@ -786,21 +790,21 @@ move it back past white space if necessary. */
 PARSE_SUCCEEDED:
 if (*s != 0)
   {
-  if (parse_found_group && *s == ';')
+  if (f.parse_found_group && *s == ';')
     {
-    parse_found_group = FALSE;
-    parse_allow_group = TRUE;
+    f.parse_found_group = FALSE;
+    f.parse_allow_group = TRUE;
     }
   else
     {
     *errorptr = string_sprintf("malformed address: %.32s may not follow %.*s",
-      s, s - (uschar *)mailbox, mailbox);
+      s, (int)(s - US mailbox), mailbox);
     goto PARSE_FAILED;
     }
   }
-*start = startptr - (uschar *)mailbox;      /* Return offsets */
+*start = startptr - US mailbox;      /* Return offsets */
 while (isspace(endptr[-1])) endptr--;
-*end = endptr - (uschar *)mailbox;
+*end = endptr - US mailbox;
 
 /* Although this code has no limitation on the length of address extracted,
 other parts of Exim may have limits, and in any case, RFC 2821 limits local
@@ -820,10 +824,10 @@ We might have an empty address in a group - the caller can choose to ignore
 this. We must, however, keep the flags correct. */
 
 PARSE_FAILED:
-if (parse_found_group && *s == ';')
+if (f.parse_found_group && *s == ';')
   {
-  parse_found_group = FALSE;
-  parse_allow_group = TRUE;
+  f.parse_found_group = FALSE;
+  f.parse_allow_group = TRUE;
   }
 return NULL;
 }
@@ -872,7 +876,7 @@ int hlen;
 BOOL coded = FALSE;
 BOOL first_byte = FALSE;
 
-if (charset == NULL) charset = US"iso-8859-1";
+if (!charset) charset = US"iso-8859-1";
 
 /* We don't expect this to fail! */
 
@@ -909,8 +913,7 @@ for (; len > 0; len--)
       }
     else
       {
-      sprintf(CS t, "=%02X", ch);
-      while (*t != 0) t++;
+      t += sprintf(CS t, "=%02X", ch);
       coded = TRUE;
       first_byte = !first_byte;
       }
@@ -922,7 +925,7 @@ for (; len > 0; len--)
 *t++ = '=';
 *t = 0;
 
-return coded? buffer : string;
+return coded ? buffer : string;
 }
 
 
@@ -1425,7 +1428,7 @@ for (;;)
 
     /* Check file name if required */
 
-    if (directory != NULL)
+    if (directory)
       {
       int len = Ustrlen(directory);
       uschar *p = filename + len;
@@ -1437,16 +1440,53 @@ for (;;)
         return FF_ERROR;
         }
 
+#ifdef EXIM_HAVE_OPENAT
+      /* It is necessary to check that every component inside the directory
+      is NOT a symbolic link, in order to keep the file inside the directory.
+      This is mighty tedious. We open the directory and openat every component,
+      with a flag that fails symlinks. */
+
+      {
+      int fd = open(CS directory, O_RDONLY);
+      if (fd < 0)
+	{
+	*error = string_sprintf("failed to open directory %s", directory);
+	return FF_ERROR;
+	}
+      while (*p)
+	{
+	uschar temp;
+	int fd2;
+	uschar * q = p;
+
+	while (*++p && *p != '/') ;
+	temp = *p;
+	*p = '\0';
+
+	fd2 = openat(fd, CS q, O_RDONLY|O_NOFOLLOW);
+	close(fd);
+	*p = temp;
+	if (fd2 < 0)
+	  {
+          *error = string_sprintf("failed to open %s (component of included "
+            "file); could be symbolic link", filename);
+	  return FF_ERROR;
+	  }
+	fd = fd2;
+	}
+      f = fdopen(fd, "rb");
+      }
+#else
       /* It is necessary to check that every component inside the directory
       is NOT a symbolic link, in order to keep the file inside the directory.
       This is mighty tedious. It is also not totally foolproof in that it
       leaves the possibility of a race attack, but I don't know how to do
       any better. */
 
-      while (*p != 0)
+      while (*p)
         {
         int temp;
-        while (*(++p) != 0 && *p != '/');
+        while (*++p && *p != '/');
         temp = *p;
         *p = 0;
         if (Ulstat(filename, &statbuf) != 0)
@@ -1466,11 +1506,16 @@ for (;;)
           return FF_ERROR;
           }
         }
+#endif
       }
 
-    /* Open and stat the file */
+#ifdef EXIM_HAVE_OPENAT
+    else
+#endif
+      /* Open and stat the file */
+      f = Ufopen(filename, "rb");
 
-    if ((f = Ufopen(filename, "rb")) == NULL)
+    if (!f)
       {
       *error = string_open_failed(errno, "included file %s", filename);
       return FF_INCLUDEFAIL;
@@ -1486,7 +1531,7 @@ for (;;)
 
     /* If directory was checked, double check that we opened a regular file */
 
-    if (directory != NULL && (statbuf.st_mode & S_IFMT) != S_IFREG)
+    if (directory && (statbuf.st_mode & S_IFMT) != S_IFREG)
       {
       *error = string_sprintf("included file %s is not a regular file in "
         "the %s directory", filename, directory);
@@ -1518,10 +1563,9 @@ for (;;)
       error, incoming_domain, directory, syntax_errors);
     if (frc != FF_DELIVERED && frc != FF_NOTDELIVERED) return frc;
 
-    if (addr != NULL)
+    if (addr)
       {
-      last = addr;
-      while (last->next != NULL) { count++; last = last->next; }
+      for (last = addr; last->next; last = last->next) count++;
       last->next = *anchor;
       *anchor = addr;
       count++;
@@ -2105,7 +2149,7 @@ allow_utf8_domains = FALSE;
 
 printf("Testing parse_extract_address with group syntax\n");
 
-parse_allow_group = TRUE;
+f.parse_allow_group = TRUE;
 while (Ufgets(buffer, sizeof(buffer), stdin) != NULL)
   {
   uschar *out;

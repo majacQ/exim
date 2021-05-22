@@ -7,13 +7,13 @@ changed uid/gid: privilege not needed
   uid=EXIM_UID gid=EXIM_GID pid=pppp
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@test.ex
 set_process_info: pppp accepting a local non-SMTP message from <CALLER@test.ex>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 Sender: CALLER@test.ex
 Recipients:
   userx
@@ -125,25 +125,25 @@ I Message-Id: <E10HmaX-0005vi-00@mail.test.ex>
 F From: CALLER_NAME <CALLER@test.ex>
   Date: Tue, 2 Mar 1999 09:44:33 +0000
 
+Data file name: TESTSUITE/spool//input//10HmaX-0005vi-00-D
 Data file written for message 10HmaX-0005vi-00
 >>Generated Received: header line
 P Received: from CALLER by mail.test.ex with local (Exim x.yz)
 	(envelope-from <CALLER@test.ex>)
 	id 10HmaX-0005vi-00
 	for userx@test.ex; Tue, 2 Mar 1999 09:44:33 +0000
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
-Writing spool header file
+Writing spool header file: TESTSUITE/spool//input//hdr.pppp
 DSN: Write SPOOL :-dsn_envid NULL
 DSN: Write SPOOL :-dsn_ret 0
 DSN: Flags :0
 DSN: **** SPOOL_OUT - address: |userx@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+Renaming spool header file: TESTSUITE/spool//input//10HmaX-0005vi-00-H
 Size of headers = sss
 LOG: MAIN
   <= CALLER@test.ex U=CALLER P=local S=sss
 created log directory TESTSUITE/spool/log
 search_tidyup called
-exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xfbb95cfd -odi -Mc 10HmaX-0005vi-00
+exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xf7715cfd -odi -Mc 10HmaX-0005vi-00
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=EXIM_GID pid=pppp
@@ -152,12 +152,11 @@ trusted user
 admin user
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 set_process_info: pppp delivering specified messages
 set_process_info: pppp delivering 10HmaX-0005vi-00
+Trying spool file TESTSUITE/spool//input//10HmaX-0005vi-00-D
 reading spool file 10HmaX-0005vi-00-H
 user=CALLER uid=CALLER_UID gid=CALLER_GID sender=CALLER@test.ex
 sender_local=1 ident=CALLER
@@ -167,20 +166,21 @@ Empty Tree
 recipients_count=1
 **** SPOOL_IN - No additional fields
 body_linecount=0 message_linecount=159
-DSN: set orcpt: NULL  flags: 0
+DSN: set orcpt:   flags: 0
 Delivery address list:
   userx@test.ex 
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
-ensuring TESTSUITE/spool/db/retry.lockfile is owned by exim
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ ensuring TESTSUITE/spool/db/retry.lockfile is owned by exim
+ failed to open DB file TESTSUITE/spool/db/retry.lockfile: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: userx@test.ex
 unique = userx@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 userx@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing userx@test.ex
@@ -213,10 +213,11 @@ r2 router generated >sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex
 routed by r2 router
   envelope to: userx@test.ex
   transport: <none>
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: >sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ...
@@ -232,10 +233,11 @@ After routing:
 search_tidyup called
 >>>>>>>>>>>>>>>> Local deliveries >>>>>>>>>>>>>>>>
 --------> >sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ... <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 search_tidyup called
 changed uid/gid: local delivery to >sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ... <>sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ...> transport=t1
@@ -244,7 +246,7 @@ changed uid/gid: local delivery to >sender@test.ex,sender@test.ex,sender@test.ex
 set_process_info: pppp **** string overflowed buffer ****
 t1 transport entered
 taking data from address
-exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xfbb95cfd -odi -odi -t -oem -oi -f <> -E10HmaX-0005vi-00
+exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xf7715cfd -odi -odi -t -oem -oi -f <> -E10HmaX-0005vi-00
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
@@ -254,13 +256,13 @@ changed uid/gid: privilege not needed
   uid=EXIM_UID gid=EXIM_GID pid=pppp
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = 
 set_process_info: pppp accepting a local non-SMTP message from <>
+spool directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100 msg_size = 0
+log directory space = nnnnnK inodes = nnnnn check_space = 10240K inodes = 100
 Sender: 
 search_tidyup called
 >>Headers received:
@@ -286,13 +288,12 @@ I Message-Id: <E10HmaY-0005vi-00@mail.test.ex>
 F From: CALLER_NAME <CALLER@test.ex>
   Date: Tue, 2 Mar 1999 09:44:33 +0000
 
+Data file name: TESTSUITE/spool//input//10HmaY-0005vi-00-D
 Data file written for message 10HmaY-0005vi-00
 >>Generated Received: header line
 P Received: from CALLER by mail.test.ex with local (Exim x.yz)
 	id 10HmaY-0005vi-00; Tue, 2 Mar 1999 09:44:33 +0000
-calling local_scan(); timeout=300
-local_scan() returned 0 NULL
-Writing spool header file
+Writing spool header file: TESTSUITE/spool//input//hdr.pppp
 DSN: Write SPOOL :-dsn_envid NULL
 DSN: Write SPOOL :-dsn_ret 0
 DSN: Flags :0
@@ -1511,11 +1512,12 @@ DSN: Flags :0
 DSN: **** SPOOL_OUT - address: |sender@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
 DSN: Flags :0
 DSN: **** SPOOL_OUT - address: |sender@test.ex| errorsto: |NULL| orcpt: |NULL| dsn_flags: 0
+Renaming spool header file: TESTSUITE/spool//input//10HmaY-0005vi-00-H
 Size of headers = sss
 LOG: MAIN
   <= <> R=10HmaX-0005vi-00 U=CALLER P=local S=sss
 search_tidyup called
-exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xfbb95cfd -odi -Mc 10HmaY-0005vi-00
+exec TESTSUITE/eximdir/exim -DEXIM_PATH=TESTSUITE/eximdir/exim -C TESTSUITE/test-config -d=0xf7715cfd -odi -Mc 10HmaY-0005vi-00
 Exim version x.yz ....
 changed uid/gid: forcing real = effective
   uid=uuuu gid=EXIM_GID pid=pppp
@@ -1524,12 +1526,11 @@ trusted user
 admin user
 seeking password data for user "CALLER": cache not available
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
 seeking password data for user "CALLER": using cached result
 getpwnam() succeeded uid=CALLER_UID gid=CALLER_GID
 set_process_info: pppp delivering specified messages
 set_process_info: pppp delivering 10HmaY-0005vi-00
+Trying spool file TESTSUITE/spool//input//10HmaY-0005vi-00-D
 reading spool file 10HmaY-0005vi-00-H
 user=CALLER uid=CALLER_UID gid=CALLER_GID sender=
 sender_local=1 ident=CALLER
@@ -2146,614 +2147,614 @@ recipients_count=608
 **** SPOOL_IN - No additional fields
 **** SPOOL_IN - No additional fields
 body_linecount=1 message_linecount=9
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
-DSN: set orcpt: NULL  flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
+DSN: set orcpt:   flags: 0
 Delivery address list:
   sender@test.ex 
   sender@test.ex 
@@ -3363,3658 +3364,3659 @@ Delivery address list:
   sender@test.ex 
   sender@test.ex 
   sender@test.ex 
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 Considering: sender@test.ex
 unique = sender@test.ex
-no domain retry record
-no address retry record
+no   domain  retry record
+no   address retry record
 sender@test.ex: queued for routing
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 routing sender@test.ex
@@ -17969,10 +17971,11 @@ sender@test.ex is a duplicate address: discarded
 sender@test.ex is a duplicate address: discarded
 >>>>>>>>>>>>>>>> Local deliveries >>>>>>>>>>>>>>>>
 --------> sender@test.ex <--------
-locking TESTSUITE/spool/db/retry.lockfile
-locked TESTSUITE/spool/db/retry.lockfile
-EXIM_DBOPEN(TESTSUITE/spool/db/retry)
-returned from EXIM_DBOPEN
+ locking TESTSUITE/spool/db/retry.lockfile
+ locked  TESTSUITE/spool/db/retry.lockfile
+ EXIM_DBOPEN: file <TESTSUITE/spool/db/retry> dir <TESTSUITE/spool/db> flags=O_RDONLY
+ returned from EXIM_DBOPEN: (nil)
+ failed to open DB file TESTSUITE/spool/db/retry: No such file or directory
 no retry data available
 search_tidyup called
 changed uid/gid: local delivery to sender <sender@test.ex> transport=t2
@@ -17992,7 +17995,9 @@ lock file created
 mailbox TESTSUITE/test-mail/sender is locked
 writing to file TESTSUITE/test-mail/sender
 writing data block fd=dddd size=sss timeout=0
+flushing headers buffer
 writing data block fd=dddd size=sss timeout=0
+cannot use sendfile for body: spoolfile not wireformat
 writing data block fd=dddd size=sss timeout=0
 writing data block fd=dddd size=sss timeout=0
 appendfile yields 0 with errno=dd more_errno=dd
@@ -18009,7 +18014,7 @@ changed uid/gid: post-delivery tidying
 set_process_info: pppp tidying up after delivering 10HmaY-0005vi-00
 Processing retry items
 Succeeded addresses:
-sender@test.ex: no retry items
+ sender@test.ex: no retry items
 Failed addresses:
 Deferred addresses:
 end of retry processing
@@ -18026,9 +18031,9 @@ LOG: MAIN
 end delivery of 10HmaY-0005vi-00
 search_tidyup called
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 t1 transport succeeded
 search_tidyup called
 journalling >sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ...:userx@test.ex
@@ -18044,9 +18049,9 @@ changed uid/gid: post-delivery tidying
 set_process_info: pppp tidying up after delivering 10HmaX-0005vi-00
 Processing retry items
 Succeeded addresses:
->sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ...: no retry items
-userx@test.ex: no retry items
-userx@test.ex: no retry items
+ >sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex,sender@test.ex, ...: no retry items
+ userx@test.ex: no retry items
+ userx@test.ex: no retry items
 Failed addresses:
 Deferred addresses:
 end of retry processing
@@ -18071,6 +18076,6 @@ LOG: MAIN
 end delivery of 10HmaX-0005vi-00
 search_tidyup called
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=0 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=0 >>>>>>>>>>>>>>>>

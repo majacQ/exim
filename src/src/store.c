@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 /* Exim gets and frees all its store through these functions. In the original
@@ -144,39 +144,39 @@ if (size > yield_length[store_pool])
   {
   int length = (size <= STORE_BLOCK_SIZE)? STORE_BLOCK_SIZE : size;
   int mlength = length + ALIGNED_SIZEOF_STOREBLOCK;
-  storeblock *newblock = NULL;
+  storeblock * newblock = NULL;
 
   /* Sometimes store_reset() may leave a block for us; check if we can use it */
 
-  if (current_block[store_pool] != NULL &&
-      current_block[store_pool]->next != NULL)
+  if (  (newblock = current_block[store_pool])
+     && (newblock = newblock->next)
+     && newblock->length < length
+     )
     {
-    newblock = current_block[store_pool]->next;
-    if (newblock->length < length)
-      {
-      /* Give up on this block, because it's too small */
-      store_free(newblock);
-      newblock = NULL;
-      }
+    /* Give up on this block, because it's too small */
+    store_free(newblock);
+    newblock = NULL;
     }
 
   /* If there was no free block, get a new one */
 
-  if (newblock == NULL)
+  if (!newblock)
     {
     pool_malloc += mlength;           /* Used in pools */
     nonpool_malloc -= mlength;        /* Exclude from overall total */
     newblock = store_malloc(mlength);
     newblock->next = NULL;
     newblock->length = length;
-    if (chainbase[store_pool] == NULL) chainbase[store_pool] = newblock;
-      else current_block[store_pool]->next = newblock;
+    if (!chainbase[store_pool])
+      chainbase[store_pool] = newblock;
+    else
+      current_block[store_pool]->next = newblock;
     }
 
   current_block[store_pool] = newblock;
   yield_length[store_pool] = newblock->length;
   next_yield[store_pool] =
-    (void *)((char *)current_block[store_pool] + ALIGNED_SIZEOF_STOREBLOCK);
+    (void *)(CS current_block[store_pool] + ALIGNED_SIZEOF_STOREBLOCK);
   (void) VALGRIND_MAKE_MEM_NOACCESS(next_yield[store_pool], yield_length[store_pool]);
   }
 
@@ -194,7 +194,7 @@ linenumber = linenumber;
 #else
 DEBUG(D_memory)
   {
-  if (running_in_test_harness)
+  if (f.running_in_test_harness)
     debug_printf("---%d Get %5d\n", store_pool, size);
   else
     debug_printf("---%d Get %6p %5d %-14s %4d\n", store_pool,
@@ -205,7 +205,7 @@ DEBUG(D_memory)
 (void) VALGRIND_MAKE_MEM_UNDEFINED(store_last_get[store_pool], size);
 /* Update next pointer and number of bytes left in the current block. */
 
-next_yield[store_pool] = (void *)((char *)next_yield[store_pool] + size);
+next_yield[store_pool] = (void *)(CS next_yield[store_pool] + size);
 yield_length[store_pool] -= size;
 
 return store_last_get[store_pool];
@@ -273,7 +273,7 @@ int rounded_oldsize = oldsize;
 if (rounded_oldsize % alignment != 0)
   rounded_oldsize += alignment - (rounded_oldsize % alignment);
 
-if ((char *)ptr + rounded_oldsize != (char *)(next_yield[store_pool]) ||
+if (CS ptr + rounded_oldsize != CS (next_yield[store_pool]) ||
     inc > yield_length[store_pool] + rounded_oldsize - oldsize)
   return FALSE;
 
@@ -286,7 +286,7 @@ linenumber = linenumber;
 #else
 DEBUG(D_memory)
   {
-  if (running_in_test_harness)
+  if (f.running_in_test_harness)
     debug_printf("---%d Ext %5d\n", store_pool, newsize);
   else
     debug_printf("---%d Ext %6p %5d %-14s %4d\n", store_pool, ptr, newsize,
@@ -295,7 +295,7 @@ DEBUG(D_memory)
 #endif  /* COMPILE_UTILITY */
 
 if (newsize % alignment != 0) newsize += alignment - (newsize % alignment);
-next_yield[store_pool] = (char *)ptr + newsize;
+next_yield[store_pool] = CS ptr + newsize;
 yield_length[store_pool] -= newsize - rounded_oldsize;
 (void) VALGRIND_MAKE_MEM_UNDEFINED(ptr + oldsize, inc);
 return TRUE;
@@ -325,9 +325,9 @@ Returns:      nothing
 void
 store_reset_3(void *ptr, const char *filename, int linenumber)
 {
-storeblock *bb;
-storeblock *b = current_block[store_pool];
-char *bc = (char *)b + ALIGNED_SIZEOF_STOREBLOCK;
+storeblock * bb;
+storeblock * b = current_block[store_pool];
+char * bc = CS b + ALIGNED_SIZEOF_STOREBLOCK;
 int newlength;
 
 /* Last store operation was not a get */
@@ -337,14 +337,14 @@ store_last_get[store_pool] = NULL;
 /* See if the place is in the current block - as it often will be. Otherwise,
 search for the block in which it lies. */
 
-if ((char *)ptr < bc || (char *)ptr > bc + b->length)
+if (CS ptr < bc || CS ptr > bc + b->length)
   {
-  for (b = chainbase[store_pool]; b != NULL; b = b->next)
+  for (b = chainbase[store_pool]; b; b = b->next)
     {
-    bc = (char *)b + ALIGNED_SIZEOF_STOREBLOCK;
-    if ((char *)ptr >= bc && (char *)ptr <= bc + b->length) break;
+    bc = CS b + ALIGNED_SIZEOF_STOREBLOCK;
+    if (CS ptr >= bc && CS ptr <= bc + b->length) break;
     }
-  if (b == NULL)
+  if (!b)
     log_write(0, LOG_MAIN|LOG_PANIC_DIE, "internal error: store_reset(%p) "
       "failed: pool=%d %-14s %4d", ptr, store_pool, filename, linenumber);
   }
@@ -352,17 +352,21 @@ if ((char *)ptr < bc || (char *)ptr > bc + b->length)
 /* Back up, rounding to the alignment if necessary. When testing, flatten
 the released memory. */
 
-newlength = bc + b->length - (char *)ptr;
+newlength = bc + b->length - CS ptr;
 #ifndef COMPILE_UTILITY
-if (running_in_test_harness)
+if (debug_store)
   {
-  (void) VALGRIND_MAKE_MEM_DEFINED(ptr, newlength);
-  memset(ptr, 0xF0, newlength);
+  assert_no_variables(ptr, newlength, filename, linenumber);
+  if (f.running_in_test_harness)
+    {
+    (void) VALGRIND_MAKE_MEM_DEFINED(ptr, newlength);
+    memset(ptr, 0xF0, newlength);
+    }
   }
 #endif
 (void) VALGRIND_MAKE_MEM_NOACCESS(ptr, newlength);
 yield_length[store_pool] = newlength - (newlength % alignment);
-next_yield[store_pool] = (char *)ptr + (newlength % alignment);
+next_yield[store_pool] = CS ptr + (newlength % alignment);
 current_block[store_pool] = b;
 
 /* Free any subsequent block. Do NOT free the first successor, if our
@@ -370,20 +374,29 @@ current block has less than 256 bytes left. This should prevent us from
 flapping memory. However, keep this block only when it has the default size. */
 
 if (yield_length[store_pool] < STOREPOOL_MIN_SIZE &&
-    b->next != NULL &&
+    b->next &&
     b->next->length == STORE_BLOCK_SIZE)
   {
   b = b->next;
-  (void) VALGRIND_MAKE_MEM_NOACCESS((char *)b + ALIGNED_SIZEOF_STOREBLOCK,
+#ifndef COMPILE_UTILITY
+  if (debug_store)
+    assert_no_variables(b, b->length + ALIGNED_SIZEOF_STOREBLOCK,
+			filename, linenumber);
+#endif
+  (void) VALGRIND_MAKE_MEM_NOACCESS(CS b + ALIGNED_SIZEOF_STOREBLOCK,
 		b->length - ALIGNED_SIZEOF_STOREBLOCK);
   }
 
 bb = b->next;
 b->next = NULL;
 
-while (bb != NULL)
+while ((b = bb))
   {
-  b = bb;
+#ifndef COMPILE_UTILITY
+  if (debug_store)
+    assert_no_variables(b, b->length + ALIGNED_SIZEOF_STOREBLOCK,
+			filename, linenumber);
+#endif
   bb = bb->next;
   pool_malloc -= b->length + ALIGNED_SIZEOF_STOREBLOCK;
   store_free_3(b, filename, linenumber);
@@ -398,7 +411,7 @@ linenumber = linenumber;
 #else
 DEBUG(D_memory)
   {
-  if (running_in_test_harness)
+  if (f.running_in_test_harness)
     debug_printf("---%d Rst    ** %d\n", store_pool, pool_malloc);
   else
     debug_printf("---%d Rst %6p    ** %-14s %4d %d\n", store_pool, ptr,
@@ -415,14 +428,8 @@ DEBUG(D_memory)
 *             Release store                     *
 ************************************************/
 
-/* This function is specifically provided for use when reading very
-long strings, e.g. header lines. When the string gets longer than a
-complete block, it gets copied to a new block. It is helpful to free
-the old block iff the previous copy of the string is at its start,
-and therefore the only thing in it. Otherwise, for very long strings,
-dead store can pile up somewhat disastrously. This function checks that
-the pointer it is given is the first thing in a block, and if so,
-releases that block.
+/* This function checks that the pointer it is given is the first thing in a
+block, and if so, releases that block.
 
 Arguments:
   block       block of store to consider
@@ -432,17 +439,17 @@ Arguments:
 Returns:      nothing
 */
 
-void
-store_release_3(void *block, const char *filename, int linenumber)
+static void
+store_release_3(void * block, const char * filename, int linenumber)
 {
-storeblock *b;
+storeblock * b;
 
 /* It will never be the first block, so no need to check that. */
 
-for (b = chainbase[store_pool]; b != NULL; b = b->next)
+for (b = chainbase[store_pool]; b; b = b->next)
   {
-  storeblock *bb = b->next;
-  if (bb != NULL && (char *)block == (char *)bb + ALIGNED_SIZEOF_STOREBLOCK)
+  storeblock * bb = b->next;
+  if (bb && CS block == CS bb + ALIGNED_SIZEOF_STOREBLOCK)
     {
     b->next = bb->next;
     pool_malloc -= bb->length + ALIGNED_SIZEOF_STOREBLOCK;
@@ -450,26 +457,62 @@ for (b = chainbase[store_pool]; b != NULL; b = b->next)
     /* Cut out the debugging stuff for utilities, but stop picky compilers
     from giving warnings. */
 
-    #ifdef COMPILE_UTILITY
+#ifdef COMPILE_UTILITY
     filename = filename;
     linenumber = linenumber;
-    #else
+#else
     DEBUG(D_memory)
-      {
-      if (running_in_test_harness)
+      if (f.running_in_test_harness)
         debug_printf("-Release       %d\n", pool_malloc);
       else
         debug_printf("-Release %6p %-20s %4d %d\n", (void *)bb, filename,
           linenumber, pool_malloc);
-      }
-    if (running_in_test_harness)
+
+    if (f.running_in_test_harness)
       memset(bb, 0xF0, bb->length+ALIGNED_SIZEOF_STOREBLOCK);
-    #endif  /* COMPILE_UTILITY */
+#endif  /* COMPILE_UTILITY */
 
     free(bb);
     return;
     }
   }
+}
+
+
+/************************************************
+*             Move store                        *
+************************************************/
+
+/* Allocate a new block big enough to expend to the given size and
+copy the current data into it.  Free the old one if possible.
+
+This function is specifically provided for use when reading very
+long strings, e.g. header lines. When the string gets longer than a
+complete block, it gets copied to a new block. It is helpful to free
+the old block iff the previous copy of the string is at its start,
+and therefore the only thing in it. Otherwise, for very long strings,
+dead store can pile up somewhat disastrously. This function checks that
+the pointer it is given is the first thing in a block, and that nothing
+has been allocated since. If so, releases that block.
+
+Arguments:
+  block
+  newsize
+  len
+
+Returns:	new location of data
+*/
+
+void *
+store_newblock_3(void * block, int newsize, int len,
+  const char * filename, int linenumber)
+{
+BOOL release_ok = store_last_get[store_pool] == block;
+uschar * newtext = store_get(newsize);
+
+memcpy(newtext, block, len);
+if (release_ok) store_release_3(block, filename, linenumber);
+return (void *)newtext;
 }
 
 
@@ -497,9 +540,8 @@ store_malloc_3(int size, const char *filename, int linenumber)
 void *yield;
 
 if (size < 16) size = 16;
-yield = malloc((size_t)size);
 
-if (yield == NULL)
+if (!(yield = malloc((size_t)size)))
   log_write(0, LOG_MAIN|LOG_PANIC_DIE, "failed to malloc %d bytes of memory: "
     "called from line %d of %s", size, linenumber, filename);
 
@@ -516,7 +558,7 @@ linenumber = linenumber;
 /* If running in test harness, spend time making sure all the new store
 is not filled with zeros so as to catch problems. */
 
-if (running_in_test_harness)
+if (f.running_in_test_harness)
   {
   memset(yield, 0xF0, (size_t)size);
   DEBUG(D_memory) debug_printf("--Malloc %5d %d %d\n", size, pool_malloc,
@@ -556,7 +598,7 @@ linenumber = linenumber;
 #else
 DEBUG(D_memory)
   {
-  if (running_in_test_harness)
+  if (f.running_in_test_harness)
     debug_printf("----Free\n");
   else
     debug_printf("----Free %6p %-20s %4d\n", block, filename, linenumber);

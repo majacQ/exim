@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -38,13 +38,24 @@ address can appear in the tables drtables.c. */
 int auth_cram_md5_options_count =
   sizeof(auth_cram_md5_options)/sizeof(optionlist);
 
-/* Default private options block for the contidion authentication method. */
+/* Default private options block for the condition authentication method. */
 
 auth_cram_md5_options_block auth_cram_md5_option_defaults = {
   NULL,             /* server_secret */
   NULL,             /* client_secret */
   NULL              /* client_name */
 };
+
+
+#ifdef MACRO_PREDEF
+
+/* Dummy values */
+void auth_cram_md5_init(auth_instance *ablock) {}
+int auth_cram_md5_server(auth_instance *ablock, uschar *data) {return 0;}
+int auth_cram_md5_client(auth_instance *ablock, void *sx, int timeout,
+    uschar *buffer, int buffsize) {return 0;}
+
+#else	/*!MACRO_PREDEF*/
 
 
 /*************************************************
@@ -68,12 +79,14 @@ if (ob->client_secret != NULL)
   }
 }
 
+#endif	/*!MACRO_PREDEF*/
 #endif  /* STAND_ALONE */
 
 
 
+#ifndef MACRO_PREDEF
 /*************************************************
-*      Peform the CRAM-MD5 algorithm             *
+*      Perform the CRAM-MD5 algorithm            *
 *************************************************/
 
 /* The CRAM-MD5 algorithm is described in RFC 2195. It computes
@@ -108,8 +121,8 @@ and use that. */
 if (len > 64)
   {
   md5_start(&base);
-  md5_end(&base, (uschar *)secret, len, md5secret);
-  secret = (uschar *)md5secret;
+  md5_end(&base, US secret, len, md5secret);
+  secret = US md5secret;
   len = 16;
   }
 
@@ -130,7 +143,7 @@ for (i = 0; i < 64; i++)
 
 md5_start(&base);
 md5_mid(&base, isecret);
-md5_end(&base, (uschar *)challenge, Ustrlen(challenge), md5secret);
+md5_end(&base, US challenge, Ustrlen(challenge), md5secret);
 
 /* Compute the outer MD5 digest */
 
@@ -162,7 +175,7 @@ int i, rc, len;
 /* If we are running in the test harness, always send the same challenge,
 an example string taken from the RFC. */
 
-if (running_in_test_harness)
+if (f.running_in_test_harness)
   challenge = US"<1896.697170952@postoffice.reston.mci.net>";
 
 /* No data should have been sent with the AUTH command */
@@ -199,7 +212,7 @@ the given name. */
 
 if (secret == NULL)
   {
-  if (expand_string_forcedfail) return FAIL;
+  if (f.expand_string_forcedfail) return FAIL;
   auth_defer_msg = expand_string_message;
   return DEFER;
   }
@@ -246,8 +259,7 @@ return auth_check_serv_cond(ablock);
 int
 auth_cram_md5_client(
   auth_instance *ablock,                 /* authenticator block */
-  smtp_inblock *inblock,                 /* input connection */
-  smtp_outblock *outblock,               /* output connection */
+  void * sx,				 /* smtp connextion */
   int timeout,                           /* command timeout */
   uschar *buffer,                        /* for reading response */
   int buffsize)                          /* size of buffer */
@@ -261,18 +273,18 @@ int i;
 uschar digest[16];
 
 /* If expansion of either the secret or the user name failed, return CANCELLED
-or ERROR, as approriate. */
+or ERROR, as appropriate. */
 
-if (secret == NULL || name == NULL)
+if (!secret || !name)
   {
-  if (expand_string_forcedfail)
+  if (f.expand_string_forcedfail)
     {
     *buffer = 0;           /* No message */
     return CANCELLED;
     }
   string_format(buffer, buffsize, "expansion of \"%s\" failed in "
     "%s authenticator: %s",
-    (secret == NULL)? ob->client_secret : ob->client_name,
+    !secret ? ob->client_secret : ob->client_name,
     ablock->name, expand_string_message);
   return ERROR;
   }
@@ -280,9 +292,9 @@ if (secret == NULL || name == NULL)
 /* Initiate the authentication exchange and read the challenge, which arrives
 in base 64. */
 
-if (smtp_write_command(outblock, FALSE, "AUTH %s\r\n", ablock->public_name) < 0)
+if (smtp_write_command(sx, SCMD_FLUSH, "AUTH %s\r\n", ablock->public_name) < 0)
   return FAIL_SEND;
-if (smtp_read_response(inblock, (uschar *)buffer, buffsize, '3', timeout) < 0)
+if (!smtp_read_response(sx, buffer, buffsize, '3', timeout))
   return FAIL;
 
 if (b64decode(buffer + 4, &challenge) < 0)
@@ -299,26 +311,22 @@ compute_cram_md5(secret, challenge, digest);
 /* Create the response from the user name plus the CRAM-MD5 digest */
 
 string_format(big_buffer, big_buffer_size - 36, "%s", name);
-p = big_buffer;
-while (*p != 0) p++;
+for (p = big_buffer; *p; ) p++;
 *p++ = ' ';
 
 for (i = 0; i < 16; i++)
-  {
-  sprintf(CS p, "%02x", digest[i]);
-  p += 2;
-  }
+  p += sprintf(CS p, "%02x", digest[i]);
 
 /* Send the response, in base 64, and check the result. The response is
 in big_buffer, but b64encode() returns its result in working store,
 so calling smtp_write_command(), which uses big_buffer, is OK. */
 
 buffer[0] = 0;
-if (smtp_write_command(outblock, FALSE, "%s\r\n", b64encode(big_buffer,
+if (smtp_write_command(sx, SCMD_FLUSH, "%s\r\n", b64encode(big_buffer,
   p - big_buffer)) < 0) return FAIL_SEND;
 
-return smtp_read_response(inblock, (uschar *)buffer, buffsize, '2', timeout)?
-  OK : FAIL;
+return smtp_read_response(sx, US buffer, buffsize, '2', timeout)
+  ? OK : FAIL;
 }
 #endif  /* STAND_ALONE */
 
@@ -348,4 +356,5 @@ return 0;
 
 #endif
 
+#endif	/*!MACRO_PREDEF*/
 /* End of cram_md5.c */

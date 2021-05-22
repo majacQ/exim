@@ -1,15 +1,9 @@
 # Exim test configuration 4000
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
-primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
+.include DIR/aux-var/std_conf_prefix
+
 log_selector = +subject
-tls_advertise_hosts =
+primary_hostname = myhost.test.ex
 
 
 # ----- Main settings -----
@@ -23,6 +17,10 @@ acl_smtp_mime = check_mime
 begin acl
 
 check_mime:
+.ifdef BAD
+  deny	   message =	this is a deny from the mime acl
+.endif
+
   warn     decode  = default
            add_header = X-$mime_part_count-content-type: $mime_content_type\n\
                         X-$mime_part_count-filename: $mime_filename\n\

@@ -1,3 +1,6 @@
+/* Copyright (c) University of Cambridge 1995 - 2018 */
+/* See the file NOTICE for conditions of use and distribution. */
+
 #include "exim.h"
 
 #ifdef SUPPORT_I18N
@@ -8,10 +11,9 @@ imap_utf7_encode(uschar *string, const uschar *charset, uschar sep,
 {
 static uschar encode_base64[64] =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+,";
-int ptr = 0;
-int size = 0;
 size_t slen;
-uschar *sptr, *yield = NULL;
+uschar *sptr;
+gstring * yield = NULL;
 int i = 0, j;	/* compiler quietening */
 uschar c = 0;	/* compiler quietening */
 BOOL base64mode = FALSE;
@@ -165,13 +167,12 @@ while (slen > 0)
     else
       {
       *error = string_sprintf("imapfolder: illegal character '%c'", s[1]);
-      if (yield) store_reset(yield);
       return NULL;
       }
 
     if (outptr > outbuf + sizeof(outbuf) - 3)
       {
-      yield = string_cat(yield, &size, &ptr, outbuf, outptr - outbuf);
+      yield = string_catn(yield, outbuf, outptr - outbuf);
       outptr = outbuf;
       }
 
@@ -197,12 +198,12 @@ if (base64mode)
 iconv_close(icd);
 #endif
 
-yield = string_cat(yield, &size, &ptr, outbuf, outptr - outbuf);
-if (yield[ptr-1] == '.')
-  ptr--;
-yield[ptr] = '\0';
+yield = string_catn(yield, outbuf, outptr - outbuf);
 
-return yield;
+if (yield->s[yield->ptr-1] == '.')
+  yield->ptr--;
+
+return string_from_gstring(yield);
 }
 
 #endif	/* whole file */

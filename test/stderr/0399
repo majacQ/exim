@@ -3,9 +3,6 @@ changed uid/gid: forcing real = effective
   uid=uuuu gid=CALLER_GID pid=pppp
 configuration file is TESTSUITE/test-config
 admin user
-DSN: r1 propagating DSN
-DSN: r2 propagating DSN
-DSN: r3 propagating DSN
 originator: uid=CALLER_UID gid=CALLER_GID login=CALLER name=CALLER_NAME
 sender address = CALLER@test.ex
 Address testing: uid=uuuu gid=EXIM_GID euid=uuuu egid=EXIM_GID
@@ -43,4 +40,4 @@ parse_forward_list:
 r3 router declined for x@y
 failed to expand "more" in r3 router: unknown variable name "unknown_variable"
 search_tidyup called
->>>>>>>>>>>>>>>> Exim pid=pppp terminating with rc=1 >>>>>>>>>>>>>>>>
+>>>>>>>>>>>>>>>> Exim pid=pppp (main) terminating with rc=1 >>>>>>>>>>>>>>>>

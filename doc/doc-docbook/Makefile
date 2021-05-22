@@ -11,7 +11,7 @@ notarget:;    @echo "** You must specify a target, in the form x.y, where x is '
 # Generate all the documentation files...
 #
 ## removed info files as I cannot generate them -  spec.info filter.info
-## removed html files as superceded by new website code
+## removed html files as superseded by new website code
 everything:		spec.pdf 	spec.ps  	spec.txt \
 				filter.pdf 	filter.ps filter.txt \
 				exim.8
@@ -23,7 +23,7 @@ exim.8:       spec.xml x2man
 
 ########################################################################
 
-# .PHONY doesn't work here, because it forces a rebuild of all dependend
+# .PHONY doesn't work here, because it forces a rebuild of all dependent
 # targets, always. It sets the internal timestamp of its target to
 # now().
 # But it may happen that local_params does not change
@@ -33,7 +33,7 @@ local_params: FORCE GenLocalParams
 	trap 'rm -f $$tmp' EXIT; \
 	tmp=`mktemp`; \
 	./GenLocalParams $$tmp; \
-	cmp -s $@ $$tmp || mv $$tmp $@
+	cmp -s $@ $$tmp || mv -f $$tmp $@
 
 ############################### FILTER #################################
 
@@ -96,6 +96,7 @@ filter.txt:   filter-txt.xml Tidytxt MyStyle-txt-html.xsl MyStyle-html.xsl \
                 MyStyle.xsl
 	      /bin/rm -rf filter-txt.html
 	      xmlto -x MyStyle-txt-html.xsl html-nochunks filter-txt.xml
+	      command -v w3m >/dev/null
 	      LC_ALL=C w3m -dump filter-txt.html | ./Tidytxt >filter.txt
 	      ./SanityTestText filter.txt
 
@@ -116,7 +117,7 @@ filter.info:  filter-info.xml
 ################################ SPEC ##################################
 
 spec.xml:      spec.xfpt local_params
-	       xfpt $<
+	       xfpt spec.xfpt
 
 spec-pr.xml:   spec.xml Pre-xml
 	       ./Pre-xml -optbreak <spec.xml >spec-pr.xml
@@ -175,16 +176,18 @@ spec.pdf: sdop-spec.pdf
 
 spec-txt.html:     spec-txt.xml \
 		MyStyle-txt-html.xsl MyStyle-html.xsl MyStyle.xsl
-	      xmlto -x MyStyle-txt-html.xsl html-nochunks $<
+	      xmlto -x MyStyle-txt-html.xsl html-nochunks spec-txt.xml
 
 spec.utf8:	spec-txt.html Tidytxt
 		@grep -iq 'LC_CTYPE=.*utf-\?8' local_params || { \
 			echo 'your current locale does not support UTF-8' >&2; \
 			false; }
-		w3m -dump $< | ./Tidytxt -utf8 >$@
+		command -v w3m >/dev/null
+		w3m -dump spec-txt.html | ./Tidytxt -utf8 >$@
 
 spec.txt: spec-txt.html Tidytxt
-	      LC_ALL=C w3m -dump $< | ./Tidytxt >$@
+	      command -v w3m >/dev/null
+	      LC_ALL=C w3m -dump spec-txt.html | ./Tidytxt >$@
 	      ./SanityTestText spec.txt
 
 
@@ -270,6 +273,7 @@ test.txt:     test-txt.xml Tidytxt MyStyle-txt-html.xsl MyStyle-html.xsl \
                 MyStyle.xsl
 	      /bin/rm -rf test-txt.html
 	      xmlto -x MyStyle-txt-html.xsl html-nochunks test-txt.xml
+	      command -v w3m >/dev/null
 	      w3m -dump test-txt.html | Tidytxt >test.txt
 
 # I have not found a way of making docbook2texi write its output anywhere

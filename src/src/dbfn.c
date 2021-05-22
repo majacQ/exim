@@ -2,7 +2,7 @@
 *     Exim - an Internet mail transport agent    *
 *************************************************/
 
-/* Copyright (c) University of Cambridge 1995 - 2015 */
+/* Copyright (c) University of Cambridge 1995 - 2018 */
 /* See the file NOTICE for conditions of use and distribution. */
 
 
@@ -91,7 +91,9 @@ int rc, save_errno;
 BOOL read_only = flags == O_RDONLY;
 BOOL created = FALSE;
 flock_t lock_data;
-uschar buffer[256];
+uschar dirname[256], filename[256];
+
+DEBUG(D_hints_lookup) acl_level++;
 
 /* The first thing to do is to open a separate file on which to lock. This
 ensures that Exim has exclusive use of the database before it even tries to
@@ -106,20 +108,22 @@ make the directory as well, just in case. We won't be doing this many times
 unnecessarily, because usually the lock file will be there. If the directory
 exists, there is no error. */
 
-sprintf(CS buffer, "%s/db/%s.lockfile", spool_directory, name);
+snprintf(CS dirname, sizeof(dirname), "%s/db", spool_directory);
+snprintf(CS filename, sizeof(filename), "%s/%s.lockfile", dirname, name);
 
-if ((dbblock->lockfd = Uopen(buffer, O_RDWR, EXIMDB_LOCKFILE_MODE)) < 0)
+if ((dbblock->lockfd = Uopen(filename, O_RDWR, EXIMDB_LOCKFILE_MODE)) < 0)
   {
   created = TRUE;
   (void)directory_make(spool_directory, US"db", EXIMDB_DIRECTORY_MODE, TRUE);
-  dbblock->lockfd = Uopen(buffer, O_RDWR|O_CREAT, EXIMDB_LOCKFILE_MODE);
+  dbblock->lockfd = Uopen(filename, O_RDWR|O_CREAT, EXIMDB_LOCKFILE_MODE);
   }
 
 if (dbblock->lockfd < 0)
   {
   log_write(0, LOG_MAIN, "%s",
-    string_open_failed(errno, "database lock file %s", buffer));
+    string_open_failed(errno, "database lock file %s", filename));
   errno = 0;      /* Indicates locking failure */
+  DEBUG(D_hints_lookup) acl_level--;
   return NULL;
   }
 
@@ -130,25 +134,26 @@ lock_data.l_type = read_only? F_RDLCK : F_WRLCK;
 lock_data.l_whence = lock_data.l_start = lock_data.l_len = 0;
 
 DEBUG(D_hints_lookup|D_retry|D_route|D_deliver)
-  debug_printf("locking %s\n", buffer);
+  debug_printf_indent("locking %s\n", filename);
 
 sigalrm_seen = FALSE;
-alarm(EXIMDB_LOCK_TIMEOUT);
+ALARM(EXIMDB_LOCK_TIMEOUT);
 rc = fcntl(dbblock->lockfd, F_SETLKW, &lock_data);
-alarm(0);
+ALARM_CLR(0);
 
 if (sigalrm_seen) errno = ETIMEDOUT;
 if (rc < 0)
   {
   log_write(0, LOG_MAIN|LOG_PANIC, "Failed to get %s lock for %s: %s",
-    read_only? "read" : "write", buffer,
-    (errno == ETIMEDOUT)? "timed out" : strerror(errno));
+    read_only ? "read" : "write", filename,
+    errno == ETIMEDOUT ? "timed out" : strerror(errno));
   (void)close(dbblock->lockfd);
   errno = 0;       /* Indicates locking failure */
+  DEBUG(D_hints_lookup) acl_level--;
   return NULL;
   }
 
-DEBUG(D_hints_lookup) debug_printf("locked %s\n", buffer);
+DEBUG(D_hints_lookup) debug_printf_indent("locked  %s\n", filename);
 
 /* At this point we have an opened and locked separate lock file, that is,
 exclusive access to the database, so we can go ahead and open it. If we are
@@ -159,18 +164,15 @@ databases - often this is caused by non-matching db.h and the library. To make
 it easy to pin this down, there are now debug statements on either side of the
 open call. */
 
-sprintf(CS buffer, "%s/db/%s", spool_directory, name);
-DEBUG(D_hints_lookup) debug_printf("EXIM_DBOPEN(%s)\n", buffer);
-EXIM_DBOPEN(buffer, flags, EXIMDB_MODE, &(dbblock->dbptr));
-DEBUG(D_hints_lookup) debug_printf("returned from EXIM_DBOPEN\n");
+snprintf(CS filename, sizeof(filename), "%s/%s", dirname, name);
+EXIM_DBOPEN(filename, dirname, flags, EXIMDB_MODE, &(dbblock->dbptr));
 
-if (dbblock->dbptr == NULL && errno == ENOENT && flags == O_RDWR)
+if (!dbblock->dbptr && errno == ENOENT && flags == O_RDWR)
   {
   DEBUG(D_hints_lookup)
-    debug_printf("%s appears not to exist: trying to create\n", buffer);
+    debug_printf_indent("%s appears not to exist: trying to create\n", filename);
   created = TRUE;
-  EXIM_DBOPEN(buffer, flags|O_CREAT, EXIMDB_MODE, &(dbblock->dbptr));
-  DEBUG(D_hints_lookup) debug_printf("returned from EXIM_DBOPEN\n");
+  EXIM_DBOPEN(filename, dirname, flags|O_CREAT, EXIMDB_MODE, &(dbblock->dbptr));
   }
 
 save_errno = errno;
@@ -193,54 +195,53 @@ if (created && geteuid() == root_uid)
   {
   DIR *dd;
   struct dirent *ent;
-  uschar *lastname = Ustrrchr(buffer, '/') + 1;
+  uschar *lastname = Ustrrchr(filename, '/') + 1;
   int namelen = Ustrlen(name);
 
   *lastname = 0;
-  dd = opendir(CS buffer);
+  dd = opendir(CS filename);
 
-  while ((ent = readdir(dd)) != NULL)
-    {
+  while ((ent = readdir(dd)))
     if (Ustrncmp(ent->d_name, name, namelen) == 0)
       {
       struct stat statbuf;
       Ustrcpy(lastname, ent->d_name);
-      if (Ustat(buffer, &statbuf) >= 0 && statbuf.st_uid != exim_uid)
+      if (Ustat(filename, &statbuf) >= 0 && statbuf.st_uid != exim_uid)
         {
-        DEBUG(D_hints_lookup) debug_printf("ensuring %s is owned by exim\n", buffer);
-        if (Uchown(buffer, exim_uid, exim_gid))
-          DEBUG(D_hints_lookup) debug_printf("failed setting %s to owned by exim\n", buffer);
+        DEBUG(D_hints_lookup) debug_printf_indent("ensuring %s is owned by exim\n", filename);
+        if (Uchown(filename, exim_uid, exim_gid))
+          DEBUG(D_hints_lookup) debug_printf_indent("failed setting %s to owned by exim\n", filename);
         }
       }
-    }
 
   closedir(dd);
   }
 
 /* If the open has failed, return NULL, leaving errno set. If lof is TRUE,
-log the event - also for debugging - but not if the file just doesn't exist. */
+log the event - also for debugging - but debug only if the file just doesn't
+exist. */
 
-if (dbblock->dbptr == NULL)
+if (!dbblock->dbptr)
   {
-  if (save_errno != ENOENT)
-    {
-    if (lof)
-      log_write(0, LOG_MAIN, "%s", string_open_failed(save_errno, "DB file %s",
-        buffer));
-    else
-      DEBUG(D_hints_lookup)
-        debug_printf("%s", CS string_open_failed(save_errno, "DB file %s\n",
-          buffer));
-    }
+  if (lof && save_errno != ENOENT)
+    log_write(0, LOG_MAIN, "%s", string_open_failed(save_errno, "DB file %s",
+        filename));
+  else
+    DEBUG(D_hints_lookup)
+      debug_printf_indent("%s\n", CS string_open_failed(save_errno, "DB file %s",
+          filename));
   (void)close(dbblock->lockfd);
   errno = save_errno;
+  DEBUG(D_hints_lookup) acl_level--;
   return NULL;
   }
 
 DEBUG(D_hints_lookup)
-  debug_printf("opened hints database %s: flags=%s\n", buffer,
-    (flags == O_RDONLY)? "O_RDONLY" : (flags == O_RDWR)? "O_RDWR" :
-    (flags == (O_RDWR|O_CREAT))? "O_RDWR|O_CREAT" : "??");
+  debug_printf_indent("opened hints database %s: flags=%s\n", filename,
+    flags == O_RDONLY ? "O_RDONLY"
+    : flags == O_RDWR ? "O_RDWR"
+    : flags == (O_RDWR|O_CREAT) ? "O_RDWR|O_CREAT"
+    : "??");
 
 /* Pass back the block containing the opened database handle and the open fd
 for the lock. */
@@ -267,6 +268,8 @@ dbfn_close(open_db *dbblock)
 {
 EXIM_DBCLOSE(dbblock->dbptr);
 (void)close(dbblock->lockfd);
+DEBUG(D_hints_lookup)
+  { debug_printf_indent("closed hints database and lockfile\n"); acl_level--; }
 }
 
 
@@ -303,7 +306,7 @@ uschar * key_copy = store_get(klen);
 
 memcpy(key_copy, key, klen);
 
-DEBUG(D_hints_lookup) debug_printf("dbfn_read: key=%s\n", key);
+DEBUG(D_hints_lookup) debug_printf_indent("dbfn_read: key=%s\n", key);
 
 EXIM_DATUM_INIT(key_datum);         /* Some DBM libraries require the datum */
 EXIM_DATUM_INIT(result_datum);      /* to be cleared before use. */
@@ -348,7 +351,7 @@ uschar * key_copy = store_get(klen);
 memcpy(key_copy, key, klen);
 gptr->time_stamp = time(NULL);
 
-DEBUG(D_hints_lookup) debug_printf("dbfn_write: key=%s\n", key);
+DEBUG(D_hints_lookup) debug_printf_indent("dbfn_write: key=%s\n", key);
 
 EXIM_DATUM_INIT(key_datum);         /* Some DBM libraries require the datum */
 EXIM_DATUM_INIT(value_datum);       /* to be cleared before use. */
@@ -378,6 +381,8 @@ dbfn_delete(open_db *dbblock, const uschar *key)
 {
 int klen = Ustrlen(key) + 1;
 uschar * key_copy = store_get(klen);
+
+DEBUG(D_hints_lookup) debug_printf_indent("dbfn_delete: key=%s\n", key);
 
 memcpy(key_copy, key, klen);
 EXIM_DATUM key_datum;
@@ -411,6 +416,8 @@ dbfn_scan(open_db *dbblock, BOOL start, EXIM_CURSOR **cursor)
 EXIM_DATUM key_datum, value_datum;
 uschar *yield;
 value_datum = value_datum;    /* dummy; not all db libraries use this */
+
+DEBUG(D_hints_lookup) debug_printf_indent("dbfn_scan\n");
 
 /* Some dbm require an initialization */
 
@@ -532,7 +539,7 @@ while (Ufgets(buffer, 256, stdin) != NULL)
     odb = dbfn_open(s, O_RDWR, dbblock + i, TRUE);
     stop = clock();
 
-    if (odb != NULL)
+    if (odb)
       {
       current = i;
       printf("opened %d\n", current);

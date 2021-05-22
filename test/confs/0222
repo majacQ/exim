@@ -1,14 +1,8 @@
 # Exim test configuration 0222
 
-exim_path = EXIM_PATH
-keep_environment =
-host_lookup_order = bydns
+.include DIR/aux-var/std_conf_prefix
+
 primary_hostname = myhost.test.ex
-spool_directory = DIR/spool
-log_file_path = DIR/spool/log/%slog
-gecos_pattern = ""
-gecos_name = CALLER_NAME
-tls_advertise_hosts =
 
 # ----- Main settings -----
 
@@ -45,6 +39,7 @@ autoreply:
   driver = autoreply
   once = DIR/test-once
   once_file_size = 30
+  once_repeat = 4s
   text = "Auto reply message"
   to = $sender_address
   user = CALLER
